@@ -1,0 +1,14 @@
+Title: What My MT5 Bot Predicted for the Nasdaq Yesterday — Locked Lines + 80% Bands (Oct 8, 2026)
+
+Description:
+A no-hindsight replay of Thursday October 8, 2026 on Nasdaq e-mini (US100) as the MT5 bot draws it. Green and red lines lock at 9:30 for the regular session and at 4 PM for the after-market, and never move. Every 5 minutes the bot projects the next hour: a blue 80% band (the 10th to 90th percentile of past moves, scaled by volatility) and dashed candles showing the typical candle size. Nothing from this day was used to train it.
+
+  9:30 HIGH: locked 31,371.50, actual 31,369.75 (miss 2 pts)
+  9:30 LOW: locked 31,108.62, actual 30,792.00 (miss 317 pts)
+  4 PM HIGH: locked 31,095.96, actual 31,266.50 (miss 171 pts)
+  4 PM LOW: locked 30,866.66, actual 30,953.00 (miss 86 pts)
+  80% band held 219/273 times (80%) that day; 81% on earlier test days.
+
+Educational content, not financial advice. No prediction is 100% certain.
+
+#nasdaq #us100 #mt5 #daytrading #trading #futures #ai

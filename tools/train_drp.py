@@ -34,7 +34,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from ai import short_model as SM, fixed_model as FM, session_model as SS  # noqa: E402
+from ai import short_model as SM, fixed_model as FM, session_model as SS, band_model as BM  # noqa: E402
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 # Yahoo symbol, Google Finance quote id, session (NY minutes), round-trip cost in price units
@@ -455,6 +455,9 @@ def update_sources(res, stamp):
                           ("SEv", round(sm["hold"]["ev"], 3)), ("SEdge", 1.0 if sm["edge"] else 0.0)):
             pine.append(f"t{tag}{name} = {float(val)}")
             mql.append(f"const double T_{key}_{name.upper()} = {float(val)};")
+        b_rth, b_off, b_shape = BM.flat(res[key]["band"])
+        for name, vals in (("BandRth", b_rth), ("BandOff", b_off), ("Shape", b_shape)):
+            mql.append(f"double T_{key}_{name.upper()}[{len(vals)}] = {{{', '.join(str(x) for x in vals)}}};")
         lk = res[key]["locked"]
         arrays = [("DayUp", lk["day"]["up"]), ("DayDn", lk["day"]["dn"])]
         if "rth" in lk:
@@ -619,6 +622,10 @@ def main():
         live, lev = train_live(h1, daily, lines, mk)
         print(f"   live lines (holdout {lev['days']} days, miss in ATRs high/low/build-up): at open {fmt3(lev['open'])}, "
               f"session start {fmt3(lev['session'])}, all bars {fmt3(lev['all'])}; old fixed lines {lev['fixed'][0]:.3f}/{lev['fixed'][1]:.3f}")
+        m5 = yahoo(mk["yahoo"], "60d", "5m")
+        band = BM.calibrate(m5[m5.v > 0] if (m5.v > 0).mean() > 0.5 else m5)
+        print(f"   80% band (5-minute bars): price 1 hour later landed inside it {band['test_cover']:.0%} "
+              f"of the time on {band['test_days']} test days")
         locked = train_locked(key, daily)
         ev = locked["day_eval"]
         print(f"   locked full-day lines (10y): miss high {ev['before']['high']:.3f} -> {ev['after']['high']:.3f} ATR, "
@@ -629,7 +636,7 @@ def main():
               f"EV {short['hold']['ev']:+.3f} ATR -> edge={short['edge']}")
         sig = train_signals(h1, daily, lines, mk)
         print(f"   signals: best {sig['best']} train {sig['train']} holdout {sig['hold']} edge={sig['edge']} -> preset {sig['params']}")
-        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev, "short": short, "locked": locked}
+        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev, "short": short, "locked": locked, "band": band}
     if args.no_write:
         return
     (ROOT / "presets").mkdir(exist_ok=True)

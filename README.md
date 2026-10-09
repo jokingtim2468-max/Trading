@@ -127,3 +127,13 @@ Before/after videos on held-out days: `python tools/fixed_video.py --session day
 ## Fine-tune your own Llama (Unsloth)
 
 `ai/finetune/` builds a chat dataset from ~10 years of headlines (labelled with what Nasdaq and gold really did), locked-line snapshots with the real highs and lows, and Q&A about the tools. It then fine-tunes Llama with Unsloth and exports it to Ollama as `drp-llama`. Step-by-step instructions and the RTX 4060 settings are in [`ai/finetune/TRAINING.md`](ai/finetune/TRAINING.md).
+
+## Short-term projection: 80% band and projected candles (MT5)
+
+Every bar the EA projects the next hour (12 five-minute bars):
+
+- **Blue 80% band:** the 10th to 90th percentile of past 1–12 bar moves, measured in 5-minute ATRs, separately for the regular session and off-hours. This standard volatility-cone method widens with volatility and with the square root of time. On unseen test days the price one hour later landed inside it 81–82% of the time, and 80% (219 of 273) on Oct 8.
+- **Dashed projected candles:** the typical body and wick size for that hour of the day, placed on the median path. The direction of each candle isn't known. Their colour only shows the price model's lean, which tests at about 52%.
+
+Replay video for any recent day: `python tools/bot_video.py --date 2026-10-08`.
+
