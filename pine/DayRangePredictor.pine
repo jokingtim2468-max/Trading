@@ -311,8 +311,6 @@ lockDot(float[] c, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13) =>
          array.get(c, 10) * f10 + array.get(c, 11) * f11 + array.get(c, 12) * f12 + array.get(c, 13) * f13
     math.max(0.0, z)
 
-dayUpC = isGold ? tGcDayUp : tNqDayUp
-dayDnC = isGold ? tGcDayDn : tNqDayDn
 wantDay = lockMode == "Full day (6 PM-5 PM)" or lockMode == "All" or (lockMode == "Auto" and isGold)
 wantSes = not isGold and (lockMode == "Regular + after-market" or lockMode == "All" or lockMode == "Auto")
 nyHM = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
@@ -338,8 +336,8 @@ lockDraw(t1, t2, hi, lo, name) =>
 if timeframe.isintraday and not na(kA)
     // full day: at the first bar of the CME day, from the chart's own open (roll-safe)
     if wantDay and newDay
-        u = lockDot(dayUpC, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
-        v = lockDot(dayDnC, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
+        u = isGold ? lockDot(tGcDayUp, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13) : lockDot(tNqDayUp, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
+        v = isGold ? lockDot(tGcDayDn, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13) : lockDot(tNqDayDn, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
         lkHi := open + u * kA
         lkLo := open - v * kA
         lkName := "DAY"
