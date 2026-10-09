@@ -12,8 +12,8 @@ $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'DRP Trading'
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
-function Py { if (Get-Command py -ErrorAction SilentlyContinue) { 'py' } else { 'python' } }
-$py = Py
+# the Python launcher 'py' is preferred; -CommandType Application so nothing else named py can match
+$py = if (Get-Command py -CommandType Application -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
 $state = Join-Path $PSScriptRoot '.drp_state'
 New-Item -ItemType Directory -Force $state | Out-Null
 
@@ -23,7 +23,8 @@ Say '== DRP Trading ==' 'Cyan'
 $before = (git rev-parse HEAD) 2>$null
 $branch = (git rev-parse --abbrev-ref HEAD) 2>$null
 git fetch --quiet origin $branch 2>$null
-if ($LASTEXITCODE -eq 0) {
+if ($LASTEXITCODE -eq 0 -and $before -ne (git rev-parse "origin/$branch")) {
+  # only when there's something new: keep local edits (e.g. your own retrain) in git stash, then update
   if (git status --porcelain --untracked-files=no) {
     git stash push --quiet -m "DRP auto-update $(Get-Date -Format s)" | Out-Null
     Say 'Local changes were saved in git stash before updating.' 'Yellow'
@@ -38,8 +39,8 @@ if ($LASTEXITCODE -eq 0) {
       & $PSCommandPath @PSBoundParameters
       exit
     }
-  } else { Say 'Already up to date.' }
-} else { Say 'Offline: skipping the update check.' 'Yellow' }
+  }
+} elseif ($LASTEXITCODE -eq 0) { Say 'Already up to date.' } else { Say 'Offline: skipping the update check.' 'Yellow' }
 
 # ---- 2. packages (only when requirements changed) --------------------------------------------------
 $reqHash = (Get-FileHash tools\requirements.txt, bridge\requirements.txt, package.json | ForEach-Object Hash) -join ''
@@ -48,8 +49,9 @@ if ($Force -or -not (Test-Path $reqFile) -or (Get-Content $reqFile) -ne $reqHash
   Say 'Installing Python packages...' 'Cyan'
   & $py -m pip install --quiet --upgrade pip
   & $py -m pip install --quiet -r tools\requirements.txt -r bridge\requirements.txt
+  $pipOk = $LASTEXITCODE -eq 0
   if (Get-Command npm -ErrorAction SilentlyContinue) { npm install --no-audit --no-fund --silent | Out-Null }
-  if ($LASTEXITCODE -eq 0) { Set-Content $reqFile $reqHash }
+  if ($pipOk) { Set-Content $reqFile $reqHash } else { Say 'Python packages failed to install; will retry next launch.' 'Red' }
 }
 
 # ---- 3. deploy + compile the EA into every MT5 terminal ------------------------------------------
@@ -62,7 +64,7 @@ function Deploy-EA {
     $origin = Join-Path $t.FullName 'origin.txt'
     if (-not (Test-Path $experts) -or -not (Test-Path $origin)) { continue }
     $install = (Get-Content $origin -Raw).Trim()
-    $editor = Join-Path $install 'metaeditor64.exe'
+    $editor = [IO.Path]::Combine($install, 'metaeditor64.exe')
     $dest = Join-Path $experts 'DayRangePredictor.mq5'
     Copy-Item $src $dest -Force
     $found++
@@ -112,7 +114,7 @@ Say 'MT5 bridge started (minimized).'
 if ($Charts) { Start-Process (Join-Path $PSScriptRoot 'start.bat') -WorkingDirectory $PSScriptRoot }
 
 $terminal = Get-ChildItem (Join-Path $env:APPDATA 'MetaQuotes\Terminal') -Directory -ErrorAction SilentlyContinue |
-  ForEach-Object { $o = Join-Path $_.FullName 'origin.txt'; if (Test-Path $o) { Join-Path ((Get-Content $o -Raw).Trim()) 'terminal64.exe' } } |
+  ForEach-Object { $o = Join-Path $_.FullName 'origin.txt'; if (Test-Path $o) { [IO.Path]::Combine((Get-Content $o -Raw).Trim(), 'terminal64.exe') } } |
   Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($terminal -and -not (Get-Process terminal64 -ErrorAction SilentlyContinue)) { Start-Process $terminal; Say "Opened $terminal" }
 Say "`nReady. In MT5: Navigator > Expert Advisors > DayRangePredictor, drag it onto a US100 or XAUUSD M5 chart." 'Green'

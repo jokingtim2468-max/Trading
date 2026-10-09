@@ -11,6 +11,25 @@ A TradingView-style charting terminal for MetaTrader 5.
 - Drawing tools: trend line, horizontal/vertical line, rectangle, Fib retracement.
 - One-click BUY/SELL, positions with SL/TP lines, trade history, and journal.
 
+## Install on Windows (one command)
+
+Open **PowerShell** (no admin needed), paste this and press Enter:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/jokingtim2468-max/Trading/vibe-coded/gracious-mccarthy-72mdp8/install.ps1 | iex"
+```
+
+It installs anything missing (Git, Python, Node.js, Ollama), downloads the project to `%LOCALAPPDATA%\DRPTrading`, copies and compiles the EA into every MetaTrader 5 on the PC, pulls the local Llama model, and adds a **DRP Trading** shortcut to *your* Desktop and Start Menu. A "DRP Trading - Retrain" entry is also added to the Start Menu.
+
+Each time you open the **DRP Trading** shortcut, it:
+1. updates everything from GitHub, keeping your own edits in `git stash`,
+2. reinstalls packages only if they changed,
+3. recopies and recompiles the EA in MetaTrader 5, and shows any compile errors,
+4. starts Ollama, the AI service and the MT5 bridge minimized, then opens MetaTrader 5,
+5. retrains on the latest market data once a week.
+
+To skip the local AI, run `$env:DRP_NO_OLLAMA=1` before the install command, or start the launcher with `launch.ps1 -NoAI`. Add `-Charts` to also open the web charts app.
+
 ## Run
 
 ```bash
