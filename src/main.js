@@ -6,7 +6,7 @@ import { TIMEFRAMES, DEFAULT_FAVORITES } from './symbols.js';
 import { BUILTINS } from './indicators.js';
 import { compilePine } from './pine.js';
 import { MT5Client } from './data.js';
-import { SETTINGS_SCHEMA, loadSettings, saveSettings } from './settings.js';
+import { SETTINGS_SCHEMA, THEMES, loadSettings, saveSettings, applyThemeCss } from './settings.js';
 import { SAMPLE_SCRIPTS } from './samples.js';
 
 const $ = (s) => document.querySelector(s);
@@ -40,6 +40,7 @@ const chart = createChart($('#chart'), { autoSize: true });
 let mainSeries, volSeries, indSeries = [], mainMarkers, priceLines = [];
 
 function applyChartOptions() {
+  applyThemeCss(settings.theme);
   chart.applyOptions({
     layout: { background: { color: settings.background }, textColor: settings.textColor, panes: { separatorColor: '#2A2E39' } },
     grid: { vertLines: { color: settings.gridColor }, horzLines: { color: settings.gridColor } },
@@ -366,6 +367,7 @@ function openSettings(startTab) {
       } catch (e) { $('#mt5Status').textContent = `Failed: ${e.message}`; }
     };
   }, async () => {
+    if (draft.theme !== settings.theme) Object.assign(draft, THEMES[draft.theme].chart);
     settings = draft; saveSettings(settings);
     client.url = settings.bridgeUrl;
     applyChartOptions();

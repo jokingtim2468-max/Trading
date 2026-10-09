@@ -3,6 +3,7 @@
 // Events, Community, Signals) plus per-chart F8 Properties.
 export const SETTINGS_SCHEMA = {
   'Chart (TradingView)': {
+    theme: { label: 'Theme', type: 'select', options: ['TradingView Dark', 'Midnight Galaxy'], def: 'TradingView Dark' },
     chartType: { label: 'Chart type', type: 'select', options: ['Candles', 'Hollow candles', 'Bars', 'Line', 'Area', 'Baseline', 'Heikin Ashi'], def: 'Candles' },
     upColor: { label: 'Body up color', type: 'color', def: '#089981' },
     downColor: { label: 'Body down color', type: 'color', def: '#F23645' },
@@ -106,4 +107,29 @@ export function saveSettings(s) {
   const copy = { ...s };
   if (!copy.savePassword) copy.password = '';
   try { localStorage.setItem(KEY, JSON.stringify(copy)); } catch { /* ignore */ }
+}
+
+// App themes: UI chrome colors (CSS variables) plus the chart colors they
+// reset when picked. Candle up/down stay green/red for readability.
+export const THEMES = {
+  'TradingView Dark': {
+    css: { bg: '#131722', panel: '#1E222D', border: '#2A2E39', text: '#D1D4DC', muted: '#787B86', accent: '#2962FF', accentText: '#FFFFFF' },
+    chart: { background: '#131722', gridColor: '#1E222D', textColor: '#B2B5BE', upColor: '#089981', downColor: '#F23645' },
+  },
+  'Midnight Galaxy': {
+    css: { bg: '#1A1226', panel: '#2B1E3E', border: '#3A2D55', text: '#E6E6FA', muted: '#A490C2', accent: '#A490C2', accentText: '#1A1226' },
+    chart: { background: '#1A1226', gridColor: '#251A36', textColor: '#C9C0E0', upColor: '#26A69A', downColor: '#EF5350' },
+  },
+};
+
+export function applyThemeCss(name) {
+  const t = THEMES[name] || THEMES['TradingView Dark'];
+  const r = document.documentElement.style;
+  r.setProperty('--bg', t.css.bg);
+  r.setProperty('--panel', t.css.panel);
+  r.setProperty('--border', t.css.border);
+  r.setProperty('--text', t.css.text);
+  r.setProperty('--muted', t.css.muted);
+  r.setProperty('--accent', t.css.accent);
+  r.setProperty('--accent-text', t.css.accentText);
 }
