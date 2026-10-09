@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MT5 Charts</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <button id="symbolBtn" class="sym" title="Symbol search"></button>
+    <button id="favToggle" class="icon" title="Add to favorites">☆</button>
+    <div class="sep"></div>
+    <div id="tfBar"></div>
+    <select id="tfMore" title="More MT5 timeframes"></select>
+    <div class="sep"></div>
+    <select id="chartType" title="Chart type"></select>
+    <button id="indBtn">ƒx Indicators</button>
+    <button id="pineBtn">Pine Editor</button>
+    <button id="eaBtn">Expert Advisors</button>
+    <div class="grow"></div>
+    <span id="conn" class="conn off">Demo data</span>
+    <button id="sellBtn" class="sell">SELL</button>
+    <input id="lots" type="number" step="0.01" min="0.01" title="Volume (lots)" />
+    <button id="buyBtn" class="buy">BUY</button>
+    <button id="settingsBtn" class="icon" title="Settings">⚙</button>
+  </header>
+  <div id="main">
+    <nav id="drawbar">
+      <button data-tool="cursor" class="active" title="Cursor">↖</button>
+      <button data-tool="trend" title="Trend line">╱</button>
+      <button data-tool="hline" title="Horizontal line">─</button>
+      <button data-tool="vline" title="Vertical line">│</button>
+      <button data-tool="rect" title="Rectangle">▭</button>
+      <button data-tool="fib" title="Fib retracement">≡</button>
+      <button data-tool="clear" title="Remove all drawings">🗑</button>
+    </nav>
+    <section id="chartWrap">
+      <div id="legend"></div>
+      <div id="chart"></div>
+      <svg id="draw"></svg>
+      <div id="bottom" class="hidden">
+        <div class="tabs" id="bottomTabs">
+          <button data-tab="pine" class="active">Pine Editor</button>
+          <button data-tab="trade">Trade</button>
+          <button data-tab="history">History</button>
+          <button data-tab="journal">Journal</button>
+          <div class="grow"></div>
+          <button id="bottomClose" class="icon">✕</button>
+        </div>
+        <div class="pane" data-pane="pine">
+          <div class="row"><select id="pineList"></select><button id="pineNew">New</button><button id="pineSave">Save</button><button id="pineAdd" class="primary">Add to chart</button><button id="pineDel">Delete</button><label class="btn">Import .pine<input id="pineFile" type="file" accept=".pine,.txt" hidden></label></div>
+          <textarea id="pineCode" spellcheck="false"></textarea>
+          <div id="pineMsg"></div>
+        </div>
+        <div class="pane hidden" data-pane="trade"><table id="tradeTbl"></table></div>
+        <div class="pane hidden" data-pane="history"><table id="histTbl"></table></div>
+        <div class="pane hidden" data-pane="journal"><pre id="journal"></pre></div>
+      </div>
+    </section>
+    <aside id="side">
+      <div class="tabs" id="sideTabs">
+        <button data-tab="fav" class="active">★ Favorites</button>
+        <button data-tab="watch">Market Watch</button>
+        <button data-tab="ea">EAs</button>
+      </div>
+      <input id="sideSearch" placeholder="Search MT5 symbols" />
+      <div id="sideList"></div>
+    </aside>
+  </div>
+  <dialog id="dlg"><div id="dlgBody"></div></dialog>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
