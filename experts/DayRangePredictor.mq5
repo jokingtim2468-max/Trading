@@ -31,6 +31,9 @@ enum ENUM_DRP_SESSION
    DRP_SESSION_24H    = 4  // 24h (no session filter)
   };
 
+input group "Trained presets"
+input bool   InpUseTrained   = true;  // Use trained presets (US100 or gold picked by symbol)
+
 input group "Predicted day high / low"
 input int    InpLookbackDays = 250;   // Lookback days
 input int    InpAtrDays      = 14;    // Daily ATR length
@@ -94,6 +97,44 @@ bool     g_isGold = false;
 bool     g_scanReady = false;
 string   g_lastSignalText = "";
 
+
+// === TRAINED PRESETS START (rewritten by tools/train_drp.py, don't edit by hand)
+// trained 2026-10-09 on Yahoo Finance NQ=F / GC=F by tools/train_drp.py
+const int    T_NQ_LOOKBACK = 180, T_NQ_ATR = 20, T_NQ_SCORE = 5;
+const double T_NQ_INNER = 50.0, T_NQ_OUTER = 96.0, T_NQ_ZONE = 85.0, T_NQ_WICK = 40.0,
+             T_NQ_OB = 70.0, T_NQ_OS = 30.0, T_NQ_RR = 1.0;
+const int    T_GC_LOOKBACK = 375, T_GC_ATR = 20, T_GC_SCORE = 5;
+const double T_GC_INNER = 50.0, T_GC_OUTER = 95.5, T_GC_ZONE = 85.0, T_GC_WICK = 40.0,
+             T_GC_OB = 70.0, T_GC_OS = 30.0, T_GC_RR = 1.0;
+// === TRAINED PRESETS END ===
+
+// Effective settings: trained presets for this symbol, or the inputs when presets are off
+int    g_lookback, g_atrDays, g_minScore;
+double g_innerPct, g_outerPct, g_zonePct, g_wickPct, g_rsiOB, g_rsiOS, g_rr;
+
+void LoadSettings()
+  {
+   if(!InpUseTrained)
+     {
+      g_lookback = InpLookbackDays; g_atrDays = InpAtrDays; g_minScore = InpMinScore;
+      g_innerPct = InpInnerPct; g_outerPct = InpOuterPct; g_zonePct = InpZonePct;
+      g_wickPct = InpWickPct; g_rsiOB = InpRsiOB; g_rsiOS = InpRsiOS; g_rr = InpRR;
+      return;
+     }
+   if(g_isGold)
+     {
+      g_lookback = T_GC_LOOKBACK; g_atrDays = T_GC_ATR; g_minScore = T_GC_SCORE;
+      g_innerPct = T_GC_INNER; g_outerPct = T_GC_OUTER; g_zonePct = T_GC_ZONE;
+      g_wickPct = T_GC_WICK; g_rsiOB = T_GC_OB; g_rsiOS = T_GC_OS; g_rr = T_GC_RR;
+     }
+   else
+     {
+      g_lookback = T_NQ_LOOKBACK; g_atrDays = T_NQ_ATR; g_minScore = T_NQ_SCORE;
+      g_innerPct = T_NQ_INNER; g_outerPct = T_NQ_OUTER; g_zonePct = T_NQ_ZONE;
+      g_wickPct = T_NQ_WICK; g_rsiOB = T_NQ_OB; g_rsiOS = T_NQ_OS; g_rr = T_NQ_RR;
+     }
+  }
+
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -105,6 +146,7 @@ int OnInit()
    string s = _Symbol;
    StringToUpper(s);
    g_isGold = (StringFind(s, "XAU") >= 0 || StringFind(s, "GOLD") >= 0);
+   LoadSettings();
 
    g_rsiHandle = iRSI(_Symbol, _Period, InpRsiPeriod, PRICE_CLOSE);
    if(g_rsiHandle == INVALID_HANDLE)
@@ -228,11 +270,11 @@ int DayIndex(datetime t)
 //+------------------------------------------------------------------+
 bool BuildDaily()
   {
-   int want = InpLookbackDays + InpAtrDays + MathMax(InpStatsDays, MathMax(InpSignalDays, InpHistoryDays)) + 5;
+   int want = g_lookback + g_atrDays + MathMax(InpStatsDays, MathMax(InpSignalDays, InpHistoryDays)) + 5;
    MqlRates d[];
    ArraySetAsSeries(d, false);
    int n = CopyRates(_Symbol, PERIOD_D1, 0, want, d);
-   if(n < InpAtrDays + 60)
+   if(n < g_atrDays + 60)
      {
       Print("DayRangePredictor: waiting for daily history (", n, " days loaded).");
       return false;
@@ -251,12 +293,12 @@ bool BuildDaily()
       tr[i] = (i == 0) ? d[i].high - d[i].low
               : MathMax(d[i].high, d[i - 1].close) - MathMin(d[i].low, d[i - 1].close);
       g_atr[i] = 0.0;
-      if(i > InpAtrDays)
+      if(i > g_atrDays)
         {
          double s = 0.0;
-         for(int k = i - InpAtrDays; k < i; k++)
+         for(int k = i - g_atrDays; k < i; k++)
             s += tr[k];
-         g_atr[i] = s / InpAtrDays;
+         g_atr[i] = s / g_atrDays;
         }
       upR[i] = g_atr[i] > 0 ? (d[i].high - d[i].open) / g_atr[i] : EMPTY_VALUE;
       dnR[i] = g_atr[i] > 0 ? (d[i].open - d[i].low) / g_atr[i] : EMPTY_VALUE;
@@ -264,14 +306,14 @@ bool BuildDaily()
 
    // Walk-forward percentiles: day i uses only days before i
    double bufU[], bufD[];
-   ArrayResize(bufU, InpLookbackDays);
-   ArrayResize(bufD, InpLookbackDays);
-   int minHist = MathMin(InpLookbackDays, 100);
+   ArrayResize(bufU, g_lookback);
+   ArrayResize(bufD, g_lookback);
+   int minHist = MathMin(g_lookback, 100);
    for(int i = 0; i < n; i++)
      {
       g_valid[i] = false;
       int c = 0;
-      for(int k = i - 1; k >= 0 && c < InpLookbackDays; k--)
+      for(int k = i - 1; k >= 0 && c < g_lookback; k--)
         {
          if(upR[k] == EMPTY_VALUE)
             break;
@@ -281,12 +323,12 @@ bool BuildDaily()
         }
       if(c < minHist || g_atr[i] <= 0)
          continue;
-      g_upIn[i]  = Percentile(bufU, c, InpInnerPct);
-      g_upZn[i]  = Percentile(bufU, c, InpZonePct);
-      g_upOut[i] = Percentile(bufU, c, InpOuterPct);
-      g_dnIn[i]  = Percentile(bufD, c, InpInnerPct);
-      g_dnZn[i]  = Percentile(bufD, c, InpZonePct);
-      g_dnOut[i] = Percentile(bufD, c, InpOuterPct);
+      g_upIn[i]  = Percentile(bufU, c, g_innerPct);
+      g_upZn[i]  = Percentile(bufU, c, g_zonePct);
+      g_upOut[i] = Percentile(bufU, c, g_outerPct);
+      g_dnIn[i]  = Percentile(bufD, c, g_innerPct);
+      g_dnZn[i]  = Percentile(bufD, c, g_zonePct);
+      g_dnOut[i] = Percentile(bufD, c, g_outerPct);
       g_valid[i] = true;
      }
 
@@ -402,10 +444,10 @@ void DrawLevels()
       HLine(PFX + "lo" + id, t1, t2, loOut, InpColLow, STYLE_SOLID, 2);
       if(i == last)
         {
-         Text(PFX + "tho", t2, hiOut, "Max HIGH P" + DoubleToString(InpOuterPct, 0) + "  " + Px(hiOut), InpColHigh, ANCHOR_RIGHT_LOWER);
-         Text(PFX + "thi", t2, hiIn, "Likely HIGH P" + DoubleToString(InpInnerPct, 0) + "  " + Px(hiIn), InpColHigh, ANCHOR_RIGHT_LOWER);
-         Text(PFX + "tli", t2, loIn, "Likely LOW P" + DoubleToString(InpInnerPct, 0) + "  " + Px(loIn), InpColLow, ANCHOR_RIGHT_UPPER);
-         Text(PFX + "tlo", t2, loOut, "Max LOW P" + DoubleToString(InpOuterPct, 0) + "  " + Px(loOut), InpColLow, ANCHOR_RIGHT_UPPER);
+         Text(PFX + "tho", t2, hiOut, "Max HIGH P" + DoubleToString(g_outerPct, 0) + "  " + Px(hiOut), InpColHigh, ANCHOR_RIGHT_LOWER);
+         Text(PFX + "thi", t2, hiIn, "Likely HIGH P" + DoubleToString(g_innerPct, 0) + "  " + Px(hiIn), InpColHigh, ANCHOR_RIGHT_LOWER);
+         Text(PFX + "tli", t2, loIn, "Likely LOW P" + DoubleToString(g_innerPct, 0) + "  " + Px(loIn), InpColLow, ANCHOR_RIGHT_UPPER);
+         Text(PFX + "tlo", t2, loOut, "Max LOW P" + DoubleToString(g_outerPct, 0) + "  " + Px(loOut), InpColLow, ANCHOR_RIGHT_UPPER);
         }
      }
   }
@@ -477,7 +519,7 @@ datetime ScanSignals()
          bool hitSL = (tDir < 0) ? r[i].high >= tSL : r[i].low <= tSL;
          bool hitTP = (tDir < 0) ? r[i].low <= tTP : r[i].high >= tTP;
          if(hitSL)      { g_nLoss++; g_sumR -= 1.0; tDir = 0; }
-         else if(hitTP) { g_nWin++;  g_sumR += InpRR; tDir = 0; }
+         else if(hitTP) { g_nWin++;  g_sumR += g_rr; tDir = 0; }
         }
 
       if(i < 3 || !g_valid[di] || tDir != 0)
@@ -497,22 +539,22 @@ datetime ScanSignals()
 
       // SELL: fade the predicted high
       bool s1 = r[i].high >= hiZn - InpZoneTolAtr * atr;
-      bool s2 = r[i].close < r[i].open && (r[i].high - MathMax(r[i].open, r[i].close)) >= InpWickPct / 100.0 * rng && r[i].close < hiOut;
-      bool s3 = rMax >= InpRsiOB && rsi[i] < rsi[i - 1];
+      bool s2 = r[i].close < r[i].open && (r[i].high - MathMax(r[i].open, r[i].close)) >= g_wickPct / 100.0 * rng && r[i].close < hiOut;
+      bool s3 = rMax >= g_rsiOB && rsi[i] < rsi[i - 1];
       bool s4 = r[i].high >= extU;
       int  sScore = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0) + (s4 ? 1 : 0) + (sess ? 1 : 0);
 
       // BUY: fade the predicted low
       bool b1 = r[i].low <= loZn + InpZoneTolAtr * atr;
-      bool b2 = r[i].close > r[i].open && (MathMin(r[i].open, r[i].close) - r[i].low) >= InpWickPct / 100.0 * rng && r[i].close > loOut;
-      bool b3 = rMin <= InpRsiOS && rsi[i] > rsi[i - 1];
+      bool b2 = r[i].close > r[i].open && (MathMin(r[i].open, r[i].close) - r[i].low) >= g_wickPct / 100.0 * rng && r[i].close > loOut;
+      bool b3 = rMin <= g_rsiOS && rsi[i] > rsi[i - 1];
       bool b4 = r[i].low <= extL;
       int  bScore = (b1 ? 1 : 0) + (b2 ? 1 : 0) + (b3 ? 1 : 0) + (b4 ? 1 : 0) + (sess ? 1 : 0);
 
       int dir = 0, score = 0;
-      if(s1 && sScore >= InpMinScore && !(InpOnePerSide && soldToday))
+      if(s1 && sScore >= g_minScore && !(InpOnePerSide && soldToday))
         { dir = -1; score = sScore; }
-      else if(b1 && bScore >= InpMinScore && !(InpOnePerSide && boughtToday))
+      else if(b1 && bScore >= g_minScore && !(InpOnePerSide && boughtToday))
         { dir = 1; score = bScore; }
       if(dir == 0)
          continue;
@@ -521,13 +563,13 @@ datetime ScanSignals()
       if(dir < 0)
         {
          tSL = r[i].high + InpSlBufAtr * atr;
-         tTP = entry - InpRR * (tSL - entry);
+         tTP = entry - g_rr * (tSL - entry);
          soldToday = true;
         }
       else
         {
          tSL = r[i].low - InpSlBufAtr * atr;
-         tTP = entry + InpRR * (entry - tSL);
+         tTP = entry + g_rr * (entry - tSL);
          boughtToday = true;
         }
       tDir = dir;
@@ -571,10 +613,10 @@ void DrawPanel()
    if(i >= 0 && g_valid[i])
      {
       double a = g_atr[i];
-      PanelRow(1, "Max HIGH (P" + DoubleToString(InpOuterPct, 0) + ")", Px(g_open[i] + g_upOut[i] * a), InpColHigh);
-      PanelRow(2, "Likely HIGH (P" + DoubleToString(InpInnerPct, 0) + ")", Px(g_open[i] + g_upIn[i] * a), InpColHigh);
-      PanelRow(3, "Likely LOW (P" + DoubleToString(InpInnerPct, 0) + ")", Px(g_open[i] - g_dnIn[i] * a), InpColLow);
-      PanelRow(4, "Max LOW (P" + DoubleToString(InpOuterPct, 0) + ")", Px(g_open[i] - g_dnOut[i] * a), InpColLow);
+      PanelRow(1, "Max HIGH (P" + DoubleToString(g_outerPct, 0) + ")", Px(g_open[i] + g_upOut[i] * a), InpColHigh);
+      PanelRow(2, "Likely HIGH (P" + DoubleToString(g_innerPct, 0) + ")", Px(g_open[i] + g_upIn[i] * a), InpColHigh);
+      PanelRow(3, "Likely LOW (P" + DoubleToString(g_innerPct, 0) + ")", Px(g_open[i] - g_dnIn[i] * a), InpColLow);
+      PanelRow(4, "Max LOW (P" + DoubleToString(g_outerPct, 0) + ")", Px(g_open[i] - g_dnOut[i] * a), InpColLow);
      }
    else
       PanelRow(1, "Not enough daily history yet", "", InpColHigh);

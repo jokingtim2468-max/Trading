@@ -17,28 +17,31 @@
 indicator("Day Range Predictor - NQ / XAUUSD", shorttitle="DRP", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=200)
 
 // ---------- Inputs ----------
+grpT = "Trained presets"
+useTrained = input.bool(true, "Use trained presets (NQ or gold picked by symbol)", group=grpT, tooltip="Settings tuned on recent Yahoo Finance data by tools/train_drp.py. Turn off to use the values below.")
+
 grpL = "Predicted day high / low"
-lookback  = input.int(250, "Lookback days", minval=50, maxval=2000, group=grpL)
-atrLen    = input.int(14, "Daily ATR length", minval=5, maxval=100, group=grpL)
-pctInner  = input.float(50, "Likely line percentile", minval=10, maxval=90, group=grpL, tooltip="50 = the day's high/low reaches this line about half of all days.")
-pctOuter  = input.float(95, "Max line percentile", minval=60, maxval=99.5, step=0.5, group=grpL, tooltip="95 = the day's high stayed below this line about 95% of days in testing. Higher = more accurate but wider.")
+iLookback = input.int(250, "Lookback days", minval=50, maxval=2000, group=grpL)
+iAtrLen   = input.int(14, "Daily ATR length", minval=5, maxval=100, group=grpL)
+iPctInner = input.float(50, "Likely line percentile", minval=10, maxval=90, group=grpL, tooltip="50 = the day's high/low reaches this line about half of all days.")
+iPctOuter = input.float(95, "Max line percentile", minval=60, maxval=99.5, step=0.5, group=grpL, tooltip="95 = the day's high stayed below this line about 95% of days in testing. Higher = more accurate but wider.")
 statsDays = input.int(250, "Accuracy test days", minval=20, maxval=2000, group=grpL)
 histDays  = input.int(5, "Previous days to keep on chart", minval=0, maxval=60, group=grpL)
 
 grpS = "High-confidence signals"
 showSig   = input.bool(true, "Show signals", group=grpS)
-pctZone   = input.float(85, "Reversal zone starts at percentile", minval=50, maxval=99, group=grpS)
-minScore  = input.int(5, "Filters required (of 5)", minval=3, maxval=5, group=grpS, tooltip="5 = every filter must agree. Fewer = more signals, lower quality.")
+iPctZone  = input.float(85, "Reversal zone starts at percentile", minval=50, maxval=99, group=grpS)
+iMinScore = input.int(5, "Filters required (of 5)", minval=3, maxval=5, group=grpS, tooltip="5 = every filter must agree. Fewer = more signals, lower quality.")
 zoneTol   = input.float(0.10, "Zone tolerance (x daily ATR)", minval=0, step=0.01, group=grpS)
-wickPct   = input.float(40, "Min rejection wick (% of bar)", minval=0, maxval=100, group=grpS)
+iWickPct  = input.float(40, "Min rejection wick (% of bar)", minval=0, maxval=100, group=grpS)
 rsiLen    = input.int(14, "RSI length", group=grpS)
-rsiOB     = input.float(70, "RSI overbought", group=grpS)
-rsiOS     = input.float(30, "RSI oversold", group=grpS)
+iRsiOB    = input.float(70, "RSI overbought", group=grpS)
+iRsiOS    = input.float(30, "RSI oversold", group=grpS)
 vwapMult  = input.float(2.0, "VWAP band (std dev)", minval=0.5, step=0.1, group=grpS)
 sessMode  = input.string("Auto", "Session filter", options=["Auto", "Nasdaq cash 09:30-16:00 NY", "Gold London+NY 03:00-12:00 NY", "Custom", "24h"], group=grpS)
 customSess= input.session("0930-1600", "Custom session (New York time)", group=grpS)
 slBuf     = input.float(0.05, "Stop beyond signal bar (x daily ATR)", minval=0, step=0.01, group=grpS)
-rrTarget  = input.float(1.0, "Target (R multiple)", minval=0.25, step=0.25, group=grpS)
+iRrTarget = input.float(1.0, "Target (R multiple)", minval=0.25, step=0.25, group=grpS)
 onePerSide= input.bool(true, "Max one signal per side per day", group=grpS)
 
 grpC = "Colors"
@@ -49,6 +52,43 @@ colZoneHi = input.color(color.new(#F23645, 88), "Sell zone fill", group=grpC)
 colZoneLo = input.color(color.new(#089981, 88), "Buy zone fill", group=grpC)
 colPanel  = input.color(color.new(#131722, 10), "Panel background", group=grpC)
 colText   = input.color(#D1D4DC, "Panel text", group=grpC)
+
+// ---------- Trained presets ----------
+// === TRAINED PRESETS START (rewritten by tools/train_drp.py, don't edit by hand)
+// trained 2026-10-09 on Yahoo Finance NQ=F / GC=F by tools/train_drp.py
+tNqLookback = 180
+tNqAtr = 20
+tNqInner = 50.0
+tNqOuter = 96.0
+tNqZone = 85.0
+tNqScore = 5
+tNqWick = 40.0
+tNqOB = 70.0
+tNqOS = 30.0
+tNqRR = 1.0
+tGcLookback = 375
+tGcAtr = 20
+tGcInner = 50.0
+tGcOuter = 95.5
+tGcZone = 85.0
+tGcScore = 5
+tGcWick = 40.0
+tGcOB = 70.0
+tGcOS = 30.0
+tGcRR = 1.0
+// === TRAINED PRESETS END ===
+
+isGold = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD") or syminfo.root == "GC" or syminfo.root == "MGC"
+lookback = useTrained ? (isGold ? tGcLookback : tNqLookback) : iLookback
+atrLen   = useTrained ? (isGold ? tGcAtr : tNqAtr) : iAtrLen
+pctInner = useTrained ? (isGold ? tGcInner : tNqInner) : iPctInner
+pctOuter = useTrained ? (isGold ? tGcOuter : tNqOuter) : iPctOuter
+pctZone  = useTrained ? (isGold ? tGcZone : tNqZone) : iPctZone
+minScore = useTrained ? (isGold ? tGcScore : tNqScore) : iMinScore
+wickPct  = useTrained ? (isGold ? tGcWick : tNqWick) : iWickPct
+rsiOB    = useTrained ? (isGold ? tGcOB : tNqOB) : iRsiOB
+rsiOS    = useTrained ? (isGold ? tGcOS : tNqOS) : iRsiOS
+rrTarget = useTrained ? (isGold ? tGcRR : tNqRR) : iRrTarget
 
 // ---------- Daily model (runs on the daily timeframe) ----------
 dailyModel() =>
@@ -119,7 +159,6 @@ if newDay and haveLevels
         box.delete(array.shift(boxes))
 
 // ---------- Signal filters ----------
-isGold = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD") or syminfo.root == "GC" or syminfo.root == "MGC"
 sessStr = sessMode == "Nasdaq cash 09:30-16:00 NY" ? "0930-1600" : sessMode == "Gold London+NY 03:00-12:00 NY" ? "0300-1200" : sessMode == "Custom" ? customSess : sessMode == "24h" ? "0000-0000" : isGold ? "0300-1200" : "0930-1600"
 inSess = sessMode == "24h" or not na(time(timeframe.period, sessStr, "America/New_York"))
 

@@ -1,0 +1,375 @@
+"""Train the Day Range Predictor on recent market data.
+
+Pulls daily and hourly history from Yahoo Finance (NQ=F Nasdaq e-mini, GC=F gold),
+cross-checks the latest prices against Google Finance, then tunes:
+
+  * the predicted high/low lines (lookback days, ATR length, max-line percentile)
+  * the BUY/SELL signal filters (zone, filters required, wick, RSI, target)
+
+Every setting is chosen on older data and then scored on the most recent data it
+never saw (the holdout), so the numbers in the report are what the settings did
+on "unseen" days. Results are written to:
+
+  presets/DRP_US100.set, presets/DRP_XAUUSD.set   MT5 input presets
+  reports/training_report.md                     what was tested and how it scored
+  experts/DayRangePredictor.mq5, pine/DayRangePredictor.pine
+                                                 the TRAINED PRESETS block is rewritten
+
+Run:  python tools/train_drp.py            (Windows: py tools\\train_drp.py)
+Needs: pip install -r tools/requirements.txt
+"""
+
+import argparse
+import datetime as dt
+import itertools
+import json
+import re
+import ssl
+import sys
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parent.parent
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+# Yahoo symbol, Google Finance quote id, session (NY minutes), round-trip cost in price units
+MARKETS = {
+    "NQ": {"name": "Nasdaq e-mini / US100", "yahoo": "NQ=F", "google": "NQW00:CME_EMINIS",
+           "session": (9 * 60 + 30, 16 * 60), "cost": 2.0, "set": "DRP_US100.set"},
+    "GC": {"name": "Gold / XAUUSD", "yahoo": "GC=F", "google": "GCW00:COMEX",
+           "session": (3 * 60, 12 * 60), "cost": 0.40, "set": "DRP_XAUUSD.set"},
+}
+
+TARGET_HELD = 0.95          # each max line should hold on at least this share of days
+HOLDOUT_DAYS = 250          # most recent days kept unseen for the line test
+SIGNAL_HOLDOUT = 0.30       # most recent share of hourly bars kept unseen for signals
+MIN_TRAIN_TRADES = 15
+START = "// === TRAINED PRESETS START (rewritten by tools/train_drp.py, don't edit by hand)"
+END = "// === TRAINED PRESETS END ==="
+
+
+# ---------------------------------------------------------------- data
+def fetch(url):
+    ctx = ssl.create_default_context()
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+        return r.read().decode("utf-8", errors="ignore")
+
+
+def yahoo(symbol, rng, interval):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.request.quote(symbol)}?range={rng}&interval={interval}"
+    res = json.loads(fetch(url))["chart"]["result"][0]
+    q = res["indicators"]["quote"][0]
+    idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert("America/New_York")
+    df = pd.DataFrame({"o": q["open"], "h": q["high"], "l": q["low"], "c": q["close"], "v": q["volume"]}, index=idx)
+    return df.dropna(subset=["o", "h", "l", "c"])
+
+
+def google_quote(qid):
+    """Google Finance has no history download; read the latest settlement/open/high/low for a cross-check."""
+    try:
+        html = fetch(f"https://www.google.com/finance/quote/{qid}")
+    except Exception as e:  # network or layout change: the cross-check is optional
+        return {"error": str(e)}
+    out = {}
+    for k, v in re.findall(r'class="SwQK7">([^<]*)</div><div class="dO6ijd">([^<]*)', html):
+        num = re.sub(r"[^0-9.]", "", v)
+        if num and k not in out:
+            try:
+                out[k] = float(num)
+            except ValueError:
+                pass
+    return out
+
+
+# ---------------------------------------------------------------- lines
+def line_table(d, lookback, atr_len, pcts):
+    tr = np.maximum(d.h, d.c.shift()) - np.minimum(d.l, d.c.shift())
+    atr = tr.rolling(atr_len).mean().shift()
+    up, dn = (d.h - d.o) / atr, (d.o - d.l) / atr
+    out = pd.DataFrame({"o": d.o, "h": d.h, "l": d.l, "atr": atr})
+    minp = min(lookback, 100)
+    for p in pcts:
+        out[f"u{p}"] = up.rolling(lookback, min_periods=minp).quantile(p / 100, interpolation="linear").shift()
+        out[f"d{p}"] = dn.rolling(lookback, min_periods=minp).quantile(p / 100, interpolation="linear").shift()
+    return out
+
+
+def held_rates(t, p):
+    t = t.dropna(subset=[f"u{p}", f"d{p}", "atr"])
+    hi = t.h <= t.o + t[f"u{p}"] * t.atr
+    lo = t.l >= t.o - t[f"d{p}"] * t.atr
+    width = (t[f"u{p}"] + t[f"d{p}"]).mean()
+    return hi.mean(), lo.mean(), (hi & lo).mean(), width, len(t)
+
+
+def train_lines(daily):
+    pcts = [round(x, 1) for x in np.arange(90, 99.01, 0.5)]
+    train_end = len(daily) - HOLDOUT_DAYS
+    best = None
+    rows = []
+    for lb, al in itertools.product([60, 120, 180, 250, 375, 500], [5, 10, 14, 20]):
+        t = line_table(daily, lb, al, pcts)
+        tr = t.iloc[max(0, train_end - 750):train_end]       # ~3 years before the holdout
+        for p in pcts:
+            hi, lo, both, width, n = held_rates(tr, p)
+            if n < 200 or min(hi, lo) < TARGET_HELD:
+                continue
+            rows.append((lb, al, p, hi, lo, width))
+            if best is None or width < best[5]:
+                best = (lb, al, p, hi, lo, width)
+            break                                             # narrowest percentile that meets target
+    lb, al, p = best[:3]
+    t = line_table(daily, lb, al, [50, p])
+    hold = t.iloc[train_end:]
+    hi, lo, both, width, n = held_rates(hold, p)
+    base_t = line_table(daily, 250, 14, [95])
+    bhi, blo, bboth, bwidth, bn = held_rates(base_t.iloc[train_end:], 95)
+    return {
+        "lookback": lb, "atr": al, "outer": p, "inner": 50.0,
+        "train_hi": best[3], "train_lo": best[4], "train_width": best[5],
+        "hold_hi": hi, "hold_lo": lo, "hold_both": both, "hold_width": width, "hold_days": n,
+        "base_hi": bhi, "base_lo": blo, "base_both": bboth, "base_width": bwidth,
+        "candidates": len(rows),
+    }
+
+
+# ---------------------------------------------------------------- signals
+def rsi(c, n=14):
+    d = c.diff()
+    g = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    l_ = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    return 100 - 100 / (1 + g / l_)
+
+
+def prep_bars(h1, daily, lines, session, zone_pcts):
+    df = h1.copy()
+    df["day"] = (df.index + pd.Timedelta(hours=6)).date     # CME trade date (rolls at 18:00 New York)
+    df["rsi"] = rsi(df.c)
+    tp = (df.h + df.l + df.c) / 3
+    v = df.v.replace(0, np.nan).fillna(1)
+    cv, cpv, cp2 = v.groupby(df.day).cumsum(), (tp * v).groupby(df.day).cumsum(), (tp * tp * v).groupby(df.day).cumsum()
+    df["vw"] = cpv / cv
+    df["sd"] = np.sqrt((cp2 / cv - df.vw ** 2).clip(lower=0))
+    t = line_table(daily, lines["lookback"], lines["atr"], sorted(set(zone_pcts + [lines["outer"]])))
+    cols = ["atr"] + [c for c in t.columns if c[0] in "ud"]
+    df = df.join(t[["o"] + cols].rename(columns={"o": "do"}), on="day").dropna(subset=["atr", "do"])
+    mins = df.index.hour * 60 + df.index.minute
+    df["sess"] = (mins >= session[0]) & (mins < session[1])
+    df["rmax"] = df.rsi.rolling(3).max()
+    df["rmin"] = df.rsi.rolling(3).min()
+    df["rprev"] = df.rsi.shift()
+    return df
+
+
+def simulate(df, outer, zp, min_score, wick, ob, rr, cost, vk=2.0, tol=0.10, buf=0.05):
+    os_ = 100 - ob
+    o, h, l, c = df.o.values, df.h.values, df.l.values, df.c.values
+    r, rmax, rmin, rprev = df.rsi.values, df.rmax.values, df.rmin.values, df.rprev.values
+    vu, vl = (df.vw + vk * df.sd).values, (df.vw - vk * df.sd).values
+    do, atr, sess, day = df["do"].values, df.atr.values, df.sess.values, df.day.values
+    zh = do + df[f"u{zp}"].values * atr
+    zl = do - df[f"d{zp}"].values * atr
+    oh = do + df[f"u{outer}"].values * atr
+    ol = do - df[f"d{outer}"].values * atr
+    res = []
+    tdir, sl, tp_, risk = 0, 0.0, 0.0, 1.0
+    sold = bought = None
+    for i in range(3, len(c)):
+        if tdir:
+            hit_sl = h[i] >= sl if tdir < 0 else l[i] <= sl
+            hit_tp = l[i] <= tp_ if tdir < 0 else h[i] >= tp_
+            if hit_sl:
+                res.append(-1 - cost / risk); tdir = 0
+            elif hit_tp:
+                res.append(rr - cost / risk); tdir = 0
+            continue
+        rng = h[i] - l[i]
+        if rng <= 0 or np.isnan(zh[i]):
+            continue
+        s1 = h[i] >= zh[i] - tol * atr[i]
+        if s1 and sold != day[i]:
+            sc = 1 + (c[i] < o[i] and h[i] - max(o[i], c[i]) >= wick * rng and c[i] < oh[i]) \
+                + (rmax[i] >= ob and r[i] < rprev[i]) + (h[i] >= vu[i]) + bool(sess[i])
+            if sc >= min_score:
+                sl = h[i] + buf * atr[i]; risk = sl - c[i]; tp_ = c[i] - rr * risk
+                tdir, sold = -1, day[i]
+                continue
+        b1 = l[i] <= zl[i] + tol * atr[i]
+        if b1 and bought != day[i]:
+            sc = 1 + (c[i] > o[i] and min(o[i], c[i]) - l[i] >= wick * rng and c[i] > ol[i]) \
+                + (rmin[i] <= os_ and r[i] > rprev[i]) + (l[i] <= vl[i]) + bool(sess[i])
+            if sc >= min_score:
+                sl = l[i] - buf * atr[i]; risk = c[i] - sl; tp_ = c[i] + rr * risk
+                tdir, bought = 1, day[i]
+    a = np.array(res)
+    return {"n": len(a), "win": float((a > 0).mean()) if len(a) else 0.0, "netR": float(a.sum()) if len(a) else 0.0}
+
+
+def train_signals(h1, daily, lines, mk):
+    zones = [75, 80, 85, 90]
+    df = prep_bars(h1, daily, lines, mk["session"], zones)
+    split = int(len(df) * (1 - SIGNAL_HOLDOUT))
+    tr, ho = df.iloc[:split], df.iloc[split:]
+    grid = list(itertools.product(zones, [4, 5], [0.3, 0.4, 0.5], [65, 70, 75], [0.5, 0.75, 1.0, 1.5]))
+    scored = []
+    for zp, ms, wk, ob, rr in grid:
+        s = simulate(tr, lines["outer"], zp, ms, wk, ob, rr, mk["cost"])
+        if s["n"] >= MIN_TRAIN_TRADES:
+            scored.append((s["netR"] / s["n"], (zp, ms, wk, ob, rr), s))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    default = (85, 5, 0.4, 70, 1.0)
+    out = {"tested": len(grid), "eligible": len(scored),
+           "train_from": str(tr.index[0].date()), "hold_from": str(ho.index[0].date()), "hold_to": str(ho.index[-1].date()),
+           "default_hold": simulate(ho, lines["outer"], *default, mk["cost"])}
+    if not scored:
+        out.update(best=default, train=None, hold=out["default_hold"], edge=False, params=default)
+        return out
+    _, params, strain = scored[0]
+    shold = simulate(ho, lines["outer"], *params, mk["cost"])
+    edge = strain["netR"] > 0 and shold["netR"] > 0 and shold["n"] >= 5
+    # Only ship tuned filters that also made money on data they never saw; otherwise keep the strict defaults.
+    out.update(best=params, train=strain, hold=shold, edge=edge, params=params if edge else default)
+    return out
+
+
+# ---------------------------------------------------------------- outputs
+def write_set(path, lines, sig):
+    zp, ms, wk, ob, rr = sig["params"]
+    vals = {
+        "InpUseTrained": "false",  # the .set carries the values itself
+        "InpLookbackDays": lines["lookback"], "InpAtrDays": lines["atr"],
+        "InpInnerPct": lines["inner"], "InpOuterPct": lines["outer"],
+        "InpShowSignals": "true", "InpZonePct": zp, "InpMinScore": ms,
+        "InpWickPct": int(wk * 100), "InpRsiOB": ob, "InpRsiOS": 100 - ob, "InpRR": rr,
+    }
+    text = "; Day Range Predictor preset generated by tools/train_drp.py on " + dt.date.today().isoformat() + "\r\n"
+    text += "".join(f"{k}={v}\r\n" for k, v in vals.items())
+    path.write_bytes(b"\xff\xfe" + text.encode("utf-16-le"))   # MT5 saves .set files as UTF-16 LE
+
+
+def preset_values(res):
+    out = {}
+    for key, r in res.items():
+        zp, ms, wk, ob, rr = r["sig"]["params"]
+        out[key] = dict(lookback=r["lines"]["lookback"], atr=r["lines"]["atr"], inner=r["lines"]["inner"],
+                        outer=r["lines"]["outer"], zone=float(zp), score=ms, wick=float(wk * 100),
+                        ob=float(ob), os=float(100 - ob), rr=float(rr))
+    return out
+
+
+def rewrite_block(path, start, end, body):
+    s = path.read_text(encoding="utf-8")
+    pat = re.compile(re.escape(start) + r".*?" + re.escape(end), re.S)
+    if not pat.search(s):
+        raise SystemExit(f"Preset markers not found in {path}")
+    path.write_text(pat.sub(lambda _: start + "\n" + body + end, s), encoding="utf-8")
+
+
+def update_sources(res, stamp):
+    v = preset_values(res)
+    nq, gc = v["NQ"], v["GC"]
+    note = f"trained {stamp} on Yahoo Finance NQ=F / GC=F by tools/train_drp.py"
+    pine = [f"// {note}"]
+    mql = [f"// {note}"]
+    for key, tag in (("NQ", "Nq"), ("GC", "Gc")):
+        p = v[key]
+        for name, k in (("Lookback", "lookback"), ("Atr", "atr"), ("Inner", "inner"), ("Outer", "outer"), ("Zone", "zone"),
+                        ("Score", "score"), ("Wick", "wick"), ("OB", "ob"), ("OS", "os"), ("RR", "rr")):
+            pine.append(f"t{tag}{name} = {p[k]}")
+        mql.append(f"const int    T_{key}_LOOKBACK = {p['lookback']}, T_{key}_ATR = {p['atr']}, T_{key}_SCORE = {p['score']};")
+        mql.append(f"const double T_{key}_INNER = {p['inner']}, T_{key}_OUTER = {p['outer']}, T_{key}_ZONE = {p['zone']}, T_{key}_WICK = {p['wick']},")
+        mql.append(f"             T_{key}_OB = {p['ob']}, T_{key}_OS = {p['os']}, T_{key}_RR = {p['rr']};")
+    rewrite_block(ROOT / "pine/DayRangePredictor.pine", START, END, "\n".join(pine) + "\n")
+    rewrite_block(ROOT / "experts/DayRangePredictor.mq5", START, END, "\n".join(mql) + "\n")
+
+
+def pct(x):
+    return f"{100 * x:.1f}%"
+
+
+def report(res, stamp):
+    L = [f"# Day Range Predictor training report", "",
+         f"Trained {stamp} by `tools/train_drp.py`. Data: Yahoo Finance (daily 10y, hourly 730d), "
+         f"cross-checked against Google Finance quotes. Every number under \"holdout\" comes from recent data "
+         f"the settings were not tuned on.", ""]
+    for key, r in res.items():
+        mk, ln, sg, ck = MARKETS[key], r["lines"], r["sig"], r["check"]
+        zp, ms, wk, ob, rr = sg["best"]
+        L += [f"## {mk['name']} ({mk['yahoo']})", ""]
+        L += [f"Data through {r['last_day']}. Google Finance cross-check: {ck}", ""]
+        L += ["### Predicted high/low lines", "",
+              f"Chosen: lookback **{ln['lookback']} days**, ATR **{ln['atr']}**, max line **P{ln['outer']}** "
+              f"(the narrowest setting that held ≥{int(TARGET_HELD*100)}% per side on the 3 years before the holdout).", "",
+              "| | High held | Low held | Both held | Width (× ATR) |", "| --- | --- | --- | --- | --- |",
+              f"| Trained, holdout last {ln['hold_days']} days | {pct(ln['hold_hi'])} | {pct(ln['hold_lo'])} | {pct(ln['hold_both'])} | {ln['hold_width']:.2f} |",
+              f"| Old default (250d, ATR 14, P95), same days | {pct(ln['base_hi'])} | {pct(ln['base_lo'])} | {pct(ln['base_both'])} | {ln['base_width']:.2f} |", ""]
+        L += ["### Signals (hourly bars, after estimated spread/commission)", "",
+              f"Tested {sg['tested']} filter combinations; {sg['eligible']} had at least {MIN_TRAIN_TRADES} trades in training "
+              f"({sg['train_from']} to {sg['hold_from']}). Holdout: {sg['hold_from']} to {sg['hold_to']}.", "",
+              f"Best in training: zone P{zp}, {ms}/5 filters, wick ≥{int(wk*100)}%, RSI {ob}/{100-ob}, target {rr}R.", "",
+              "| | Trades | Win rate | Net R |", "| --- | --- | --- | --- |"]
+        if sg["train"]:
+            L.append(f"| Best combination, training | {sg['train']['n']} | {pct(sg['train']['win'])} | {sg['train']['netR']:+.1f} |")
+        L.append(f"| Best combination, holdout (unseen) | {sg['hold']['n']} | {pct(sg['hold']['win'])} | {sg['hold']['netR']:+.1f} |")
+        d = sg["default_hold"]
+        L.append(f"| Strict default (P85, 5/5, 1R), holdout | {d['n']} | {pct(d['win'])} | {d['netR']:+.1f} |")
+        L += ["", "**Verdict:** " + ("the best combination stayed profitable on unseen data, so it is now the trained preset. "
+                                     "Still a small sample; paper trade first."
+                                     if sg["edge"] else
+                                     "the best training combination did not hold up on unseen data (overfitting), so the presets keep "
+                                     "the strict defaults. Treat the signals as a warning, not as trade entries."), ""]
+    L += ["No indicator is right 100% of the time. Past results are not a promise. Not financial advice."]
+    (ROOT / "reports").mkdir(exist_ok=True)
+    (ROOT / "reports/training_report.md").write_text("\n".join(L) + "\n", encoding="utf-8")
+
+
+def cross_check(key, daily, h1):
+    g = google_quote(MARKETS[key]["google"])
+    if "error" in g or "Settlement price" not in g:
+        return "Google Finance unavailable, skipped."
+    settle = g["Settlement price"]
+    closes = daily.c.iloc[-3:].tolist() + [h1.c.iloc[-1]]
+    diff = min(abs(c - settle) / settle for c in closes)
+    flag = "OK" if diff < 0.01 else "WARNING: Yahoo and Google disagree by more than 1%"
+    return f"Google settlement {settle:,.2f} vs Yahoo recent closes {', '.join(f'{c:,.2f}' for c in closes)} → {flag}."
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--no-write", action="store_true", help="print results only, don't touch any files")
+    args = ap.parse_args()
+    stamp = dt.date.today().isoformat()
+    res = {}
+    for key, mk in MARKETS.items():
+        print(f"\n== {mk['name']}: downloading {mk['yahoo']} from Yahoo Finance")
+        d10 = yahoo(mk["yahoo"], "10y", "1d")
+        h1 = yahoo(mk["yahoo"], "730d", "1h")
+        # Yahoo's daily futures bars use the CME trade date, the same day key the hourly bars get below
+        daily = d10[["o", "h", "l", "c"]].copy()
+        daily.index = daily.index.date
+        print(f"   {len(daily)} daily bars to {daily.index[-1]}, {len(h1)} hourly bars to {h1.index[-1]:%Y-%m-%d %H:%M} NY")
+        check = cross_check(key, daily, h1)
+        print("   " + check)
+        lines = train_lines(daily)
+        print(f"   lines: lookback {lines['lookback']}d, ATR {lines['atr']}, P{lines['outer']} -> holdout high {pct(lines['hold_hi'])}, "
+              f"low {pct(lines['hold_lo'])}, both {pct(lines['hold_both'])}, width {lines['hold_width']:.2f}x ATR "
+              f"(old default: {pct(lines['base_hi'])}/{pct(lines['base_lo'])}, width {lines['base_width']:.2f})")
+        sig = train_signals(h1, daily, lines, mk)
+        print(f"   signals: best {sig['best']} train {sig['train']} holdout {sig['hold']} edge={sig['edge']} -> preset {sig['params']}")
+        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1])}
+    if args.no_write:
+        return
+    (ROOT / "presets").mkdir(exist_ok=True)
+    for key, r in res.items():
+        write_set(ROOT / "presets" / MARKETS[key]["set"], r["lines"], r["sig"])
+    update_sources(res, stamp)
+    report(res, stamp)
+    print("\nWrote presets/*.set, reports/training_report.md and refreshed the TRAINED PRESETS blocks.")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

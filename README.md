@@ -67,6 +67,16 @@ Walk-forward results on daily data (last 500 trading days up to Oct 2026; every 
 
 Higher accuracy always means wider lines. The reversal signals tested at around a coin flip on 2 years of hourly NQ and gold data (≈45–55% at 1R, before spread and commission), so treat them as a filter, not a guarantee. No indicator is right 100% of the time, and this is not financial advice.
 
+### Training on recent data
+
+`tools/train_drp.py` downloads the latest Yahoo Finance history (NQ=F and GC=F: 10 years daily, 2 years hourly), checks the latest prices against Google Finance, and tunes the settings. Google Finance has no history download, so it's used only for that price check. Each setting is picked on older data and then scored on the most recent data it never saw. The results are written to:
+
+- the `TRAINED PRESETS` block in both scripts. These are on by default ("Use trained presets"), and NQ or gold settings are picked from the symbol name.
+- `presets/DRP_US100.set` and `presets/DRP_XAUUSD.set`, which you can load from the EA's Inputs tab in MT5.
+- `reports/training_report.md`, which lists everything tested and how it scored on unseen days.
+
+Re-train any time with `train.bat` on Windows, or `pip install -r tools/requirements.txt && python tools/train_drp.py`. Then recompile the EA and re-paste the Pine script. Tuned signal filters only replace the strict defaults when they also made money on the unseen holdout data.
+
 MT5 install: copy the `.mq5` into `MQL5\Experts` (or use the app's Expert Advisors tab), compile it in MetaEditor, then drag it onto an intraday chart (M5 or M15 work well). In the Strategy Tester, set "Server time minus New York" to your broker's offset (7 for most brokers) because auto-detect needs a live clock.
 
 TradingView install: Pine Editor → paste `pine/DayRangePredictor.pine` → Add to chart. Use an intraday timeframe. The built-in Pine interpreter in this app doesn't run it, because it needs `request.security`, `var` and arrays.
