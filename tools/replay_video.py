@@ -237,6 +237,8 @@ def result_card(fig, df, info, call):
         fig.text(xs[1], y, fmt(p, k), color=TEXT, fontsize=22, ha="center", va="center")
         fig.text(xs[2], y, fmt(a, k), color=TEXT, fontsize=22, ha="center", va="center")
         fig.text(xs[3], y, f"{unit}  ({miss / info['atr']:.2f} ATR)", color=TEXT, fontsize=18, ha="center", va="center")
+        if preset(info, lab, a):
+            fig.text(xs[2], y - 0.032, "set overnight, before 9:30", color=MUTED, fontsize=11, ha="center", va="center")
     fig.text(0.5, 0.14, f"Daily ATR {fmt(info['atr'], k)}. Average miss at 9:30 on 120 unseen days: high ≈0.08 ATR, low ≈0.10 ATR (Nasdaq)."
              if k == "NQ" else f"Daily ATR {fmt(info['atr'], k)}.", color=MUTED, fontsize=13, ha="center")
     fig.text(0.5, 0.09, "Educational replay. Not financial advice.", color=MUTED, fontsize=12, ha="center")
@@ -252,6 +254,7 @@ def render(df, info, path, per_bar=6):
     open_i = cand[0]
     c0 = df.iloc[open_i]
     call = dict(i=open_i, lh=c0.lh, ll=c0.ll, bu=c0.bu)
+    info["pre_hi"], info["pre_lo"] = df.h.iloc[:open_i].max(), df.l.iloc[:open_i].min()   # range already made at 9:30
     writer = FFMpegWriter(fps=FPS, bitrate=8000, codec="libx264", extra_args=["-pix_fmt", "yuv420p"])
     k = info["key"]
     with writer.saving(fig, str(path), dpi=100):
@@ -290,6 +293,13 @@ def render(df, info, path, per_bar=6):
     return call, rows
 
 
+def preset(info, lab, actual):
+    """True when the day's actual high/low was already printed before the 9:30 call (nothing left to predict)."""
+    if not info.get("complete") or "pre_hi" not in info:
+        return False
+    return actual <= info["pre_hi"] if lab == "Day HIGH" else actual >= info["pre_lo"] if lab == "Day LOW" else False
+
+
 def describe(info, rows, path):
     k = info["key"]
     day = pd.Timestamp(info["date"])
@@ -303,7 +313,10 @@ def describe(info, rows, path):
              "At the end we compare the 9:30 call with what actually happened:", ""]
     for lab, _, p, a in rows:
         lines.append(f"  {lab}: predicted {fmt(p, k)}, {'actual' if info['complete'] else 'so far'} {fmt(a, k)} "
-                     f"(miss {abs(p - a):,.2f})")
+                     f"(miss {abs(p - a):,.2f})" + (" - already set overnight, before the 9:30 call" if preset(info, lab, a) else ""))
+    if any(preset(info, lab, a) for lab, _, _, a in rows):
+        lines += ["", "Honest note: on this day the level(s) marked above were made overnight, before 9:30, and price never broke them "
+                  "after the open, so a match there is not a real test of the model. The locked-line video for the same day is the fairer test."]
     lines += ["", "The model is trained on recent Yahoo Finance data and was fitted only on days before this one.",
               "Educational content, not financial advice. No prediction is 100% certain.", "",
               f"#{what.lower()} #{'nq' if k == 'NQ' else 'xauusd'} #daytrading #tradingview #mt5 #futures #trading"]

@@ -1,0 +1,11 @@
+Title: Gold BEFORE training — Two Locked Lines vs. the Real High & Low (Oct 9, 2026)
+
+Description:
+BEFORE training. At the 6 PM open (New York time) the model locks one predicted HIGH (green) and one predicted LOW (red) for the session: covers overnight, the regular session and after-hours to 5 PM. The lines never move. This session was held out of training. Untrained: lines = median of the last 250 days' moves.
+
+  Predicted high $4,191.96 vs actual $4,233.70 (miss 41.74)
+  Predicted low $4,126.99 vs actual $4,157.20 (miss 30.21)
+
+Educational content, not financial advice. No prediction is 100% certain.
+
+#gold #daytrading #trading #futures #ai #mt5 #tradingview

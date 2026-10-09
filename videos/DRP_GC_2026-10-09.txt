@@ -1,0 +1,14 @@
+Title: Can a Model Call the Gold High & Low at 9:30? Live Replay vs. Real Result (Oct 9, 2026)
+
+Description:
+We replay Friday October 9, 2026 on Gold / XAUUSD bar by bar from the 9:30 AM New York open with the Day Range Predictor. Green is the predicted day high and red is the predicted day low. Every line uses only the data available at that moment, with no hindsight. At the end we compare the 9:30 call with what actually happened:
+
+  Day HIGH: predicted $4,240.62, actual $4,233.70 (miss 6.92) - already set overnight, before the 9:30 call
+  Day LOW: predicted $4,157.20, actual $4,157.20 (miss 0.00) - already set overnight, before the 9:30 call
+
+Honest note: on this day the level(s) marked above were made overnight, before 9:30, and price never broke them after the open, so a match there is not a real test of the model. The locked-line video for the same day is the fairer test.
+
+The model is trained on recent Yahoo Finance data and was fitted only on days before this one.
+Educational content, not financial advice. No prediction is 100% certain.
+
+#gold #xauusd #daytrading #tradingview #mt5 #futures #trading

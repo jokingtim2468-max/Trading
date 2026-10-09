@@ -1,0 +1,11 @@
+Title: Gold AFTER 10-year training — Two Locked Lines vs. the Real High & Low (Oct 9, 2026)
+
+Description:
+AFTER 10-year training. At the 6 PM open (New York time) the model locks one predicted HIGH (green) and one predicted LOW (red) for the session: covers overnight, the regular session and after-hours to 5 PM. The lines never move. This session was held out of training. Trained on 2,452 sessions (2017-01-10 to 2026-10-08), all before this one.
+
+  Predicted high $4,189.42 vs actual $4,233.70 (miss 44.28)
+  Predicted low $4,134.08 vs actual $4,157.20 (miss 23.12)
+
+Educational content, not financial advice. No prediction is 100% certain.
+
+#gold #daytrading #trading #futures #ai #mt5 #tradingview
