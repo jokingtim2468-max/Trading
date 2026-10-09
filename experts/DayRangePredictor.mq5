@@ -52,9 +52,12 @@ enum ENUM_DRP_LOCK
    DRP_LOCK_ALL     = 3  // All
   };
 
+input group "Display"
+input bool   InpShowPanel    = false; // Show the info panel (top right)
+
 input group "Locked lines (set once per session, never moved)"
 input ENUM_DRP_LOCK InpLockMode = DRP_LOCK_AUTO; // Sessions
-input int    InpLockHist     = 5;     // Previous sessions to keep
+input int    InpLockHist     = 0;     // Previous sessions to keep as short segments (0 = only the current lines)
 
 input group "Short-term projection (next hour)"
 input bool   InpShowBand     = true;  // Show the 80% band for the next hour
@@ -541,7 +544,7 @@ void PanelRow(int row, string left, string right, color c)
    ObjectSetInteger(0, r, OBJPROP_ANCHOR, ANCHOR_RIGHT_UPPER);
    ObjectSetInteger(0, r, OBJPROP_XDISTANCE, 18);
    ObjectSetInteger(0, r, OBJPROP_YDISTANCE, y);
-   ObjectSetString(0, r, OBJPROP_TEXT, right);
+   ObjectSetString(0, r, OBJPROP_TEXT, right == "" ? " " : right);   // an empty label shows "Label" in MT5
    ObjectSetString(0, r, OBJPROP_FONT, "Segoe UI Semibold");
    ObjectSetInteger(0, r, OBJPROP_FONTSIZE, 8);
    ObjectSetInteger(0, r, OBJPROP_COLOR, c);
@@ -1143,16 +1146,38 @@ double LockDot(double &coef[], double &x[])
    return MathMax(0.0, z);
   }
 
-void LockDraw(string id, datetime t1, datetime t2, double hi, double lo, string name, bool label)
+// Current session: horizontal lines across the whole chart. Older sessions: short segments.
+void HLineFull(string name, double price, color c, string text)
   {
-   Seg(PFX + "kh" + id, t1, hi, t2, hi, InpColHigh, STYLE_SOLID, 2);
-   Seg(PFX + "kl" + id, t1, lo, t2, lo, InpColLow, STYLE_SOLID, 2);
-   if(label)
+   ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, c);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetString(0, name, OBJPROP_TOOLTIP, text);
+  }
+
+void LockDraw(string id, datetime t1, datetime t2, double hi, double lo, string name, bool current)
+  {
+   if(current)
      {
-      Text(PFX + "kth" + id, t2, hi, "▲ " + name + " HIGH " + Px(hi), InpColHigh, ANCHOR_LEFT);
-      Text(PFX + "ktl" + id, t2, lo, "▼ " + name + " LOW " + Px(lo), InpColLow, ANCHOR_LEFT);
+      // fixed names: the most recent session drawn wins (e.g. the 4 PM lines replace the 9:30 lines)
+      HLineFull(PFX + "KH", hi, InpColHigh, name + " locked HIGH " + Px(hi));
+      HLineFull(PFX + "KL", lo, InpColLow, name + " locked LOW " + Px(lo));
+      datetime tx = iTime(_Symbol, _Period, 0) + 2 * PeriodSeconds(_Period);
+      Text(PFX + "KHT", tx, hi, "▲ " + name + " HIGH " + Px(hi), InpColHigh, ANCHOR_LEFT_LOWER);
+      Text(PFX + "KLT", tx, lo, "▼ " + name + " LOW " + Px(lo), InpColLow, ANCHOR_LEFT_UPPER);
      }
-   g_lkHi = hi; g_lkLo = lo; g_lkName = name;
+   else
+     {
+      Seg(PFX + "kh" + id, t1, hi, t2, hi, InpColHigh, STYLE_SOLID, 1);
+      Seg(PFX + "kl" + id, t1, lo, t2, lo, InpColLow, STYLE_SOLID, 1);
+     }
+   if(current)
+     { g_lkHi = hi; g_lkLo = lo; g_lkName = name; }
   }
 
 void DrawLocked()
@@ -1331,7 +1356,8 @@ void Rebuild()
    datetime lastSig = ScanBars();
    DrawAI();
    DrawBand();
-   DrawPanel();
+   if(InpShowPanel)
+      DrawPanel();
    ChartRedraw();
    datetime newBar = iTime(_Symbol, _Period, 0);
    bool barClosed = (newBar != g_lastBar);
