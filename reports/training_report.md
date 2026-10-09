@@ -4,7 +4,7 @@ Trained 2026-10-09 by `tools/train_drp.py`. Data: Yahoo Finance (daily 10y, hour
 
 ## Nasdaq e-mini / US100 (NQ=F)
 
-Data through 2026-10-09. Google Finance cross-check: Google settlement 30,969.50 vs Yahoo recent closes 31,402.25, 30,969.50, 31,195.50, 31,195.50 → OK.
+Data through 2026-10-09. Google Finance cross-check: Google settlement 30,969.50 vs Yahoo recent closes 31,402.25, 30,969.50, 31,186.75, 31,188.25 → OK.
 
 ### Predicted high/low lines
 
@@ -14,6 +14,19 @@ Chosen: lookback **180 days**, ATR **20**, max line **P96.0** (the narrowest set
 | --- | --- | --- | --- | --- |
 | Trained, holdout last 250 days | 94.8% | 96.8% | 91.6% | 2.76 |
 | Old default (250d, ATR 14, P95), same days | 93.2% | 96.0% | 89.2% | 2.62 |
+
+### Live high / low / build-up lines (update every bar)
+
+Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and the price where the most trading has happened so far. Holdout: 120 unseen days from 2026-04-21. Average distance between the line and the day's real high / low / build-up:
+
+| When | High miss | Low miss | Build-up miss |
+| --- | --- | --- | --- |
+| Old fixed lines at the open | 0.35 ATR (≈172) | 0.35 ATR (≈171) | n/a |
+| Live, at the day open | 0.30 ATR (≈145) | 0.32 ATR (≈156) | 0.20 ATR (≈98) |
+| Live, at session start | 0.08 ATR (≈38) | 0.10 ATR (≈47) | 0.05 ATR (≈23) |
+| Live, average over the day | 0.16 ATR (≈78) | 0.18 ATR (≈86) | 0.09 ATR (≈46) |
+
+Share of bars where both live lines were within 0.1 ATR of the real high and low: 31.7%.
 
 ### Signals (hourly bars, after estimated spread/commission)
 
@@ -31,7 +44,7 @@ Best in training: zone P85, 4/5 filters, wick ≥50%, RSI 75/25, target 1.5R.
 
 ## Gold / XAUUSD (GC=F)
 
-Data through 2026-10-09. Google Finance cross-check: Google settlement 4,157.00 vs Yahoo recent closes 4,140.70, 4,157.00, 4,202.90, 4,202.90 → OK.
+Data through 2026-10-09. Google Finance cross-check: Google settlement 4,157.00 vs Yahoo recent closes 4,140.70, 4,157.00, 4,211.50, 4,211.70 → OK.
 
 ### Predicted high/low lines
 
@@ -41,6 +54,19 @@ Chosen: lookback **375 days**, ATR **20**, max line **P95.5** (the narrowest set
 | --- | --- | --- | --- | --- |
 | Trained, holdout last 250 days | 94.8% | 94.8% | 90.0% | 2.88 |
 | Old default (250d, ATR 14, P95), same days | 95.2% | 94.0% | 89.2% | 2.79 |
+
+### Live high / low / build-up lines (update every bar)
+
+Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and the price where the most trading has happened so far. Holdout: 120 unseen days from 2026-04-21. Average distance between the line and the day's real high / low / build-up:
+
+| When | High miss | Low miss | Build-up miss |
+| --- | --- | --- | --- |
+| Old fixed lines at the open | 0.30 ATR (≈$26.5) | 0.31 ATR (≈$27.3) | n/a |
+| Live, at the day open | 0.28 ATR (≈$24.6) | 0.31 ATR (≈$27.2) | 0.28 ATR (≈$24.7) |
+| Live, at session start | 0.14 ATR (≈$11.9) | 0.16 ATR (≈$14.4) | 0.15 ATR (≈$13.4) |
+| Live, average over the day | 0.13 ATR (≈$11.1) | 0.14 ATR (≈$11.9) | 0.14 ATR (≈$12.2) |
+
+Share of bars where both live lines were within 0.1 ATR of the real high and low: 43.7%.
 
 ### Signals (hourly bars, after estimated spread/commission)
 

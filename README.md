@@ -49,13 +49,25 @@ Two versions of the same model:
 | `experts/DayRangePredictor.mq5` | MT5 (Expert Advisor, draws only, places no trades) | US100 / NAS100 / USTEC, XAUUSD |
 | `pine/DayRangePredictor.pine` | TradingView (Pine v5) | `CME_MINI:NQ1!`, `OANDA:XAUUSD` (any XAUUSD feed) |
 
-What it draws each day, using only data known at the open (no repainting):
+What it draws (every value on a bar uses only data up to that bar, so past bars never repaint):
 
-- **Max HIGH / Max LOW** (solid lines): today's open ± the 95th percentile of the last 250 days' up/down moves, scaled by the 14-day ATR.
-- **Likely HIGH / Likely LOW** (dashed lines): the same at the 50th percentile, so price reaches them about half of days.
-- **Reversal zones** (shaded): from the 85th percentile out to the max line.
-- **BUY / SELL signals**: only when all 5 filters agree: price reaches the zone, a rejection candle closes back inside, RSI is stretched and turning, price is beyond the 2σ VWAP band, and it's inside the active session (Nasdaq 09:30–16:00 NY, gold 03:00–12:00 NY). At most one per side per day.
-- **Panel**: a walk-forward accuracy test (how often the day's high and low really stayed inside that morning's max lines) and the win rate and net R of the signals on the chart.
+- **Green line, predicted HIGH (live):** the high so far plus the extra move the day still usually makes. That extra move comes from a trained table, looked up by hour of the day and by where price sits in the day's range. It tightens through the day.
+- **Red line, predicted LOW (live):** the same thing downward.
+- **Yellow line, BUILD-UP / support (live):** a blend of the middle of the predicted range and the price where the most trading has happened so far. Later in the day it leans more on that busiest price.
+- **Flow lines (current bar):** arrows from price now to the predicted high and low at the hour they usually happen, then dotted lines into the build-up level by the close. A side with no extra move expected is labelled "likely set".
+- **Dots:** the bar where price reached the line that was predicted on the bar before (green at the high, red at the low).
+- **Max high / low (dashed) and shaded zones:** the wide envelope set at the day open (the narrowest percentile that held at least 95% per side). Signals fade these zones.
+- **BUY / SELL signals:** only when all 5 filters agree. Price reaches the zone, a rejection candle closes back inside, RSI is stretched and turning, price is beyond the 2σ VWAP band, and it's inside the active session (Nasdaq 09:30–16:00 NY, gold 03:00–12:00 NY).
+- **Panel:** live values, the average miss of the lines at the day open and at session start on your own chart, how often the max lines held, and the signals' win rate and net R.
+
+Live-line accuracy on 120 unseen recent days (see `reports/training_report.md`), as the average distance from the day's real high / low / build-up:
+
+| | At the day open | At session start | Average over the day |
+| --- | --- | --- | --- |
+| NQ high / low / build-up | 0.30 / 0.32 / 0.20 ATR | **0.08 / 0.10 / 0.05 ATR** (≈38 / 47 / 23 pts) | 0.16 / 0.18 / 0.09 ATR |
+| Gold high / low / build-up | 0.28 / 0.31 / 0.28 ATR | 0.14 / 0.16 / 0.15 ATR (≈$12 / $14 / $13) | 0.13 / 0.14 / 0.14 ATR |
+
+The old fixed lines missed by about 0.35 ATR on NQ and 0.30 ATR on gold. The lines get closer as the day goes on, but the extremes still aren't known exactly in advance.
 
 Walk-forward results on daily data (last 500 trading days up to Oct 2026; every day's lines built only from earlier days):
 

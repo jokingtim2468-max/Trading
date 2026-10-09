@@ -1,16 +1,19 @@
 // Day Range Predictor (NQ e-mini / XAUUSD)
-// Draws today's predicted HIGH and LOW lines and marks reversal signals only
-// when every confirmation filter agrees. Built for CME_MINI:NQ1! (Nasdaq e-mini)
-// and XAUUSD (OANDA:XAUUSD, FX:XAUUSD, etc.). Works on any intraday timeframe.
+// Built for CME_MINI:NQ1! (Nasdaq e-mini) and XAUUSD (OANDA:XAUUSD, FX:XAUUSD, etc.).
+// Works on any intraday timeframe.
 //
-// How the lines are made (no repainting):
-//   For each past day: up-move = (high - open) / ATR and down-move = (open - low) / ATR,
-//   where ATR is the 14-day average range known before that day opened.
-//   Today's lines = today's open +/- a percentile of the last N days of those moves x today's ATR.
-//   Everything uses only data that existed when the day opened, so lines never move during the day.
+//   GREEN line  = predicted day HIGH. It's the high so far plus the extra move the day still
+//                 usually makes, looked up by hour of the day and where price sits in its range.
+//   RED line    = predicted day LOW, the same idea downward.
+//   YELLOW line = predicted BUILD-UP / support. It blends the middle of the predicted range with
+//                 the price where the most trading has happened so far.
+//   Dotted flow lines (current bar only) = projected path from price now to the predicted high
+//                 and low at the hour they usually happen, then into the build-up level by the close.
+//   Dots = the bar where price reached the line predicted on the bar before it.
 //
-// The accuracy panel is a walk-forward test: for each past day it checks whether the
-// day's high/low stayed inside the lines that were drawn that morning.
+// Every value on a bar uses only data up to that bar, so nothing shown on past bars repaints.
+// The lines tighten as the day goes on. All settings and tables are trained on recent Yahoo Finance
+// data by tools/train_drp.py (see reports/training_report.md).
 // No indicator is 100% certain. Not financial advice.
 
 //@version=5
@@ -20,13 +23,19 @@ indicator("Day Range Predictor - NQ / XAUUSD", shorttitle="DRP", overlay=true, m
 grpT = "Trained presets"
 useTrained = input.bool(true, "Use trained presets (NQ or gold picked by symbol)", group=grpT, tooltip="Settings tuned on recent Yahoo Finance data by tools/train_drp.py. Turn off to use the values below.")
 
-grpL = "Predicted day high / low"
+grpV = "Live high / low / build-up"
+showLive  = input.bool(true, "Show live predicted high, low and build-up", group=grpV)
+showFlow  = input.bool(true, "Show flow lines (projected path)", group=grpV)
+showTouch = input.bool(true, "Mark where price reached the line", group=grpV)
+touchTol  = input.float(0.03, "Reached = within (x daily ATR)", minval=0, step=0.01, group=grpV)
+
+grpL = "Max envelope (day open lines)"
+showMax   = input.bool(true, "Show max high / low lines", group=grpL)
 iLookback = input.int(250, "Lookback days", minval=50, maxval=2000, group=grpL)
 iAtrLen   = input.int(14, "Daily ATR length", minval=5, maxval=100, group=grpL)
-iPctInner = input.float(50, "Likely line percentile", minval=10, maxval=90, group=grpL, tooltip="50 = the day's high/low reaches this line about half of all days.")
-iPctOuter = input.float(95, "Max line percentile", minval=60, maxval=99.5, step=0.5, group=grpL, tooltip="95 = the day's high stayed below this line about 95% of days in testing. Higher = more accurate but wider.")
+iPctOuter = input.float(95, "Max line percentile", minval=60, maxval=99.5, step=0.5, group=grpL, tooltip="95 = the day's high stayed below this line about 95% of days in testing.")
 statsDays = input.int(250, "Accuracy test days", minval=20, maxval=2000, group=grpL)
-histDays  = input.int(5, "Previous days to keep on chart", minval=0, maxval=60, group=grpL)
+histDays  = input.int(5, "Previous days of max lines to keep", minval=0, maxval=60, group=grpL)
 
 grpS = "High-confidence signals"
 showSig   = input.bool(true, "Show signals", group=grpS)
@@ -38,18 +47,19 @@ rsiLen    = input.int(14, "RSI length", group=grpS)
 iRsiOB    = input.float(70, "RSI overbought", group=grpS)
 iRsiOS    = input.float(30, "RSI oversold", group=grpS)
 vwapMult  = input.float(2.0, "VWAP band (std dev)", minval=0.5, step=0.1, group=grpS)
-sessMode  = input.string("Auto", "Session filter", options=["Auto", "Nasdaq cash 09:30-16:00 NY", "Gold London+NY 03:00-12:00 NY", "Custom", "24h"], group=grpS)
+sessMode  = input.string("Auto", "Session", options=["Auto", "Nasdaq cash 09:30-16:00 NY", "Gold London+NY 03:00-12:00 NY", "Custom", "24h"], group=grpS)
 customSess= input.session("0930-1600", "Custom session (New York time)", group=grpS)
 slBuf     = input.float(0.05, "Stop beyond signal bar (x daily ATR)", minval=0, step=0.01, group=grpS)
 iRrTarget = input.float(1.0, "Target (R multiple)", minval=0.25, step=0.25, group=grpS)
 onePerSide= input.bool(true, "Max one signal per side per day", group=grpS)
 
 grpC = "Colors"
-colHigh   = input.color(#F23645, "Predicted high", group=grpC)
-colLow    = input.color(#089981, "Predicted low", group=grpC)
+colHigh   = input.color(#00E676, "High (green)", group=grpC)
+colLow    = input.color(#FF5252, "Low (red)", group=grpC)
+colBuild  = input.color(#FFD600, "Build-up / midpoint (yellow)", group=grpC)
 colOpen   = input.color(#787B86, "Day open", group=grpC)
-colZoneHi = input.color(color.new(#F23645, 88), "Sell zone fill", group=grpC)
-colZoneLo = input.color(color.new(#089981, 88), "Buy zone fill", group=grpC)
+colZoneHi = input.color(color.new(#00E676, 90), "High zone fill", group=grpC)
+colZoneLo = input.color(color.new(#FF5252, 90), "Low zone fill", group=grpC)
 colPanel  = input.color(color.new(#131722, 10), "Panel background", group=grpC)
 colText   = input.color(#D1D4DC, "Panel text", group=grpC)
 
@@ -66,6 +76,11 @@ tNqWick = 40.0
 tNqOB = 70.0
 tNqOS = 30.0
 tNqRR = 1.0
+var tNqExtUp = array.from(0.261, 0.323, 0.378, 0.241, 0.276, 0.353, 0.178, 0.184, 0.334, 0.101, 0.245, 0.349, 0.12, 0.213, 0.323, 0.12, 0.209, 0.296, 0.071, 0.242, 0.302, 0.079, 0.194, 0.309, 0.061, 0.185, 0.3, 0.007, 0.138, 0.299, 0.008, 0.121, 0.283, 0.0, 0.115, 0.283, 0.0, 0.082, 0.278, 0.0, 0.093, 0.237, 0.0, 0.088, 0.208, 0.0, 0.006, 0.169, 0.0, 0.0, 0.13, 0.0, 0.0, 0.079, 0.0, 0.0, 0.044, 0.0, 0.0, 0.017, 0.0, 0.0, 0.002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+var tNqExtDn = array.from(0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.242, 0.0, 0.0, 0.131, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+var tNqBuildW = array.from(0.0, 0.1, 0.3, 0.35, 0.35, 0.5, 0.6, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+var tNqTHi = array.from(16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 18.5, 19.5, 19.5, 20.5, 21.5, 21.5, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5)
+var tNqTLo = array.from(16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 19.5, 20.5, 21.5, 21.5, 21.5, 22.5, 22.5, 23.0, 23.5)
 tGcLookback = 375
 tGcAtr = 20
 tGcInner = 50.0
@@ -76,12 +91,16 @@ tGcWick = 40.0
 tGcOB = 70.0
 tGcOS = 30.0
 tGcRR = 1.0
+var tGcExtUp = array.from(0.294, 0.312, 0.413, 0.239, 0.301, 0.365, 0.173, 0.301, 0.303, 0.013, 0.235, 0.329, 0.0, 0.227, 0.32, 0.0, 0.187, 0.294, 0.0, 0.162, 0.3, 0.0, 0.143, 0.304, 0.0, 0.11, 0.268, 0.0, 0.03, 0.259, 0.0, 0.008, 0.221, 0.0, 0.029, 0.204, 0.0, 0.018, 0.175, 0.0, 0.0, 0.165, 0.0, 0.0, 0.114, 0.0, 0.0, 0.077, 0.0, 0.0, 0.031, 0.0, 0.0, 0.004, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+var tGcExtDn = array.from(0.301, 0.347, 0.236, 0.392, 0.232, 0.199, 0.342, 0.203, 0.074, 0.38, 0.125, 0.0, 0.338, 0.066, 0.0, 0.313, 0.09, 0.0, 0.307, 0.114, 0.0, 0.283, 0.059, 0.0, 0.276, 0.02, 0.0, 0.255, 0.067, 0.0, 0.245, 0.038, 0.0, 0.209, 0.0, 0.0, 0.207, 0.0, 0.0, 0.209, 0.0, 0.0, 0.163, 0.0, 0.0, 0.082, 0.0, 0.0, 0.036, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+var tGcBuildW = array.from(0.1, 0.15, 0.15, 0.2, 0.2, 0.25, 0.45, 0.4, 0.5, 0.55, 0.55, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+var tGcTHi = array.from(15.5, 15.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 19.5, 21.5, 21.5, 22.5, 22.5, 22.5, 23.0, 23.5)
+var tGcTLo = array.from(14.5, 14.5, 15.5, 15.5, 15.5, 15.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 18.5, 19.5, 21.0, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5)
 // === TRAINED PRESETS END ===
 
 isGold = str.contains(syminfo.ticker, "XAU") or str.contains(syminfo.ticker, "GOLD") or syminfo.root == "GC" or syminfo.root == "MGC"
 lookback = useTrained ? (isGold ? tGcLookback : tNqLookback) : iLookback
 atrLen   = useTrained ? (isGold ? tGcAtr : tNqAtr) : iAtrLen
-pctInner = useTrained ? (isGold ? tGcInner : tNqInner) : iPctInner
 pctOuter = useTrained ? (isGold ? tGcOuter : tNqOuter) : iPctOuter
 pctZone  = useTrained ? (isGold ? tGcZone : tNqZone) : iPctZone
 minScore = useTrained ? (isGold ? tGcScore : tNqScore) : iMinScore
@@ -90,15 +109,20 @@ rsiOB    = useTrained ? (isGold ? tGcOB : tNqOB) : iRsiOB
 rsiOS    = useTrained ? (isGold ? tGcOS : tNqOS) : iRsiOS
 rrTarget = useTrained ? (isGold ? tGcRR : tNqRR) : iRrTarget
 
+// Live tables: 24 hours x 3 range positions (bottom / middle / top third), and 24 hourly values
+extUpAt(i) => isGold ? array.get(tGcExtUp, i) : array.get(tNqExtUp, i)
+extDnAt(i) => isGold ? array.get(tGcExtDn, i) : array.get(tNqExtDn, i)
+buildWAt(h) => isGold ? array.get(tGcBuildW, h) : array.get(tNqBuildW, h)
+tHiAt(h) => isGold ? array.get(tGcTHi, h) : array.get(tNqTHi, h)
+tLoAt(h) => isGold ? array.get(tGcTLo, h) : array.get(tNqTLo, h)
+
 // ---------- Daily model (runs on the daily timeframe) ----------
 dailyModel() =>
     atrPrev = ta.sma(ta.tr(true), atrLen)[1]          // ATR known at the open
     upR     = (high - open) / atrPrev
     dnR     = (open - low) / atrPrev
-    upIn    = ta.percentile_linear_interpolation(upR, lookback, pctInner)[1]
     upZn    = ta.percentile_linear_interpolation(upR, lookback, pctZone)[1]
     upOut   = ta.percentile_linear_interpolation(upR, lookback, pctOuter)[1]
-    dnIn    = ta.percentile_linear_interpolation(dnR, lookback, pctInner)[1]
     dnZn    = ta.percentile_linear_interpolation(dnR, lookback, pctZone)[1]
     dnOut   = ta.percentile_linear_interpolation(dnR, lookback, pctOuter)[1]
     valid   = not na(upOut) and not na(dnOut) and not na(atrPrev)
@@ -107,61 +131,175 @@ dailyModel() =>
     nDays   = math.sum(valid ? 1 : 0, statsDays)
     nHi     = math.sum(hiHeld ? 1 : 0, statsDays)
     nLo     = math.sum(loHeld ? 1 : 0, statsDays)
-    nBoth   = math.sum(hiHeld and loHeld ? 1 : 0, statsDays)
     // Today's values use only prior data; accuracy counts use completed days only ([1]).
-    [open, atrPrev, upIn, upZn, upOut, dnIn, dnZn, dnOut, nDays[1], nHi[1], nLo[1], nBoth[1]]
+    [open, atrPrev, upZn, upOut, dnZn, dnOut, nDays[1], nHi[1], nLo[1]]
 
-[dOpen, dAtr, upIn, upZn, upOut, dnIn, dnZn, dnOut, nDays, nHi, nLo, nBoth] = request.security(syminfo.tickerid, "D", dailyModel(), lookahead=barmerge.lookahead_on)
+[dOpen, dAtr, upZn, upOut, dnZn, dnOut, nDays, nHi, nLo] = request.security(syminfo.tickerid, "D", dailyModel(), lookahead=barmerge.lookahead_on)
 
-predHiIn  = dOpen + upIn  * dAtr
 predHiZn  = dOpen + upZn  * dAtr
 predHiOut = dOpen + upOut * dAtr
-predLoIn  = dOpen - dnIn  * dAtr
 predLoZn  = dOpen - dnZn  * dAtr
 predLoOut = dOpen - dnOut * dAtr
 haveLevels = not na(predHiOut) and not na(predLoOut) and timeframe.isintraday
 
-// ---------- Day lines ----------
 newDay = timeframe.change("D")
 dayEnd = time_close("D")
+barMs  = timeframe.in_seconds(timeframe.period) * 1000
 
-var line[]  lines  = array.new_line()
-var box[]   boxes  = array.new_box()
-var label[] tags   = array.new_label()
-
-mkLine(y, c, st, w) =>
-    line.new(time, y, dayEnd, y, xloc=xloc.bar_time, color=c, style=st, width=w)
-
-mkTag(y, c, txt) =>
-    label.new(dayEnd, y, txt + "  " + str.tostring(y, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(c, 85), textcolor=c, size=size.small)
-
-if newDay and haveLevels
-    // tags only for today
-    for t in tags
-        label.delete(t)
-    array.clear(tags)
-    array.push(lines, mkLine(dOpen, colOpen, line.style_dotted, 1))
-    array.push(lines, mkLine(predHiIn,  colHigh, line.style_dashed, 1))
-    array.push(lines, mkLine(predHiOut, colHigh, line.style_solid, 2))
-    array.push(lines, mkLine(predLoIn,  colLow,  line.style_dashed, 1))
-    array.push(lines, mkLine(predLoOut, colLow,  line.style_solid, 2))
-    array.push(boxes, box.new(time, predHiOut, dayEnd, predHiZn, xloc=xloc.bar_time, border_color=na, bgcolor=colZoneHi))
-    array.push(boxes, box.new(time, predLoZn, dayEnd, predLoOut, xloc=xloc.bar_time, border_color=na, bgcolor=colZoneLo))
-    array.push(tags, mkTag(predHiOut, colHigh, "Max HIGH P" + str.tostring(pctOuter)))
-    array.push(tags, mkTag(predHiIn,  colHigh, "Likely HIGH P" + str.tostring(pctInner)))
-    array.push(tags, mkTag(predLoIn,  colLow,  "Likely LOW P" + str.tostring(pctInner)))
-    array.push(tags, mkTag(predLoOut, colLow,  "Max LOW P" + str.tostring(pctOuter)))
-    array.push(tags, mkTag(dOpen, colOpen, "Day open"))
-    // keep only today + histDays
-    while array.size(lines) > 5 * (histDays + 1)
-        line.delete(array.shift(lines))
-    while array.size(boxes) > 2 * (histDays + 1)
-        box.delete(array.shift(boxes))
-
-// ---------- Signal filters ----------
 sessStr = sessMode == "Nasdaq cash 09:30-16:00 NY" ? "0930-1600" : sessMode == "Gold London+NY 03:00-12:00 NY" ? "0300-1200" : sessMode == "Custom" ? customSess : sessMode == "24h" ? "0000-0000" : isGold ? "0300-1200" : "0930-1600"
 inSess = sessMode == "24h" or not na(time(timeframe.period, sessStr, "America/New_York"))
 
+// ---------- Live high / low / build-up ----------
+PROF_HALF = 60          // profile bins each side of the open (bin = 0.05 x ATR, covers +/- 3 ATR)
+PROF_STEP = 0.05
+
+var float   dStart = na
+var float   dHs = na
+var float   dLs = na
+var float   pBase = na
+var float   pStep = na
+var float[] prof = array.new_float(2 * PROF_HALF + 1, 0.0)
+
+// accuracy snapshots (prediction made at the day open and at session start)
+var float oHi = na
+var float oLo = na
+var float sHi = na
+var float sLo = na
+var float sBu = na
+var bool  sessSeen = false
+var float lastPoc = na
+var float missOH = 0.0
+var float missOL = 0.0
+var float missSH = 0.0
+var float missSL = 0.0
+var float missSB = 0.0
+var int   nOpenDays = 0
+var int   nSessDays = 0
+var bool  hiReached = false
+var bool  loReached = false
+
+if newDay
+    // score the day that just ended against what was predicted
+    if not na(oHi)
+        missOH += math.abs(oHi - dHs)
+        missOL += math.abs(oLo - dLs)
+        nOpenDays += 1
+    if not na(sHi)
+        missSH += math.abs(sHi - dHs)
+        missSL += math.abs(sLo - dLs)
+        missSB += math.abs(sBu - lastPoc)
+        nSessDays += 1
+    dStart := time
+    dHs := high
+    dLs := low
+    pStep := dAtr * PROF_STEP
+    pBase := open - PROF_HALF * pStep
+    array.fill(prof, 0.0)
+    oHi := na
+    oLo := na
+    sHi := na
+    sLo := na
+    sBu := na
+    sessSeen := false
+    hiReached := false
+    loReached := false
+else
+    dHs := math.max(dHs, high)
+    dLs := math.min(dLs, low)
+
+// time-at-price profile for today (each bar adds 1 to every bin it traded through)
+poc = (dHs + dLs) / 2
+if not na(pStep) and pStep > 0
+    b0 = math.max(0, math.floor((low - pBase) / pStep))
+    b1 = math.min(2 * PROF_HALF, math.floor((high - pBase) / pStep))
+    if b1 >= b0
+        for b = b0 to b1
+            array.set(prof, b, array.get(prof, b) + 1.0)
+    poc := pBase + (array.indexof(prof, array.max(prof)) + 0.5) * pStep
+lastPoc := poc
+
+hr  = na(dStart) ? 0 : math.max(0, math.min(23, int(math.floor((time - dStart) / 3600000))))
+pos = dHs > dLs ? math.max(0, math.min(2, int(math.floor((close - dLs) / (dHs - dLs) * 3)))) : 1
+extUp = extUpAt(hr * 3 + pos)
+extDn = extDnAt(hr * 3 + pos)
+liveHi = dHs + extUp * dAtr
+liveLo = dLs - extDn * dAtr
+bW     = buildWAt(hr)
+build  = (liveHi + liveLo) / 2 * (1 - bW) + poc * bW
+liveOk = showLive and haveLevels and not na(liveHi) and not na(liveLo)
+
+if liveOk and na(oHi)
+    oHi := liveHi
+    oLo := liveLo
+if liveOk and inSess and not sessSeen
+    sessSeen := true
+    sHi := liveHi
+    sLo := liveLo
+    sBu := build
+
+plot(liveOk and not newDay ? liveHi : na, "Predicted HIGH (live)", color=colHigh, linewidth=2, style=plot.style_linebr)
+plot(liveOk and not newDay ? build : na,  "Build-up / support (live)", color=colBuild, linewidth=2, style=plot.style_linebr)
+plot(liveOk and not newDay ? liveLo : na, "Predicted LOW (live)", color=colLow, linewidth=2, style=plot.style_linebr)
+
+// price reached the line that was predicted on the bar before (once per side per day)
+touchHi = liveOk and not newDay and not hiReached and liveHi[1] - dHs[1] > touchTol * dAtr and high >= liveHi[1] - touchTol * dAtr
+touchLo = liveOk and not newDay and not loReached and dLs[1] - liveLo[1] > touchTol * dAtr and low <= liveLo[1] + touchTol * dAtr
+if touchHi
+    hiReached := true
+if touchLo
+    loReached := true
+plotshape(showTouch and touchHi, "Reached predicted high", shape.circle, location.abovebar, colHigh, size=size.tiny)
+plotshape(showTouch and touchLo, "Reached predicted low", shape.circle, location.belowbar, colLow, size=size.tiny)
+
+// ---------- Labels and flow lines on the current bar ----------
+var label lbHi = na
+var label lbLo = na
+var label lbBu = na
+var line  fHi  = na
+var line  fLo  = na
+var line  fHiB = na
+var line  fLoB = na
+
+if barstate.islast and liveOk
+    label.delete(lbHi)
+    label.delete(lbLo)
+    label.delete(lbBu)
+    line.delete(fHi)
+    line.delete(fLo)
+    line.delete(fHiB)
+    line.delete(fLoB)
+    hiSet = extUp <= 0.005
+    loSet = extDn <= 0.005
+    lbHi := label.new(bar_index + 2, liveHi, "▲ HIGH " + str.tostring(liveHi, format.mintick) + (hiSet ? "  (likely set)" : ""), style=label.style_label_left, color=color.new(colHigh, 80), textcolor=colHigh, size=size.small)
+    lbBu := label.new(bar_index + 2, build,  "◆ BUILD-UP " + str.tostring(build, format.mintick), style=label.style_label_left, color=color.new(colBuild, 80), textcolor=colBuild, size=size.small)
+    lbLo := label.new(bar_index + 2, liveLo, "▼ LOW " + str.tostring(liveLo, format.mintick) + (loSet ? "  (likely set)" : ""), style=label.style_label_left, color=color.new(colLow, 80), textcolor=colLow, size=size.small)
+    if showFlow
+        endT = math.max(dayEnd, time + 4 * barMs)
+        tHi  = math.min(endT - barMs, math.max(time + 2 * barMs, dStart + tHiAt(hr) * 3600000))
+        tLo  = math.min(endT - barMs, math.max(time + 2 * barMs, dStart + tLoAt(hr) * 3600000))
+        if not hiSet
+            fHi  := line.new(time, close, int(tHi), liveHi, xloc=xloc.bar_time, color=colHigh, style=line.style_arrow_right, width=1)
+            fHiB := line.new(int(tHi), liveHi, endT, build, xloc=xloc.bar_time, color=colBuild, style=line.style_dotted, width=1)
+        if not loSet
+            fLo  := line.new(time, close, int(tLo), liveLo, xloc=xloc.bar_time, color=colLow, style=line.style_arrow_right, width=1)
+            fLoB := line.new(int(tLo), liveLo, endT, build, xloc=xloc.bar_time, color=colBuild, style=line.style_dotted, width=1)
+
+// ---------- Max envelope lines (set at the day open) ----------
+var line[] mxLines = array.new_line()
+var box[]  mxBoxes = array.new_box()
+
+if newDay and haveLevels and showMax
+    array.push(mxLines, line.new(time, dOpen, dayEnd, dOpen, xloc=xloc.bar_time, color=colOpen, style=line.style_dotted, width=1))
+    array.push(mxLines, line.new(time, predHiOut, dayEnd, predHiOut, xloc=xloc.bar_time, color=color.new(colHigh, 40), style=line.style_dashed, width=1))
+    array.push(mxLines, line.new(time, predLoOut, dayEnd, predLoOut, xloc=xloc.bar_time, color=color.new(colLow, 40), style=line.style_dashed, width=1))
+    array.push(mxBoxes, box.new(time, predHiOut, dayEnd, predHiZn, xloc=xloc.bar_time, border_color=na, bgcolor=colZoneHi))
+    array.push(mxBoxes, box.new(time, predLoZn, dayEnd, predLoOut, xloc=xloc.bar_time, border_color=na, bgcolor=colZoneLo))
+    while array.size(mxLines) > 3 * (histDays + 1)
+        line.delete(array.shift(mxLines))
+    while array.size(mxBoxes) > 2 * (histDays + 1)
+        box.delete(array.shift(mxBoxes))
+
+// ---------- Signal filters ----------
 rsi = ta.rsi(close, rsiLen)
 [vw, vwU, vwL] = ta.vwap(hlc3, newDay, vwapMult)
 [bbM, bbU, bbL] = ta.bb(close, 20, vwapMult)
@@ -169,14 +307,14 @@ extU = na(vwU) or volume == 0 ? bbU : vwU          // fall back to Bollinger whe
 extL = na(vwL) or volume == 0 ? bbL : vwL
 rng  = high - low
 
-// SELL (fade the predicted high)
+// SELL (fade the predicted high zone)
 s1 = high >= predHiZn - zoneTol * dAtr
 s2 = rng > 0 and close < open and (high - math.max(open, close)) >= wickPct / 100 * rng and close < predHiOut
 s3 = ta.highest(rsi, 3) >= rsiOB and rsi < rsi[1]
 s4 = high >= extU
 sScore = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0) + (s4 ? 1 : 0) + (inSess ? 1 : 0)
 
-// BUY (fade the predicted low)
+// BUY (fade the predicted low zone)
 b1 = low <= predLoZn + zoneTol * dAtr
 b2 = rng > 0 and close > open and (math.min(open, close) - low) >= wickPct / 100 * rng and close > predLoOut
 b3 = ta.lowest(rsi, 3) <= rsiOS and rsi > rsi[1]
@@ -191,7 +329,6 @@ if newDay
 
 // ---------- Trade tracker (one at a time, conservative: SL first if both hit in one bar) ----------
 var int   tDir = 0
-var float tEntry = na
 var float tSL = na
 var float tTP = na
 var int   nSig = 0
@@ -216,16 +353,14 @@ buySig  = showSig and haveLevels and barstate.isconfirmed and tDir == 0 and b1 a
 
 if sellSig
     tDir := -1
-    tEntry := close
     tSL := high + slBuf * dAtr
     tTP := close - rrTarget * (tSL - close)
     soldToday := true
     nSig += 1
-    label.new(bar_index, high, "SELL " + str.tostring(sScore) + "/5\nSL " + str.tostring(tSL, format.mintick) + "\nTP " + str.tostring(tTP, format.mintick), style=label.style_label_down, color=colHigh, textcolor=color.white, size=size.small)
+    label.new(bar_index, high, "SELL " + str.tostring(sScore) + "/5\nSL " + str.tostring(tSL, format.mintick) + "\nTP " + str.tostring(tTP, format.mintick), style=label.style_label_down, color=colHigh, textcolor=color.black, size=size.small)
 
 if buySig
     tDir := 1
-    tEntry := close
     tSL := low - slBuf * dAtr
     tTP := close + rrTarget * (close - tSL)
     boughtToday := true
@@ -234,6 +369,8 @@ if buySig
 
 alertcondition(sellSig, "DRP SELL", "Day Range Predictor: SELL at predicted high zone on {{ticker}} {{close}}")
 alertcondition(buySig,  "DRP BUY",  "Day Range Predictor: BUY at predicted low zone on {{ticker}} {{close}}")
+alertcondition(touchHi, "DRP reached high", "Day Range Predictor: {{ticker}} reached the predicted HIGH")
+alertcondition(touchLo, "DRP reached low",  "Day Range Predictor: {{ticker}} reached the predicted LOW")
 if sellSig
     alert("DRP SELL " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + "  SL " + str.tostring(tSL, format.mintick) + "  TP " + str.tostring(tTP, format.mintick), alert.freq_once_per_bar_close)
 if buySig
@@ -241,29 +378,30 @@ if buySig
 
 // ---------- Panel ----------
 pct(a, b) => b > 0 ? str.tostring(100.0 * a / b, "#.0") + "%" : "n/a"
+miss(total, n) => n > 0 ? "±" + str.tostring(total / n, format.mintick) : "n/a"
 
 var table panel = table.new(position.top_right, 2, 10, bgcolor=colPanel, border_width=0, frame_color=color.new(colText, 80), frame_width=1)
 if barstate.islast
     table.cell(panel, 0, 0, "Day Range Predictor", text_color=colText, text_size=size.small)
     table.cell(panel, 1, 0, syminfo.ticker, text_color=colText, text_size=size.small)
     if not timeframe.isintraday
-        table.cell(panel, 0, 1, "Use an intraday timeframe", text_color=colHigh, text_size=size.small)
+        table.cell(panel, 0, 1, "Use an intraday timeframe", text_color=colLow, text_size=size.small)
     else
-        table.cell(panel, 0, 1, "Max HIGH (P" + str.tostring(pctOuter) + ")", text_color=colHigh, text_size=size.small)
-        table.cell(panel, 1, 1, str.tostring(predHiOut, format.mintick), text_color=colHigh, text_size=size.small)
-        table.cell(panel, 0, 2, "Likely HIGH (P" + str.tostring(pctInner) + ")", text_color=colHigh, text_size=size.small)
-        table.cell(panel, 1, 2, str.tostring(predHiIn, format.mintick), text_color=colHigh, text_size=size.small)
-        table.cell(panel, 0, 3, "Likely LOW (P" + str.tostring(pctInner) + ")", text_color=colLow, text_size=size.small)
-        table.cell(panel, 1, 3, str.tostring(predLoIn, format.mintick), text_color=colLow, text_size=size.small)
-        table.cell(panel, 0, 4, "Max LOW (P" + str.tostring(pctOuter) + ")", text_color=colLow, text_size=size.small)
-        table.cell(panel, 1, 4, str.tostring(predLoOut, format.mintick), text_color=colLow, text_size=size.small)
-        table.cell(panel, 0, 5, "High stayed under max line", text_color=colText, text_size=size.small)
-        table.cell(panel, 1, 5, pct(nHi, nDays) + " of " + str.tostring(nDays) + "d", text_color=colText, text_size=size.small)
-        table.cell(panel, 0, 6, "Low stayed above max line", text_color=colText, text_size=size.small)
-        table.cell(panel, 1, 6, pct(nLo, nDays) + " of " + str.tostring(nDays) + "d", text_color=colText, text_size=size.small)
-        table.cell(panel, 0, 7, "Both lines held", text_color=colText, text_size=size.small)
-        table.cell(panel, 1, 7, pct(nBoth, nDays), text_color=colText, text_size=size.small)
+        table.cell(panel, 0, 1, "▲ Predicted HIGH", text_color=colHigh, text_size=size.small)
+        table.cell(panel, 1, 1, str.tostring(liveHi, format.mintick), text_color=colHigh, text_size=size.small)
+        table.cell(panel, 0, 2, "◆ Build-up / support", text_color=colBuild, text_size=size.small)
+        table.cell(panel, 1, 2, str.tostring(build, format.mintick), text_color=colBuild, text_size=size.small)
+        table.cell(panel, 0, 3, "▼ Predicted LOW", text_color=colLow, text_size=size.small)
+        table.cell(panel, 1, 3, str.tostring(liveLo, format.mintick), text_color=colLow, text_size=size.small)
+        table.cell(panel, 0, 4, "Max high / low (P" + str.tostring(pctOuter) + ")", text_color=colText, text_size=size.small)
+        table.cell(panel, 1, 4, str.tostring(predHiOut, format.mintick) + " / " + str.tostring(predLoOut, format.mintick), text_color=colText, text_size=size.small)
+        table.cell(panel, 0, 5, "Avg miss at day open (" + str.tostring(nOpenDays) + "d)", text_color=colText, text_size=size.small)
+        table.cell(panel, 1, 5, "H " + miss(missOH, nOpenDays) + "  L " + miss(missOL, nOpenDays), text_color=colText, text_size=size.small)
+        table.cell(panel, 0, 6, "Avg miss at session start (" + str.tostring(nSessDays) + "d)", text_color=colText, text_size=size.small)
+        table.cell(panel, 1, 6, "H " + miss(missSH, nSessDays) + "  L " + miss(missSL, nSessDays) + "  B " + miss(missSB, nSessDays), text_color=colText, text_size=size.small)
+        table.cell(panel, 0, 7, "Max lines held (" + str.tostring(nDays) + "d)", text_color=colText, text_size=size.small)
+        table.cell(panel, 1, 7, "H " + pct(nHi, nDays) + "  L " + pct(nLo, nDays), text_color=colText, text_size=size.small)
         closed = nWin + nLoss
         table.cell(panel, 0, 8, "Signals on chart (" + str.tostring(nSig) + ")", text_color=colText, text_size=size.small)
-        table.cell(panel, 1, 8, "win " + pct(nWin, closed) + "  " + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "#.#") + "R", text_color=sumR >= 0 ? colLow : colHigh, text_size=size.small)
+        table.cell(panel, 1, 8, "win " + pct(nWin, closed) + "  " + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "#.#") + "R", text_color=sumR >= 0 ? colHigh : colLow, text_size=size.small)
     table.cell(panel, 0, 9, "Not 100% - past results, not a promise", text_color=color.new(colText, 40), text_size=size.tiny)

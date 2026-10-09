@@ -236,6 +236,119 @@ def train_signals(h1, daily, lines, mk):
     return out
 
 
+# ---------------------------------------------------------------- live high / low / build-up
+PROF_STEP = 0.05     # profile bin size in daily ATRs (must match the scripts)
+PROF_HALF = 60       # bins each side of the open -> covers +/- 3 ATR
+LIVE_HOLDOUT_DAYS = 120
+
+
+def live_bars(h1, daily, atr_len, session):
+    """Per hourly bar: hours since the day's first bar, range so far, position in it, build-up so far."""
+    tr = np.maximum(daily.h, daily.c.shift()) - np.minimum(daily.l, daily.c.shift())
+    atr = tr.rolling(atr_len).mean().shift()
+    df = h1.copy()
+    df["day"] = (df.index + pd.Timedelta(hours=6)).date
+    df = df.join(atr.rename("atr"), on="day").dropna(subset=["atr"])
+    rows = []
+    for day, g in df.groupby("day"):
+        if len(g) < 12:
+            continue
+        a = g.atr.iloc[0]
+        step = PROF_STEP * a
+        base = g.o.iloc[0] - PROF_HALF * step
+        prof = np.zeros(2 * PROF_HALF + 1)
+        t0 = g.index[0]
+        H, L = g.h.max(), g.l.min()
+        hs, ls = -np.inf, np.inf
+        hi_hr = int((g.h.idxmax() - t0).total_seconds() // 3600)
+        lo_hr = int((g.l.idxmin() - t0).total_seconds() // 3600)
+        mins = g.index.hour * 60 + g.index.minute
+        sess_seen = False
+        for ts, o, h, l, c, m in zip(g.index, g.o, g.h, g.l, g.c, mins):
+            hs, ls = max(hs, h), min(ls, l)
+            b0 = max(0, int(np.floor((l - base) / step)))
+            b1 = min(len(prof) - 1, int(np.floor((h - base) / step)))
+            if b1 >= b0:
+                prof[b0:b1 + 1] += 1
+            hr = min(23, int((ts - t0).total_seconds() // 3600))
+            pos = 1 if hs <= ls else min(2, int((c - ls) / (hs - ls) * 3))
+            in_sess = session[0] <= m < session[1]
+            first_sess = in_sess and not sess_seen
+            sess_seen = sess_seen or in_sess
+            rows.append((day, hr, pos, hs, ls, base + (np.argmax(prof) + 0.5) * step, H, L, a, hi_hr, lo_hr, first_sess))
+    r = pd.DataFrame(rows, columns=["day", "hr", "pos", "hs", "ls", "poc", "H", "L", "atr", "hi_hr", "lo_hr", "first_sess"])
+    r["eu"] = (r.H - r.hs) / r.atr
+    r["ed"] = (r.ls - r.L) / r.atr
+    fin = r.groupby("day").poc.last()
+    r["fpoc"] = r.day.map(fin)
+    return r
+
+
+def fit_live(r):
+    eu = r.groupby(["hr", "pos"]).eu.median()
+    ed = r.groupby(["hr", "pos"]).ed.median()
+    eu_h, ed_h = r.groupby("hr").eu.median(), r.groupby("hr").ed.median()
+    up, dn, w, thi, tlo = [], [], [], [], []
+    for hr in range(24):
+        for pos in range(3):
+            up.append(float(eu.get((hr, pos), eu_h.get(hr, 0.0))))
+            dn.append(float(ed.get((hr, pos), ed_h.get(hr, 0.0))))
+    up, dn = [round(x, 3) for x in up], [round(x, 3) for x in dn]
+    tab = {"up": up, "dn": dn}
+    r = r.assign(lh=r.hs + r.hr.mul(3).add(r.pos).map(dict(enumerate(up))) * r.atr,
+                 ll=r.ls - r.hr.mul(3).add(r.pos).map(dict(enumerate(dn))) * r.atr)
+    r["mid"] = (r.lh + r.ll) / 2
+    for hr in range(24):
+        g = r[r.hr == hr]
+        if len(g) < 30:
+            w.append(w[-1] if w else 0.0)
+        else:
+            ws = np.linspace(0, 1, 21)
+            w.append(round(float(ws[np.argmin([np.abs(g.mid * (1 - x) + g.poc * x - g.fpoc).mean() for x in ws])]), 2))
+        later_hi = r[(r.hr == hr) & (r.hi_hr > hr)].drop_duplicates("day").hi_hr
+        later_lo = r[(r.hr == hr) & (r.lo_hr > hr)].drop_duplicates("day").lo_hr
+        thi.append(float(later_hi.median() + 0.5) if len(later_hi) >= 10 else float(min(23.5, hr + 1)))
+        tlo.append(float(later_lo.median() + 0.5) if len(later_lo) >= 10 else float(min(23.5, hr + 1)))
+    tab.update(w=w, thi=thi, tlo=tlo)
+    return tab
+
+
+def apply_live(r, tab):
+    k = (r.hr * 3 + r.pos).to_numpy()
+    lh = r.hs + np.take(tab["up"], k) * r.atr
+    ll = r.ls - np.take(tab["dn"], k) * r.atr
+    w = np.take(tab["w"], r.hr.to_numpy())
+    bu = (lh + ll) / 2 * (1 - w) + r.poc * w
+    return lh, ll, bu
+
+
+def train_live(h1, daily, lines, mk):
+    r = live_bars(h1, daily, lines["atr"], mk["session"])
+    days = sorted(r.day.unique())
+    cut = days[-LIVE_HOLDOUT_DAYS]
+    tr, ho = r[r.day < cut], r[r.day >= cut]
+    tab = fit_live(tr)
+    lh, ll, bu = apply_live(ho, tab)
+    ho = ho.assign(mh=(lh - ho.H).abs() / ho.atr, ml=(ll - ho.L).abs() / ho.atr, mb=(bu - ho.fpoc).abs() / ho.atr)
+    # the old fixed "likely" lines (P50 at the open), same days, for comparison
+    t = line_table(daily, lines["lookback"], lines["atr"], [50])
+    fx = ho.drop_duplicates("day").join(t[["o", "u50", "d50"]], on="day")
+    fixed = ((fx.o + fx.u50 * fx.atr - fx.H).abs() / fx.atr).mean(), ((fx.o - fx.d50 * fx.atr - fx.L).abs() / fx.atr).mean()
+    first = ho.groupby("day").head(1)
+    sess = ho[ho.first_sess]
+    last_atr = float(r.atr.iloc[-1])
+    ev = {
+        "days": ho.day.nunique(), "from": str(cut), "atr": last_atr,
+        "fixed": fixed,
+        "open": (first.mh.mean(), first.ml.mean(), first.mb.mean()),
+        "session": (sess.mh.mean(), sess.ml.mean(), sess.mb.mean()),
+        "all": (ho.mh.mean(), ho.ml.mean(), ho.mb.mean()),
+        "near": float(((ho.mh <= 0.1) & (ho.ml <= 0.1)).mean()),
+        "by_hr": ho.groupby("hr")[["mh", "ml", "mb"]].mean(),
+    }
+    return fit_live(r), ev       # ship tables fitted on all days, including the most recent ones
+
+
 # ---------------------------------------------------------------- outputs
 def write_set(path, lines, sig):
     zp, ms, wk, ob, rr = sig["params"]
@@ -283,8 +396,16 @@ def update_sources(res, stamp):
         mql.append(f"const int    T_{key}_LOOKBACK = {p['lookback']}, T_{key}_ATR = {p['atr']}, T_{key}_SCORE = {p['score']};")
         mql.append(f"const double T_{key}_INNER = {p['inner']}, T_{key}_OUTER = {p['outer']}, T_{key}_ZONE = {p['zone']}, T_{key}_WICK = {p['wick']},")
         mql.append(f"             T_{key}_OB = {p['ob']}, T_{key}_OS = {p['os']}, T_{key}_RR = {p['rr']};")
+        lv = res[key]["live"]
+        for name, k in (("ExtUp", "up"), ("ExtDn", "dn"), ("BuildW", "w"), ("THi", "thi"), ("TLo", "tlo")):
+            pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in lv[k])})")
+            mql.append(f"double T_{key}_{name.upper()}[{len(lv[k])}] = {{{', '.join(str(x) for x in lv[k])}}};")
     rewrite_block(ROOT / "pine/DayRangePredictor.pine", START, END, "\n".join(pine) + "\n")
     rewrite_block(ROOT / "experts/DayRangePredictor.mq5", START, END, "\n".join(mql) + "\n")
+
+
+def fmt3(t):
+    return "/".join(f"{x:.3f}" for x in t)
 
 
 def pct(x):
@@ -307,6 +428,19 @@ def report(res, stamp):
               "| | High held | Low held | Both held | Width (× ATR) |", "| --- | --- | --- | --- | --- |",
               f"| Trained, holdout last {ln['hold_days']} days | {pct(ln['hold_hi'])} | {pct(ln['hold_lo'])} | {pct(ln['hold_both'])} | {ln['hold_width']:.2f} |",
               f"| Old default (250d, ATR 14, P95), same days | {pct(ln['base_hi'])} | {pct(ln['base_lo'])} | {pct(ln['base_both'])} | {ln['base_width']:.2f} |", ""]
+        ev, a = r["lev"], r["lev"]["atr"]
+        pts = lambda x: f"{x:.2f} ATR (≈{x * a:,.0f})" if key == "NQ" else f"{x:.2f} ATR (≈${x * a:,.1f})"
+        L += ["### Live high / low / build-up lines (update every bar)", "",
+              f"Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up "
+              f"by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and "
+              f"the price where the most trading has happened so far. Holdout: {ev['days']} unseen days from {ev['from']}. "
+              f"Average distance between the line and the day's real high / low / build-up:", "",
+              "| When | High miss | Low miss | Build-up miss |", "| --- | --- | --- | --- |",
+              f"| Old fixed lines at the open | {pts(ev['fixed'][0])} | {pts(ev['fixed'][1])} | n/a |",
+              f"| Live, at the day open | {pts(ev['open'][0])} | {pts(ev['open'][1])} | {pts(ev['open'][2])} |",
+              f"| Live, at session start | {pts(ev['session'][0])} | {pts(ev['session'][1])} | {pts(ev['session'][2])} |",
+              f"| Live, average over the day | {pts(ev['all'][0])} | {pts(ev['all'][1])} | {pts(ev['all'][2])} |", "",
+              f"Share of bars where both live lines were within 0.1 ATR of the real high and low: {pct(ev['near'])}.", ""]
         L += ["### Signals (hourly bars, after estimated spread/commission)", "",
               f"Tested {sg['tested']} filter combinations; {sg['eligible']} had at least {MIN_TRAIN_TRADES} trades in training "
               f"({sg['train_from']} to {sg['hold_from']}). Holdout: {sg['hold_from']} to {sg['hold_to']}.", "",
@@ -358,9 +492,12 @@ def main():
         print(f"   lines: lookback {lines['lookback']}d, ATR {lines['atr']}, P{lines['outer']} -> holdout high {pct(lines['hold_hi'])}, "
               f"low {pct(lines['hold_lo'])}, both {pct(lines['hold_both'])}, width {lines['hold_width']:.2f}x ATR "
               f"(old default: {pct(lines['base_hi'])}/{pct(lines['base_lo'])}, width {lines['base_width']:.2f})")
+        live, lev = train_live(h1, daily, lines, mk)
+        print(f"   live lines (holdout {lev['days']} days, miss in ATRs high/low/build-up): at open {fmt3(lev['open'])}, "
+              f"session start {fmt3(lev['session'])}, all bars {fmt3(lev['all'])}; old fixed lines {lev['fixed'][0]:.3f}/{lev['fixed'][1]:.3f}")
         sig = train_signals(h1, daily, lines, mk)
         print(f"   signals: best {sig['best']} train {sig['train']} holdout {sig['hold']} edge={sig['edge']} -> preset {sig['params']}")
-        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1])}
+        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev}
     if args.no_write:
         return
     (ROOT / "presets").mkdir(exist_ok=True)
