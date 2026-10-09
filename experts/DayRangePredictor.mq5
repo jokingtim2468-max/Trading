@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //| DayRangePredictor.mq5                                            |
 //| Live predicted day HIGH (green), LOW (red) and BUILD-UP (yellow) |
 //| lines, flow lines, max envelope and strict reversal signals for  |
@@ -39,10 +39,15 @@ input bool   InpUseTrained   = true;  // Use trained presets (US100 or gold pick
 
 input group "Live high / low / build-up"
 input bool   InpShowLive     = true;  // Show live predicted high, low and build-up
-input bool   InpShowFlow     = true;  // Show flow lines (projected path)
+input bool   InpShowFlow     = false; // Show flow lines (projected path; replaced by AI TP/SL)
 input bool   InpShowTouch    = true;  // Mark where price reached the line
 input double InpTouchTolAtr  = 0.03;  // Reached = within (x daily ATR)
 input int    InpLiveDays     = 1;     // Previous days of live lines to keep
+
+input group "AI quick-trade TP / SL"
+input bool   InpShowAI       = true;  // Show AI TP (green) / SL (red) lines
+input int    InpAIMaxAgeSec  = 300;   // Use the AI service file when newer than (seconds)
+input int    InpAIBars       = 12;    // Draw TP/SL lines this many bars ahead
 
 input group "Max envelope (day open lines)"
 input bool   InpShowMax      = true;  // Show max high / low lines
@@ -110,6 +115,13 @@ int    g_nOpenDays = 0, g_nSessDays = 0;
 // Current values for the panel
 double g_curHi = 0, g_curLo = 0, g_curBuild = 0;
 
+// Quick-trade model (price only, used when the AI service isn't running)
+double g_sMu[12], g_sSd[12], g_sCoef[13];
+double g_sThr = 0.5, g_sTp = 1, g_sSl = 1, g_sWin = 0, g_sEv = 0, g_sEdge = 0;
+double g_pLocal = -1, g_atr5 = 0;
+string g_aiRow1 = "", g_aiRow2 = "", g_aiRow3 = "";
+color  g_aiCol = clrGray;
+
 int      g_rsiHandle = INVALID_HANDLE;
 datetime g_lastBar = 0;
 datetime g_lastAlertBar = 0;
@@ -126,15 +138,33 @@ string   g_lastTouchText = "";
 const int    T_NQ_LOOKBACK = 180, T_NQ_ATR = 20, T_NQ_SCORE = 5;
 const double T_NQ_INNER = 50.0, T_NQ_OUTER = 96.0, T_NQ_ZONE = 85.0, T_NQ_WICK = 40.0,
              T_NQ_OB = 70.0, T_NQ_OS = 30.0, T_NQ_RR = 1.0;
-double T_NQ_EXTUP[72] = {0.261, 0.323, 0.378, 0.241, 0.276, 0.353, 0.178, 0.184, 0.334, 0.101, 0.245, 0.349, 0.12, 0.213, 0.323, 0.12, 0.209, 0.296, 0.071, 0.242, 0.302, 0.079, 0.194, 0.309, 0.061, 0.185, 0.3, 0.007, 0.138, 0.299, 0.008, 0.121, 0.283, 0.0, 0.115, 0.283, 0.0, 0.082, 0.278, 0.0, 0.093, 0.237, 0.0, 0.088, 0.208, 0.0, 0.006, 0.169, 0.0, 0.0, 0.13, 0.0, 0.0, 0.079, 0.0, 0.0, 0.044, 0.0, 0.0, 0.017, 0.0, 0.0, 0.002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-double T_NQ_EXTDN[72] = {0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.242, 0.0, 0.0, 0.131, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+double T_NQ_SMU[12] = {0.008212, 0.025807, 0.144035, 0.691638, 0.022466, 0.698255, 0.044386, -0.00063, 0.055312, -0.001301, 0.374559, 0.421534};
+double T_NQ_SSD[12] = {0.679261, 1.139571, 2.184266, 5.158697, 0.241357, 3.90876, 0.303623, 0.478523, 0.690527, 0.72124, 0.179857, 0.242468};
+double T_NQ_SCOEF[13] = {0.072653, -0.0079, -0.008063, 0.048647, 0.110232, -0.111858, 0.069067, 0.042162, 0.002519, -0.065399, -0.004674, 0.126193, -0.079668};
+const double T_NQ_STHR = 0.5;
+const double T_NQ_STP = 3.0;
+const double T_NQ_SSL = 2.0;
+const double T_NQ_SWIN = 0.464;
+const double T_NQ_SEV = -0.005;
+const double T_NQ_SEDGE = 0.0;
+double T_NQ_EXTUP[72] = {0.261, 0.323, 0.378, 0.241, 0.276, 0.353, 0.178, 0.184, 0.334, 0.101, 0.245, 0.349, 0.12, 0.213, 0.323, 0.12, 0.209, 0.296, 0.071, 0.242, 0.302, 0.079, 0.194, 0.309, 0.061, 0.185, 0.3, 0.007, 0.138, 0.299, 0.008, 0.121, 0.283, 0.0, 0.115, 0.283, 0.0, 0.082, 0.278, 0.0, 0.093, 0.237, 0.0, 0.088, 0.208, 0.0, 0.006, 0.17, 0.0, 0.0, 0.13, 0.0, 0.0, 0.079, 0.0, 0.0, 0.044, 0.0, 0.0, 0.017, 0.0, 0.0, 0.002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+double T_NQ_EXTDN[72] = {0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.237, 0.0, 0.0, 0.129, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double T_NQ_BUILDW[24] = {0.0, 0.1, 0.3, 0.35, 0.35, 0.5, 0.6, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 double T_NQ_THI[24] = {16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 18.5, 19.5, 19.5, 20.5, 21.5, 21.5, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5};
 double T_NQ_TLO[24] = {16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 19.5, 20.5, 21.5, 21.5, 21.5, 22.5, 22.5, 23.0, 23.5};
 const int    T_GC_LOOKBACK = 375, T_GC_ATR = 20, T_GC_SCORE = 5;
 const double T_GC_INNER = 50.0, T_GC_OUTER = 95.5, T_GC_ZONE = 85.0, T_GC_WICK = 40.0,
              T_GC_OB = 70.0, T_GC_OS = 30.0, T_GC_RR = 1.0;
-double T_GC_EXTUP[72] = {0.294, 0.312, 0.413, 0.239, 0.301, 0.365, 0.173, 0.301, 0.303, 0.013, 0.235, 0.329, 0.0, 0.227, 0.32, 0.0, 0.187, 0.294, 0.0, 0.162, 0.3, 0.0, 0.143, 0.304, 0.0, 0.11, 0.268, 0.0, 0.03, 0.259, 0.0, 0.008, 0.221, 0.0, 0.029, 0.204, 0.0, 0.018, 0.175, 0.0, 0.0, 0.165, 0.0, 0.0, 0.114, 0.0, 0.0, 0.077, 0.0, 0.0, 0.031, 0.0, 0.0, 0.004, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+double T_GC_SMU[12] = {0.002666, 0.006162, 0.01989, 0.126752, 0.002456, 0.184418, 0.007261, -0.000265, 0.054945, 0.001632, 0.39887, 0.413496};
+double T_GC_SSD[12] = {0.675943, 1.146241, 2.189221, 5.062415, 0.240879, 4.208594, 0.305092, 0.470864, 0.689465, 0.722281, 0.227216, 0.279796};
+double T_GC_SCOEF[13] = {-0.00894, -0.01356, -0.006753, 0.110633, -0.002398, -0.127587, 0.019954, 0.092992, 0.041209, 0.002895, -0.005719, 0.051736, -0.040679};
+const double T_GC_STHR = 0.55;
+const double T_GC_STP = 3.0;
+const double T_GC_SSL = 1.0;
+const double T_GC_SWIN = 0.287;
+const double T_GC_SEV = -0.239;
+const double T_GC_SEDGE = 0.0;
+double T_GC_EXTUP[72] = {0.294, 0.312, 0.413, 0.239, 0.301, 0.365, 0.173, 0.301, 0.303, 0.013, 0.235, 0.329, 0.0, 0.227, 0.32, 0.0, 0.187, 0.294, 0.0, 0.162, 0.3, 0.0, 0.143, 0.304, 0.0, 0.11, 0.268, 0.0, 0.03, 0.259, 0.0, 0.008, 0.221, 0.0, 0.029, 0.204, 0.0, 0.018, 0.175, 0.0, 0.0, 0.165, 0.0, 0.0, 0.114, 0.0, 0.0, 0.078, 0.0, 0.0, 0.031, 0.0, 0.0, 0.004, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double T_GC_EXTDN[72] = {0.301, 0.347, 0.236, 0.392, 0.232, 0.199, 0.342, 0.203, 0.074, 0.38, 0.125, 0.0, 0.338, 0.066, 0.0, 0.313, 0.09, 0.0, 0.307, 0.114, 0.0, 0.283, 0.059, 0.0, 0.276, 0.02, 0.0, 0.255, 0.067, 0.0, 0.245, 0.038, 0.0, 0.209, 0.0, 0.0, 0.207, 0.0, 0.0, 0.209, 0.0, 0.0, 0.163, 0.0, 0.0, 0.082, 0.0, 0.0, 0.036, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double T_GC_BUILDW[24] = {0.1, 0.15, 0.15, 0.2, 0.2, 0.25, 0.45, 0.4, 0.5, 0.55, 0.55, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 double T_GC_THI[24] = {15.5, 15.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 19.5, 21.5, 21.5, 22.5, 22.5, 22.5, 23.0, 23.5};
@@ -151,11 +181,15 @@ void LoadSettings()
    if(g_isGold)
      {
       ArrayCopy(g_extUp, T_GC_EXTUP); ArrayCopy(g_extDn, T_GC_EXTDN);
+      ArrayCopy(g_sMu, T_GC_SMU); ArrayCopy(g_sSd, T_GC_SSD); ArrayCopy(g_sCoef, T_GC_SCOEF);
+      g_sThr = T_GC_STHR; g_sTp = T_GC_STP; g_sSl = T_GC_SSL; g_sWin = T_GC_SWIN; g_sEv = T_GC_SEV; g_sEdge = T_GC_SEDGE;
       ArrayCopy(g_buildW, T_GC_BUILDW); ArrayCopy(g_tHi, T_GC_THI); ArrayCopy(g_tLo, T_GC_TLO);
      }
    else
      {
       ArrayCopy(g_extUp, T_NQ_EXTUP); ArrayCopy(g_extDn, T_NQ_EXTDN);
+      ArrayCopy(g_sMu, T_NQ_SMU); ArrayCopy(g_sSd, T_NQ_SSD); ArrayCopy(g_sCoef, T_NQ_SCOEF);
+      g_sThr = T_NQ_STHR; g_sTp = T_NQ_STP; g_sSl = T_NQ_SSL; g_sWin = T_NQ_SWIN; g_sEv = T_NQ_SEV; g_sEdge = T_NQ_SEDGE;
       ArrayCopy(g_buildW, T_NQ_BUILDW); ArrayCopy(g_tHi, T_NQ_THI); ArrayCopy(g_tLo, T_NQ_TLO);
      }
    if(!InpUseTrained)
@@ -219,9 +253,13 @@ void OnTick()
       g_dirty = true;         // refresh the forming bar's lines on the next timer tick
   }
 
+int g_timerTicks = 0;
+
 void OnTimer()
   {
-   if(!g_built || g_dirty)
+   g_timerTicks++;
+   bool aiRefresh = InpShowAI && g_timerTicks % 15 == 0;     // pick up a new AI file every ~30 s
+   if(!g_built || g_dirty || aiRefresh)
      {
       g_dirty = false;
       Rebuild();
@@ -690,6 +728,10 @@ datetime ScanBars()
       double extU = vw + InpVwapMult * sd;
       double extL = vw - InpVwapMult * sd;
 
+      // quick-trade model on the last closed bar (same features as ai/short_model.py)
+      if(i == nr - 2 && i >= 49 && atr > 0 && liveHi[i] != EMPTY_VALUE)
+         g_pLocal = QuickProb(r, rsi, i, vw, hs, ls, liveHi[i], liveLo[i], atr, srvNy);
+
       // signals use closed bars only
       if(i == nr - 1 || !InpShowSignals)
          continue;
@@ -787,6 +829,133 @@ datetime ScanBars()
    return lastSignalBar;
   }
 
+// Probability that price is higher in 12 bars, from the trained logistic model (price only)
+double QuickProb(MqlRates &r[], double &rsi[], int i, double vw, double hs, double ls, double lh, double ll, double datr, int srvNy)
+  {
+   double s = 0;
+   for(int k = i - 13; k <= i; k++)
+      s += MathMax(r[k].high, r[k - 1].close) - MathMin(r[k].low, r[k - 1].close);
+   double a5 = s / 14.0;
+   if(a5 <= 0)
+      return -1;
+   g_atr5 = a5;
+   double c = r[i].close;
+   MqlDateTime ny;
+   TimeToStruct(r[i].time - srvNy * 3600, ny);
+   double mins = ny.hour * 60 + ny.min;
+   double x[12];
+   x[0] = (c - r[i - 1].close) / a5;
+   x[1] = (c - r[i - 3].close) / a5;
+   x[2] = (c - r[i - 12].close) / a5;
+   x[3] = (c - r[i - 48].close) / a5;
+   x[4] = (rsi[i] - 50.0) / 50.0;
+   x[5] = (c - vw) / a5;
+   x[6] = (hs > ls) ? (c - ls) / (hs - ls) - 0.5 : 0.0;
+   x[7] = (r[i].high - r[i].low) / a5 - 1.0;
+   x[8] = MathSin(2.0 * M_PI * mins / 1440.0);
+   x[9] = MathCos(2.0 * M_PI * mins / 1440.0);
+   x[10] = (lh - c) / datr;
+   x[11] = (c - ll) / datr;
+   double z = g_sCoef[0];
+   for(int k = 0; k < 12; k++)
+      z += g_sCoef[k + 1] * (x[k] - g_sMu[k]) / g_sSd[k];
+   return 1.0 / (1.0 + MathExp(-z));
+  }
+
+// Read the AI service file (MT5 Common\Files\DRP_AI_NQ.txt or _GC.txt) into key/value arrays
+bool ReadAIFile(string &keys[], string &vals[])
+  {
+   string fn = g_isGold ? "DRP_AI_GC.txt" : "DRP_AI_NQ.txt";
+   int h = FileOpen(fn, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE, 0, CP_UTF8);
+   if(h == INVALID_HANDLE)
+      return false;
+   ArrayResize(keys, 0);
+   ArrayResize(vals, 0);
+   while(!FileIsEnding(h))
+     {
+      string line = FileReadString(h);
+      int eq = StringFind(line, "=");
+      if(eq <= 0)
+         continue;
+      int n = ArraySize(keys);
+      ArrayResize(keys, n + 1);
+      ArrayResize(vals, n + 1);
+      keys[n] = StringSubstr(line, 0, eq);
+      vals[n] = StringSubstr(line, eq + 1);
+     }
+   FileClose(h);
+   return true;
+  }
+
+string KV(string &keys[], string &vals[], string key)
+  {
+   for(int i = 0; i < ArraySize(keys); i++)
+      if(keys[i] == key)
+         return vals[i];
+   return "";
+  }
+
+// Green TP and red SL lines for the side the AI leans to, drawn ahead of the current bar
+void DrawAI()
+  {
+   g_aiRow1 = ""; g_aiRow2 = ""; g_aiRow3 = "";
+   if(!InpShowAI)
+      return;
+   string keys[], vals[];
+   string dir = "", evt = "", head = "";
+   double conf = 0, tpD = 0, slD = 0, newsS = 0;
+   bool setup = false, live = false, llm = false;
+   if(ReadAIFile(keys, vals))
+     {
+      long epoch = StringToInteger(KV(keys, vals, "epoch"));
+      if(epoch > 0 && (long)TimeGMT() - epoch <= InpAIMaxAgeSec)
+        {
+         live = true;
+         dir = KV(keys, vals, "dir");
+         conf = StringToDouble(KV(keys, vals, "conf"));
+         setup = StringToInteger(KV(keys, vals, "setup")) == 1;
+         tpD = StringToDouble(KV(keys, vals, "tp_dist"));
+         slD = StringToDouble(KV(keys, vals, "sl_dist"));
+         newsS = StringToDouble(KV(keys, vals, "news"));
+         llm = StringToInteger(KV(keys, vals, "llm")) == 1;
+         evt = KV(keys, vals, "event");
+         head = KV(keys, vals, "headline1");
+        }
+     }
+   if(!live)
+     {
+      if(g_pLocal < 0 || g_atr5 <= 0)
+         return;
+      dir = g_pLocal >= 0.5 ? "LONG" : "SHORT";
+      conf = MathMax(g_pLocal, 1.0 - g_pLocal);
+      setup = conf >= g_sThr;
+      tpD = g_sTp * g_atr5;
+      slD = g_sSl * g_atr5;
+     }
+   int d = (dir == "LONG") ? 1 : -1;
+   double entry = (d > 0) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(entry <= 0)
+      entry = iClose(_Symbol, _Period, 0);
+   double tp = entry + d * tpD, sl = entry - d * slD;
+   int ps = PeriodSeconds(_Period);
+   datetime t1 = iTime(_Symbol, _Period, 0), t2 = t1 + InpAIBars * ps;
+   ENUM_LINE_STYLE st = setup ? STYLE_SOLID : STYLE_DOT;
+   Seg(PFX + "aiE", t1, entry, t2, entry, InpColOpen, STYLE_DOT, 1);
+   Seg(PFX + "aiT", t1, tp, t2, tp, InpColHigh, st, setup ? 3 : 1);
+   Seg(PFX + "aiS", t1, sl, t2, sl, InpColLow, st, setup ? 3 : 1);
+   Text(PFX + "aiTt", t2, tp, " TP " + Px(tp) + " (" + (d > 0 ? "+" : "-") + DoubleToString(tpD, _Digits) + ")", InpColHigh, ANCHOR_LEFT);
+   Text(PFX + "aiSt", t2, sl, " SL " + Px(sl) + " (" + (d > 0 ? "-" : "+") + DoubleToString(slD, _Digits) + ")", InpColLow, ANCHOR_LEFT);
+   string what = "AI " + dir + " " + DoubleToString(conf * 100, 0) + "%" + (setup ? "" : " (low confidence)");
+   Text(PFX + "aiH", t1, MathMax(tp, sl), what, setup ? (d > 0 ? InpColHigh : InpColLow) : InpColText, ANCHOR_LEFT_LOWER);
+
+   g_aiCol = setup ? (d > 0 ? InpColHigh : InpColLow) : InpColText;
+   g_aiRow1 = what + "  TP " + Px(tp) + "  SL " + Px(sl);
+   string edge = (g_sEdge > 0) ? "tested edge" : "no proven edge";
+   g_aiRow2 = (live ? (llm ? "price + news " + DoubleToString(newsS, 2) : "price only (Ollama off)") : "service offline: price only")
+              + " · past win " + DoubleToString(g_sWin * 100, 0) + "% · " + edge;
+   g_aiRow3 = evt != "" ? "Event risk: " + evt : StringSubstr(head, 0, 60);
+  }
+
 // Labels at the right of today's live lines and the flow lines from the current bar
 void DrawNow(MqlRates &bar, int di, datetime dStart, double hs, double ls, double hi, double lo, double bu)
   {
@@ -827,7 +996,7 @@ void DrawPanel()
    ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, 340);
    ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, 20);
    ObjectSetInteger(0, bg, OBJPROP_XSIZE, 330);
-   ObjectSetInteger(0, bg, OBJPROP_YSIZE, 186);
+   ObjectSetInteger(0, bg, OBJPROP_YSIZE, InpShowAI ? 237 : 186);
    ObjectSetInteger(0, bg, OBJPROP_BGCOLOR, InpColPanel);
    ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
    ObjectSetInteger(0, bg, OBJPROP_COLOR, C'54,58,69');
@@ -855,7 +1024,15 @@ void DrawPanel()
    PanelRow(8, "Signals last " + IntegerToString(InpScanDays) + "d (" + IntegerToString(g_nSig) + ")",
             "win " + Pct(g_nWin, closed) + "  " + (g_sumR >= 0 ? "+" : "") + DoubleToString(g_sumR, 1) + "R",
             g_sumR >= 0 ? InpColHigh : InpColLow);
-   PanelRow(9, "Not 100% - past results, not a promise", "", C'120,123,134');
+   int row = 9;
+   if(InpShowAI && g_aiRow1 != "")
+     {
+      PanelRow(9, g_aiRow1, "", g_aiCol);
+      PanelRow(10, g_aiRow2, "", InpColText);
+      PanelRow(11, g_aiRow3, "", C'160,164,176');
+      row = 12;
+     }
+   PanelRow(row, "Not 100% - past results, not a promise", "", C'120,123,134');
   }
 
 void SendAlert(string text)
@@ -875,7 +1052,9 @@ void Rebuild()
    g_lastSignalText = "";
    g_curHi = 0; g_curLo = 0; g_curBuild = 0;
    DrawMaxLevels();
+   g_pLocal = -1;
    datetime lastSig = ScanBars();
+   DrawAI();
    DrawPanel();
    ChartRedraw();
    datetime newBar = iTime(_Symbol, _Period, 0);

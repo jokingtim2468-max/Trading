@@ -21,6 +21,8 @@ select,input{background:var(--panel);border-color:var(--border)}
 #draw{position:absolute;inset:0;pointer-events:none;z-index:3}
 #draw.drawing{pointer-events:all;cursor:crosshair}
 #legend{position:absolute;top:6px;left:8px;z-index:4;pointer-events:none;line-height:1.6}
+#aiPanel{position:absolute;top:6px;right:70px;z-index:4;max-width:340px;background:rgba(19,23,34,.92);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.5}
+#aiPanel .ai-head{font-weight:600;font-size:13px}#aiPanel .muted{color:var(--muted)}#aiPanel ul{margin:4px 0;padding-left:16px}#aiPanel code{font-size:11px}
 #legend .ind{pointer-events:all;cursor:default}#legend .ind button{padding:0 4px;color:var(--muted)}
 #bottom{height:280px;border-top:4px solid var(--border);display:flex;flex-direction:column;background:var(--bg)}
 .tabs{display:flex;align-items:center;gap:2px;padding:2px 6px;border-bottom:1px solid var(--border)}

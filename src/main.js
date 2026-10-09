@@ -165,6 +165,7 @@ async function loadChart() {
   renderTopbar();
   renderSide();
   await refreshTradeLevels();
+  refreshAI();
   redrawDrawings();
   clearInterval(pollTimer);
   if (client.connected) pollTimer = setInterval(pollTick, 1000);
@@ -218,6 +219,43 @@ $('#tradeTbl').addEventListener('click', async (e) => {
   if (!t) return;
   try { await client.close(+t); log(`Closed #${t}`); refreshTradeLevels(); } catch (err) { log(`Close failed: ${err.message}`); }
 });
+
+// ---------------- AI quick-trade TP / SL (ai/service.py) ----------------
+let aiLines = [];
+async function refreshAI() {
+  const box = $('#aiPanel');
+  aiLines.forEach((l) => mainSeries.removePriceLine(l));
+  aiLines = [];
+  if (!settings.aiEnabled) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  let a;
+  try {
+    const r = await fetch(`${settings.aiUrl.replace(/\/$/, '')}/ai?symbol=${encodeURIComponent(state.symbol)}`);
+    a = await r.json();
+  } catch {
+    box.innerHTML = '<b>AI</b> service offline. Start it with <code>python ai/service.py</code> (and Ollama for news).';
+    return;
+  }
+  if (!a || a.error || !a.dir) { box.innerHTML = '<b>AI</b> warming up…'; return; }
+  // The service sends distances; anchor them to this chart's own price (broker CFD and futures differ).
+  const last = state.bars.at(-1);
+  if (!last) return;
+  const d = a.dir === 'LONG' ? 1 : -1;
+  const entry = last.close, tp = entry + d * a.tp_dist, sl = entry - d * a.sl_dist;
+  const w = a.setup ? 3 : 1, style = a.setup ? 0 : 1;
+  aiLines.push(mainSeries.createPriceLine({ price: tp, color: '#00E676', lineWidth: w, lineStyle: style, title: 'AI TP' }));
+  aiLines.push(mainSeries.createPriceLine({ price: sl, color: '#FF5252', lineWidth: w, lineStyle: style, title: 'AI SL' }));
+  aiLines.push(mainSeries.createPriceLine({ price: entry, color: '#787B86', lineWidth: 1, lineStyle: 2, title: 'entry', axisLabelVisible: false }));
+  const m = a.model || {};
+  const heads = (a.headlines || []).map((h) => `<li class="${h.score > 0 ? 'up' : h.score < 0 ? 'down' : ''}">${h.score > 0 ? '+' : ''}${h.score} ${esc(h.title)}</li>`).join('');
+  box.innerHTML = `<div class="ai-head ${a.setup ? (d > 0 ? 'up' : 'down') : ''}">AI ${a.dir} ${Math.round(a.conf * 100)}%${a.setup ? '' : ' · low confidence'}</div>` +
+    `<div>TP <b class="up">${tp.toFixed(2)}</b> · SL <b class="down">${sl.toFixed(2)}</b> · 1 h max hold</div>` +
+    `<div class="muted">price ${Math.round(a.p_price * 100)}% · news ${a.llm ? (a.news >= 0 ? '+' : '') + a.news.toFixed(2) + ' (' + esc(a.llm_model) + ')' : 'off (Ollama not running)'} · ${esc(a.source)}</div>` +
+    (a.event ? `<div class="down">Event risk: ${esc(a.event)}</div>` : '') +
+    (heads ? `<ul>${heads}</ul>` : '') +
+    `<div class="muted">Past win ${Math.round((m.hold_win || 0) * 100)}% on ${m.hold_trades || 0} unseen trades · ${m.edge ? 'tested edge' : 'no proven edge'} · not financial advice</div>`;
+}
+setInterval(refreshAI, 30000);
 
 // ---------------- Trading ----------------
 $('#lots').value = store.get('mt5tv.lastLots', settings.defaultVolume);

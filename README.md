@@ -92,3 +92,20 @@ Re-train any time with `train.bat` on Windows, or `pip install -r tools/requirem
 MT5 install: copy the `.mq5` into `MQL5\Experts` (or use the app's Expert Advisors tab), compile it in MetaEditor, then drag it onto an intraday chart (M5 or M15 work well). In the Strategy Tester, set "Server time minus New York" to your broker's offset (7 for most brokers) because auto-detect needs a live clock.
 
 TradingView install: Pine Editor → paste `pine/DayRangePredictor.pine` → Add to chart. Use an intraday timeframe. The built-in Pine interpreter in this app doesn't run it, because it needs `request.security`, `var` and arrays.
+
+## AI quick-trade TP / SL (local Llama + news)
+
+For quick trades (up to 1 hour, either direction) the green **TP** and red **SL** lines show where to put the target and stop for the side the AI leans toward. The thin lines are drawn when confidence is low.
+
+- **`ai/service.py`** runs on your PC. Every minute it rebuilds 5-minute features from the MT5 bridge, or from Yahoo (delayed) if the bridge isn't running, and gets the price model's probability. It then shifts that probability with a news score. The news score comes from **a local Llama model through [Ollama](https://ollama.com)** reading Yahoo Finance and Google News headlines, and high-impact USD events on the ForexFactory calendar mark "event risk" and turn off setups. It publishes:
+  - `http://127.0.0.1:8766/ai`, which the app reads: TP/SL price lines plus a panel with the top headlines
+  - `MT5 Common\Files\DRP_AI_NQ.txt` / `DRP_AI_GC.txt`, which the EA reads: TP/SL lines plus panel rows. Without the service, the EA uses the built-in price-only model.
+  - `ai/logs/predictions.csv`, a log of every call
+- **TradingView** can't read news, so the Pine script runs the same price-only model on chart bars. It's tuned for 5-minute charts.
+- **Setup (Windows):** install Ollama, then double-click `ai.bat`. It pulls `llama3.1:8b`, installs the Python packages and starts the service. Settings such as the model, news weight and bridge offset live in `ai/config.json`. On a PC without a strong GPU, `llama3.2:3b` is lighter.
+- **Honest numbers:** on unseen 5-minute data the price model calls direction about 50–53% of the time. After spread and commission no TP/SL setting made money (NQ about breakeven, gold negative; see `reports/training_report.md`). That's why every display says "no proven edge" until a test shows otherwise. There's no free news history to backtest the news part, so run `python ai/evaluate.py` after a few weeks of the service running. It replays every logged call and tells you whether calls where the news agreed did better. If they didn't, set `news_weight` to 0.
+- **Running cost:** a local model scoring a few dozen headlines every 5 minutes uses a little extra electricity on your PC. There's no API bill.
+
+### Replay videos
+
+`python tools/replay_video.py --symbol NQ --date 2026-10-08` renders a 1080p replay of a trading day from the 9:30 open with the live lines, followed by the 9:30 call against the actual result. It also writes a title and description. The tables are fitted only on earlier days, so the replay has no hindsight.

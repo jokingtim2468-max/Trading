@@ -33,6 +33,8 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from ai import short_model as SM  # noqa: E402
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 # Yahoo symbol, Google Finance quote id, session (NY minutes), round-trip cost in price units
@@ -349,6 +351,55 @@ def train_live(h1, daily, lines, mk):
     return fit_live(r), ev       # ship tables fitted on all days, including the most recent ones
 
 
+# ---------------------------------------------------------------- short-term AI (quick trades)
+def train_short(daily, lines, mk):
+    """Fit the quick-trade direction model and pick TP/SL multiples on 5-minute bars.
+    The last 30% of days are held out; the shipped model is refit on all days."""
+    b = yahoo(mk["yahoo"], "60d", "5m")
+    b = b[b.v > 0] if (b.v > 0).mean() > 0.5 else b
+    tr = np.maximum(daily.h, daily.c.shift()) - np.minimum(daily.l, daily.c.shift())
+    day_atr = tr.rolling(lines["atr"]).mean().shift().to_dict()
+    days = sorted(set((b.index + pd.Timedelta(hours=6)).date))
+    cut = days[int(len(days) * 0.7)]
+    h1 = yahoo(mk["yahoo"], "730d", "1h")
+    r = live_bars(h1, daily, lines["atr"], mk["session"])
+    live_tr = fit_live(r[r.day < cut])                          # day tables known before the holdout
+
+    def dataset(live):
+        F, atr = SM.features(b, day_atr, live)
+        fwd = b.c.shift(-SM.HOLD_BARS) - b.c
+        ok = F.notna().all(axis=1) & fwd.notna() & atr.notna()
+        return F[ok], atr[ok], fwd[ok]
+
+    F, atr, fwd = dataset(live_tr)
+    bars = b.loc[F.index]
+    is_tr = np.array([(t + pd.Timedelta(hours=6)).date() < cut for t in F.index])
+    mu, sd = F[is_tr].mean(), F[is_tr].std().replace(0, 1)
+    coef = SM.fit_logistic(((F[is_tr] - mu) / sd).to_numpy(), (fwd[is_tr] > 0).astype(float).to_numpy())
+    m = {"mu": mu.tolist(), "sd": sd.tolist(), "coef": coef.tolist()}
+    p = SM.predict(F, m)
+    y = (fwd > 0).to_numpy()
+    acc_tr, acc_ho = float(((p > 0.5) == y)[is_tr].mean()), float(((p > 0.5) == y)[~is_tr].mean())
+    best = None
+    for thr, tpm, slm in itertools.product([0.5, 0.52, 0.55], [0.75, 1.0, 1.5, 2.0, 3.0], [0.5, 0.75, 1.0, 1.5, 2.0]):
+        dirs = np.where(p >= thr, 1, np.where(p <= 1 - thr, -1, 0))
+        st = SM.simulate(bars[is_tr], atr[is_tr], dirs[is_tr], tpm, slm, mk["cost"])
+        if st["n"] >= 40 and (best is None or st["ev"] > best[0]["ev"]):
+            best = (st, thr, tpm, slm)
+    st_tr, thr, tpm, slm = best
+    dirs = np.where(p >= thr, 1, np.where(p <= 1 - thr, -1, 0))
+    st_ho = SM.simulate(bars[~is_tr], atr[~is_tr], dirs[~is_tr], tpm, slm, mk["cost"])
+    # ship: refit on every day with the full-data day tables
+    F2, _, fwd2 = dataset(fit_live(r))
+    mu2, sd2 = F2.mean(), F2.std().replace(0, 1)
+    coef2 = SM.fit_logistic(((F2 - mu2) / sd2).to_numpy(), (fwd2 > 0).astype(float).to_numpy())
+    return {"features": SM.FEATURES, "mu": [round(x, 6) for x in mu2], "sd": [round(x, 6) for x in sd2],
+            "coef": [round(x, 6) for x in coef2], "thr": thr, "tpm": tpm, "slm": slm, "hold_bars": SM.HOLD_BARS,
+            "acc_train": acc_tr, "acc_hold": acc_ho, "train": st_tr, "hold": st_ho,
+            "edge": bool(st_tr["ev"] > 0 and st_ho["ev"] > 0 and st_ho["n"] >= 30),
+            "hold_from": str(cut), "bars": int(len(F))}
+
+
 # ---------------------------------------------------------------- outputs
 def write_set(path, lines, sig):
     zp, ms, wk, ob, rr = sig["params"]
@@ -396,6 +447,14 @@ def update_sources(res, stamp):
         mql.append(f"const int    T_{key}_LOOKBACK = {p['lookback']}, T_{key}_ATR = {p['atr']}, T_{key}_SCORE = {p['score']};")
         mql.append(f"const double T_{key}_INNER = {p['inner']}, T_{key}_OUTER = {p['outer']}, T_{key}_ZONE = {p['zone']}, T_{key}_WICK = {p['wick']},")
         mql.append(f"             T_{key}_OB = {p['ob']}, T_{key}_OS = {p['os']}, T_{key}_RR = {p['rr']};")
+        sm = res[key]["short"]
+        for name, vals in (("SMu", sm["mu"]), ("SSd", sm["sd"]), ("SCoef", sm["coef"])):
+            pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in vals)})")
+            mql.append(f"double T_{key}_{name.upper()}[{len(vals)}] = {{{', '.join(str(x) for x in vals)}}};")
+        for name, val in (("SThr", sm["thr"]), ("STp", sm["tpm"]), ("SSl", sm["slm"]), ("SWin", round(sm["hold"]["win"], 3)),
+                          ("SEv", round(sm["hold"]["ev"], 3)), ("SEdge", 1.0 if sm["edge"] else 0.0)):
+            pine.append(f"t{tag}{name} = {float(val)}")
+            mql.append(f"const double T_{key}_{name.upper()} = {float(val)};")
         lv = res[key]["live"]
         for name, k in (("ExtUp", "up"), ("ExtDn", "dn"), ("BuildW", "w"), ("THi", "thi"), ("TLo", "tlo")):
             pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in lv[k])})")
@@ -406,6 +465,16 @@ def update_sources(res, stamp):
 
 def fmt3(t):
     return "/".join(f"{x:.3f}" for x in t)
+
+
+def write_model(res, stamp):
+    """Everything the AI service needs, so it doesn't have to retrain at startup."""
+    out = {"trained": stamp, "symbols": {}}
+    for key, r in res.items():
+        out["symbols"][key] = {"yahoo": MARKETS[key]["yahoo"], "atr_days": r["lines"]["atr"], "live": r["live"],
+                               "short": r["short"], "cost": MARKETS[key]["cost"]}
+    (ROOT / "ai").mkdir(exist_ok=True)
+    (ROOT / "ai/model.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 
 
 def pct(x):
@@ -441,6 +510,18 @@ def report(res, stamp):
               f"| Live, at session start | {pts(ev['session'][0])} | {pts(ev['session'][1])} | {pts(ev['session'][2])} |",
               f"| Live, average over the day | {pts(ev['all'][0])} | {pts(ev['all'][1])} | {pts(ev['all'][2])} |", "",
               f"Share of bars where both live lines were within 0.1 ATR of the real high and low: {pct(ev['near'])}.", ""]
+        sm = r["short"]
+        L += ["### Quick-trade AI TP/SL (5-minute bars, 1-hour max hold, after costs)", "",
+              f"Price-only direction model (news is added live by the AI service and can't be backtested). "
+              f"{sm['bars']:,} bars, holdout from {sm['hold_from']}. Direction accuracy: training {pct(sm['acc_train'])}, "
+              f"holdout {pct(sm['acc_hold'])}. Chosen: TP {sm['tpm']}× / SL {sm['slm']}× the 5-minute ATR, "
+              f"setup when confidence ≥ {sm['thr']:.0%}.", "",
+              "| | Trades | Win rate | Avg result (× 5m ATR) |", "| --- | --- | --- | --- |",
+              f"| Training | {sm['train']['n']} | {pct(sm['train']['win'])} | {sm['train']['ev']:+.3f} |",
+              f"| Holdout (unseen) | {sm['hold']['n']} | {pct(sm['hold']['win'])} | {sm['hold']['ev']:+.3f} |", "",
+              "**Verdict:** " + ("positive on unseen data. Small sample; paper trade first." if sm["edge"] else
+                                 "no proven edge after costs. The TP/SL lines show sensible placement and the odds, "
+                                 "not a reason to trade."), ""]
         L += ["### Signals (hourly bars, after estimated spread/commission)", "",
               f"Tested {sg['tested']} filter combinations; {sg['eligible']} had at least {MIN_TRAIN_TRADES} trades in training "
               f"({sg['train_from']} to {sg['hold_from']}). Holdout: {sg['hold_from']} to {sg['hold_to']}.", "",
@@ -495,15 +576,20 @@ def main():
         live, lev = train_live(h1, daily, lines, mk)
         print(f"   live lines (holdout {lev['days']} days, miss in ATRs high/low/build-up): at open {fmt3(lev['open'])}, "
               f"session start {fmt3(lev['session'])}, all bars {fmt3(lev['all'])}; old fixed lines {lev['fixed'][0]:.3f}/{lev['fixed'][1]:.3f}")
+        short = train_short(daily, lines, mk)
+        print(f"   quick-trade AI (price only): direction accuracy holdout {pct(short['acc_hold'])}, TP {short['tpm']}x / SL {short['slm']}x "
+              f"5m ATR, threshold {short['thr']}; holdout {short['hold']['n']} trades, win {pct(short['hold']['win'])}, "
+              f"EV {short['hold']['ev']:+.3f} ATR -> edge={short['edge']}")
         sig = train_signals(h1, daily, lines, mk)
         print(f"   signals: best {sig['best']} train {sig['train']} holdout {sig['hold']} edge={sig['edge']} -> preset {sig['params']}")
-        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev}
+        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev, "short": short}
     if args.no_write:
         return
     (ROOT / "presets").mkdir(exist_ok=True)
     for key, r in res.items():
         write_set(ROOT / "presets" / MARKETS[key]["set"], r["lines"], r["sig"])
     update_sources(res, stamp)
+    write_model(res, stamp)
     report(res, stamp)
     print("\nWrote presets/*.set, reports/training_report.md and refreshed the TRAINED PRESETS blocks.")
 

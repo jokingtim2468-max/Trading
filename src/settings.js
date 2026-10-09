@@ -14,6 +14,10 @@ export const SETTINGS_SCHEMA = {
     logScale: { label: 'Logarithmic scale', type: 'bool', def: false },
     timezone: { label: 'Timezone', type: 'select', options: ['Exchange', 'UTC', 'Local'], def: 'Local' },
   },
+  'AI TP / SL': {
+    aiEnabled: { label: 'Show AI quick-trade TP / SL', type: 'bool', def: true },
+    aiUrl: { label: 'AI service URL (python ai/service.py)', type: 'text', def: 'http://127.0.0.1:8766' },
+  },
   'MT5: Server': {
     server: { label: 'Trade server', type: 'text', def: '' },
     login: { label: 'Login', type: 'text', def: '' },

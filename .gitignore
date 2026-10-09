@@ -5,3 +5,10 @@ bridge/experts/
 
 # rendered replay videos (regenerate with tools/replay_video.py)
 videos/*.mp4
+
+# AI service local state
+ai/config.json
+ai/cache/
+ai/logs/
+ai/out/
+__pycache__/
