@@ -2,3 +2,6 @@ node_modules/
 dist/
 __pycache__/
 bridge/experts/
+
+# rendered replay videos (regenerate with tools/replay_video.py)
+videos/*.mp4

@@ -1,0 +1,13 @@
+Title: Can a Model Call the Nasdaq High & Low at 9:30? Live Replay vs. Real Result (Oct 8, 2026)
+
+Description:
+We replay Thursday October 8, 2026 on Nasdaq e-mini / US100 bar by bar from the 9:30 AM New York open with the Day Range Predictor. Green is the predicted day high, red is the predicted day low, and yellow is the predicted build-up/support level. Every line uses only the data available at that moment, with no hindsight. At the end we compare the 9:30 call with what actually happened:
+
+  Day HIGH: predicted 31,468.86, actual 31,466.00 (miss 2.86)
+  Build-up: predicted 31,439.43, actual 31,248.49 (miss 190.94)
+  Day LOW: predicted 31,119.75, actual 30,792.00 (miss 327.75)
+
+The model is trained on recent Yahoo Finance data and was fitted only on days before this one.
+Educational content, not financial advice. No prediction is 100% certain.
+
+#nasdaq #nq #daytrading #tradingview #mt5 #futures #trading
