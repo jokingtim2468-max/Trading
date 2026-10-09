@@ -102,10 +102,28 @@ For quick trades (up to 1 hour, either direction) the green **TP** and red **SL*
   - `MT5 Common\Files\DRP_AI_NQ.txt` / `DRP_AI_GC.txt`, which the EA reads: TP/SL lines plus panel rows. Without the service, the EA uses the built-in price-only model.
   - `ai/logs/predictions.csv`, a log of every call
 - **TradingView** can't read news, so the Pine script runs the same price-only model on chart bars. It's tuned for 5-minute charts.
-- **Setup (Windows):** install Ollama, then double-click `ai.bat`. It pulls `llama3.1:8b`, installs the Python packages and starts the service. Settings such as the model, news weight and bridge offset live in `ai/config.json`. On a PC without a strong GPU, `llama3.2:3b` is lighter.
+- **Setup (Windows):** install Ollama, then double-click `ai.bat`. It pulls `llama3.2:3b` (fits a 6 GB GPU), installs the Python packages and starts the service. Settings such as the model, news weight and bridge offset live in `ai/config.json`.
 - **Honest numbers:** on unseen 5-minute data the price model calls direction about 50–53% of the time. After spread and commission no TP/SL setting made money (NQ about breakeven, gold negative; see `reports/training_report.md`). That's why every display says "no proven edge" until a test shows otherwise. There's no free news history to backtest the news part, so run `python ai/evaluate.py` after a few weeks of the service running. It replays every logged call and tells you whether calls where the news agreed did better. If they didn't, set `news_weight` to 0.
 - **Running cost:** a local model scoring a few dozen headlines every 5 minutes uses a little extra electricity on your PC. There's no API bill.
 
 ### Replay videos
 
 `python tools/replay_video.py --symbol NQ --date 2026-10-08` renders a 1080p replay of a trading day from the 9:30 open with the live lines, followed by the 9:30 call against the actual result. It also writes a title and description. The tables are fitted only on earlier days, so the replay has no hindsight.
+
+## Locked lines (default)
+
+Two lines per session, one predicted **HIGH** (green) and one predicted **LOW** (red). They're set once when the session starts and never move. They come from a median regression on features known at that moment, so they aim to land as close as possible to the real high and low.
+
+| Session | Locks at | Covers | Trained on | Avg miss on unseen sessions, before → after training (daily ATRs) |
+| --- | --- | --- | --- | --- |
+| Full day (gold default) | 6 PM NY open | overnight + regular + after-hours to 5 PM | 10 years | NQ high 0.299 → 0.284, low 0.348 → 0.346 |
+| Regular (Nasdaq default) | 9:30 | 9:30 AM – 4:00 PM | 10 years of the Nasdaq-100 cash index | high 0.259 → 0.247, low 0.327 → 0.323 |
+| After-market (Nasdaq default) | 4:00 PM | 4 PM – 9 AM next morning | ~2 years (free intraday limit) | 0.221 / 0.216, training didn't beat the median, so the median is used |
+
+Choose sessions in the EA/script input "Sessions" (Auto, Full day, Regular + after-market, All). The moving lines and the dashed envelope are still available but off by default.
+
+Before/after videos on held-out days: `python tools/fixed_video.py --session day|rth|ah --pick random`.
+
+## Fine-tune your own Llama (Unsloth)
+
+`ai/finetune/` builds a chat dataset from ~10 years of headlines (labelled with what Nasdaq and gold really did), locked-line snapshots with the real highs and lows, and Q&A about the tools. It then fine-tunes Llama with Unsloth and exports it to Ollama as `drp-llama`. Step-by-step instructions and the RTX 4060 settings are in [`ai/finetune/TRAINING.md`](ai/finetune/TRAINING.md).

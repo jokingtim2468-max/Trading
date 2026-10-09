@@ -53,8 +53,9 @@ class NewsScorer:
 
     def _ask(self, title):
         msgs = [{"role": "system", "content": SYSTEM}]
-        for h, o in EXAMPLES:
-            msgs += [{"role": "user", "content": h}, {"role": "assistant", "content": json.dumps(o)}]
+        if not self.model.startswith("drp"):        # the fine-tuned model learned the format; base models need examples
+            for h, o in EXAMPLES:
+                msgs += [{"role": "user", "content": h}, {"role": "assistant", "content": json.dumps(o)}]
         msgs.append({"role": "user", "content": title})
         body = {"model": self.model, "stream": False, "format": SCHEMA, "options": {"temperature": 0}, "messages": msgs}
         req = urllib.request.Request(self.url + "/api/chat", data=json.dumps(body).encode(),

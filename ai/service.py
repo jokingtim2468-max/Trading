@@ -10,7 +10,7 @@ with the news score from the local Llama model, and publishes the TP/SL for the 
 Prices come from the MT5 bridge (bridge/mt5_bridge.py, real time) when it's running, otherwise
 from Yahoo Finance (delayed). Settings: ai/config.json (created on first run).
 
-Run:  ollama pull llama3.1:8b   then   python ai/service.py
+Run:  ollama pull llama3.2:3b   then   python ai/service.py
 Educational tool. Not financial advice. No prediction is certain.
 """
 
@@ -40,7 +40,7 @@ import train_drp as T  # noqa: E402
 
 DEFAULTS = {
     "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "llama3.1:8b",
+    "ollama_model": "llama3.2:3b",  # fits a 6 GB GPU; "drp-llama" after fine-tuning (ai/finetune)
     "news_weight": 0.4,            # how far news can move the probability (0 = ignore news)
     "news_half_life_min": 120,
     "news_refresh_sec": 300,

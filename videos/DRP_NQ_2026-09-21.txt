@@ -1,0 +1,12 @@
+Title: Nasdaq Skyrocketed +2.8%: Could a Model Call the High & Low at 9:30? (Sep 21, 2026 Replay)
+
+Description:
+We replay Monday September 21, 2026 on Nasdaq e-mini / US100 bar by bar from the 9:30 AM New York open with the Day Range Predictor. Green is the predicted day high and red is the predicted day low. Every line uses only the data available at that moment, with no hindsight. At the end we compare the 9:30 call with what actually happened:
+
+  Day HIGH: predicted 30,343.65, actual 30,862.75 (miss 519.10)
+  Day LOW: predicted 29,945.00, actual 29,945.00 (miss 0.00)
+
+The model is trained on recent Yahoo Finance data and was fitted only on days before this one.
+Educational content, not financial advice. No prediction is 100% certain.
+
+#nasdaq #nq #daytrading #tradingview #mt5 #futures #trading

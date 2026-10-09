@@ -1,0 +1,11 @@
+Title: Nasdaq BEFORE training — Two Locked Lines vs. the Real High & Low (Aug 25, 2026)
+
+Description:
+BEFORE training. At the 4 PM close (New York time) the model locks one predicted HIGH (green) and one predicted LOW (red) for the session: after-hours, overnight and pre-market, 4 PM to 9 AM. The lines never move. This session was held out of training. Untrained: lines = median of the last 250 sessions' moves.
+
+  Predicted high 29,403.68 vs actual 29,313.50 (miss 90.18)
+  Predicted low 29,141.05 vs actual 29,096.00 (miss 45.05)
+
+Educational content, not financial advice. No prediction is 100% certain.
+
+#nasdaq #daytrading #trading #futures #ai #mt5 #tradingview

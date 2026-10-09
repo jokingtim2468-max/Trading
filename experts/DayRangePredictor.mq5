@@ -38,11 +38,23 @@ input group "Trained presets"
 input bool   InpUseTrained   = true;  // Use trained presets (US100 or gold picked by symbol)
 
 input group "Live high / low / build-up"
-input bool   InpShowLive     = true;  // Show live predicted high, low and build-up
+input bool   InpShowLive     = false; // Show live (moving) predicted high, low and build-up
 input bool   InpShowFlow     = false; // Show flow lines (projected path; replaced by AI TP/SL)
 input bool   InpShowTouch    = true;  // Mark where price reached the line
 input double InpTouchTolAtr  = 0.03;  // Reached = within (x daily ATR)
 input int    InpLiveDays     = 1;     // Previous days of live lines to keep
+
+enum ENUM_DRP_LOCK
+  {
+   DRP_LOCK_AUTO    = 0, // Auto (Nasdaq: regular + after-market, gold: full day)
+   DRP_LOCK_DAY     = 1, // Full day (6 PM to 5 PM New York)
+   DRP_LOCK_SESSION = 2, // Regular session + after-market (Nasdaq)
+   DRP_LOCK_ALL     = 3  // All
+  };
+
+input group "Locked lines (set once per session, never moved)"
+input ENUM_DRP_LOCK InpLockMode = DRP_LOCK_AUTO; // Sessions
+input int    InpLockHist     = 5;     // Previous sessions to keep
 
 input group "AI quick-trade TP / SL"
 input bool   InpShowAI       = true;  // Show AI TP (green) / SL (red) lines
@@ -50,7 +62,7 @@ input int    InpAIMaxAgeSec  = 300;   // Use the AI service file when newer than
 input int    InpAIBars       = 12;    // Draw TP/SL lines this many bars ahead
 
 input group "Max envelope (day open lines)"
-input bool   InpShowMax      = true;  // Show max high / low lines
+input bool   InpShowMax      = false; // Show max high / low lines
 input int    InpLookbackDays = 250;   // Lookback days
 input int    InpAtrDays      = 14;    // Daily ATR length
 input double InpOuterPct     = 95.0;  // Max line percentile
@@ -138,32 +150,40 @@ string   g_lastTouchText = "";
 const int    T_NQ_LOOKBACK = 180, T_NQ_ATR = 20, T_NQ_SCORE = 5;
 const double T_NQ_INNER = 50.0, T_NQ_OUTER = 96.0, T_NQ_ZONE = 85.0, T_NQ_WICK = 40.0,
              T_NQ_OB = 70.0, T_NQ_OS = 30.0, T_NQ_RR = 1.0;
-double T_NQ_SMU[12] = {0.008212, 0.025807, 0.144035, 0.691638, 0.022466, 0.698255, 0.044386, -0.00063, 0.055312, -0.001301, 0.374559, 0.421534};
-double T_NQ_SSD[12] = {0.679261, 1.139571, 2.184266, 5.158697, 0.241357, 3.90876, 0.303623, 0.478523, 0.690527, 0.72124, 0.179857, 0.242468};
-double T_NQ_SCOEF[13] = {0.072653, -0.0079, -0.008063, 0.048647, 0.110232, -0.111858, 0.069067, 0.042162, 0.002519, -0.065399, -0.004674, 0.126193, -0.079668};
+double T_NQ_SMU[12] = {0.007895, 0.025034, 0.141037, 0.686676, 0.022047, 0.696834, 0.044264, -0.000287, 0.055942, -0.002348, 0.374598, 0.42148};
+double T_NQ_SSD[12] = {0.679375, 1.140394, 2.185045, 5.157518, 0.241621, 3.907092, 0.303564, 0.478852, 0.690323, 0.721383, 0.179774, 0.242343};
+double T_NQ_SCOEF[13] = {0.072419, -0.007148, -0.008259, 0.050122, 0.112263, -0.115153, 0.069654, 0.040467, 0.001948, -0.065649, -0.004408, 0.126715, -0.079549};
 const double T_NQ_STHR = 0.5;
 const double T_NQ_STP = 3.0;
 const double T_NQ_SSL = 2.0;
-const double T_NQ_SWIN = 0.464;
-const double T_NQ_SEV = -0.005;
-const double T_NQ_SEDGE = 0.0;
+const double T_NQ_SWIN = 0.466;
+const double T_NQ_SEV = 0.009;
+const double T_NQ_SEDGE = 1.0;
+double T_NQ_DAYUP[14] = {0.089527, 0.136896, -0.113073, 0.27997, 0.122335, 0.100114, -0.075293, -0.03056, -0.037067, 0.141976, -0.086927, 0.00318, 0.014354, -0.031031};
+double T_NQ_DAYDN[14] = {0.217592, -0.20643, -0.140873, 0.082428, 0.046205, 0.059731, 0.210747, 0.236948, 0.020192, 0.12745, -0.068849, 0.002925, -0.070145, -0.028767};
+double T_NQ_RTHUP[14] = {0.052677, -0.002677, -0.118568, 0.106759, 0.109282, 0.088568, 0.054195, 0.065587, -0.033362, 0.179636, -0.064753, -0.001576, 0.014124, -0.016889};
+double T_NQ_RTHDN[14] = {0.189003, 0.078189, 0.002603, 0.081517, -0.107045, 0.026586, 0.000671, -0.017511, 0.221889, 0.184847, -0.064504, 0.003739, -0.072943, -0.040605};
+const double T_NQ_AHUP = 0.2522;
+const double T_NQ_AHDN = 0.2286;
 double T_NQ_EXTUP[72] = {0.261, 0.323, 0.378, 0.241, 0.276, 0.353, 0.178, 0.184, 0.334, 0.101, 0.245, 0.349, 0.12, 0.213, 0.323, 0.12, 0.209, 0.296, 0.071, 0.242, 0.302, 0.079, 0.194, 0.309, 0.061, 0.185, 0.3, 0.007, 0.138, 0.299, 0.008, 0.121, 0.283, 0.0, 0.115, 0.283, 0.0, 0.082, 0.278, 0.0, 0.093, 0.237, 0.0, 0.088, 0.208, 0.0, 0.006, 0.17, 0.0, 0.0, 0.13, 0.0, 0.0, 0.079, 0.0, 0.0, 0.044, 0.0, 0.0, 0.017, 0.0, 0.0, 0.002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-double T_NQ_EXTDN[72] = {0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.237, 0.0, 0.0, 0.129, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-double T_NQ_BUILDW[24] = {0.0, 0.1, 0.3, 0.35, 0.35, 0.5, 0.6, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+double T_NQ_EXTDN[72] = {0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.237, 0.0, 0.0, 0.131, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+double T_NQ_BUILDW[24] = {0.0, 0.1, 0.3, 0.35, 0.4, 0.5, 0.6, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 double T_NQ_THI[24] = {16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 18.5, 19.5, 19.5, 20.5, 21.5, 21.5, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5};
 double T_NQ_TLO[24] = {16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 19.5, 20.5, 21.5, 21.5, 21.5, 22.5, 22.5, 23.0, 23.5};
 const int    T_GC_LOOKBACK = 375, T_GC_ATR = 20, T_GC_SCORE = 5;
 const double T_GC_INNER = 50.0, T_GC_OUTER = 95.5, T_GC_ZONE = 85.0, T_GC_WICK = 40.0,
              T_GC_OB = 70.0, T_GC_OS = 30.0, T_GC_RR = 1.0;
-double T_GC_SMU[12] = {0.002666, 0.006162, 0.01989, 0.126752, 0.002456, 0.184418, 0.007261, -0.000265, 0.054945, 0.001632, 0.39887, 0.413496};
-double T_GC_SSD[12] = {0.675943, 1.146241, 2.189221, 5.062415, 0.240879, 4.208594, 0.305092, 0.470864, 0.689465, 0.722281, 0.227216, 0.279796};
-double T_GC_SCOEF[13] = {-0.00894, -0.01356, -0.006753, 0.110633, -0.002398, -0.127587, 0.019954, 0.092992, 0.041209, 0.002895, -0.005719, 0.051736, -0.040679};
+double T_GC_SMU[12] = {0.002779, 0.006648, 0.02082, 0.126722, 0.002583, 0.185415, 0.007514, -0.000315, 0.055574, 0.000585, 0.398759, 0.413753};
+double T_GC_SSD[12] = {0.675738, 1.145976, 2.188332, 5.059261, 0.240781, 4.206069, 0.304986, 0.470649, 0.689263, 0.722428, 0.227098, 0.279716};
+double T_GC_SCOEF[13] = {-0.009673, -0.013858, -0.005692, 0.111154, -0.001384, -0.130334, 0.022731, 0.0916, 0.041409, 0.002469, -0.004944, 0.052566, -0.041889};
 const double T_GC_STHR = 0.55;
 const double T_GC_STP = 3.0;
 const double T_GC_SSL = 1.0;
-const double T_GC_SWIN = 0.287;
-const double T_GC_SEV = -0.239;
+const double T_GC_SWIN = 0.291;
+const double T_GC_SEV = -0.219;
 const double T_GC_SEDGE = 0.0;
+double T_GC_DAYUP[14] = {0.070614, -0.056609, -0.00668, -0.081058, -0.127883, 0.136338, 0.055917, 0.06767, 0.382608, 0.28732, -0.041411, 0.002432, -0.064543, 0.026655};
+double T_GC_DAYDN[14] = {0.170732, -0.01836, 0.009956, -0.075268, -0.286886, 0.088179, 0.089454, 0.077625, 0.261585, 0.358765, 0.012598, 0.012223, 0.043821, -0.015953};
 double T_GC_EXTUP[72] = {0.294, 0.312, 0.413, 0.239, 0.301, 0.365, 0.173, 0.301, 0.303, 0.013, 0.235, 0.329, 0.0, 0.227, 0.32, 0.0, 0.187, 0.294, 0.0, 0.162, 0.3, 0.0, 0.143, 0.304, 0.0, 0.11, 0.268, 0.0, 0.03, 0.259, 0.0, 0.008, 0.221, 0.0, 0.029, 0.204, 0.0, 0.018, 0.175, 0.0, 0.0, 0.165, 0.0, 0.0, 0.114, 0.0, 0.0, 0.078, 0.0, 0.0, 0.031, 0.0, 0.0, 0.004, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double T_GC_EXTDN[72] = {0.301, 0.347, 0.236, 0.392, 0.232, 0.199, 0.342, 0.203, 0.074, 0.38, 0.125, 0.0, 0.338, 0.066, 0.0, 0.313, 0.09, 0.0, 0.307, 0.114, 0.0, 0.283, 0.059, 0.0, 0.276, 0.02, 0.0, 0.255, 0.067, 0.0, 0.245, 0.038, 0.0, 0.209, 0.0, 0.0, 0.207, 0.0, 0.0, 0.209, 0.0, 0.0, 0.163, 0.0, 0.0, 0.082, 0.0, 0.0, 0.036, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 double T_GC_BUILDW[24] = {0.1, 0.15, 0.15, 0.2, 0.2, 0.25, 0.45, 0.4, 0.5, 0.55, 0.55, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
@@ -1004,7 +1024,13 @@ void DrawPanel()
 
    int i = g_days - 1;
    PanelRow(0, "Day Range Predictor", _Symbol, InpColText);
-   if(g_curHi != EMPTY_VALUE && g_curHi != 0)
+   if(!InpShowLive && g_lkName != "")
+     {
+      PanelRow(1, "▲ Locked HIGH (" + g_lkName + ")", Px(g_lkHi), InpColHigh);
+      PanelRow(2, "Lines never move after they lock", "", InpColText);
+      PanelRow(3, "▼ Locked LOW (" + g_lkName + ")", Px(g_lkLo), InpColLow);
+     }
+   else if(g_curHi != EMPTY_VALUE && g_curHi != 0)
      {
       PanelRow(1, "▲ Predicted HIGH", Px(g_curHi), InpColHigh);
       PanelRow(2, "◆ Build-up / support", Px(g_curBuild), InpColBuild);
@@ -1043,6 +1069,178 @@ void SendAlert(string text)
    if(InpAlertSound) PlaySound("alert.wav");
   }
 
+
+//+------------------------------------------------------------------+
+//| Locked lines: set once when a session starts, never moved         |
+//|  Full day     locked at the day open (6 PM NY), 10-year model    |
+//|  Regular      locked at 9:30 NY until 4 PM, 10-year ^NDX model   |
+//|  After-market locked at 4 PM NY until 9 AM, median of 250 nights |
+//+------------------------------------------------------------------+
+double g_lkHi = 0, g_lkLo = 0;
+string g_lkName = "";
+
+// Features of ai/fixed_model.py for bar i of a daily-like series (oldest first). false if not enough history.
+bool LockFeatures(double &o[], double &h[], double &l[], double &c[], int &dow[], int i, double &x[], double &atr)
+  {
+   if(i < 61)
+      return false;
+   double tr[];
+   ArrayResize(tr, i + 1);
+   for(int k = 1; k <= i; k++)
+      tr[k] = MathMax(h[k], c[k - 1]) - MathMin(l[k], c[k - 1]);
+   double s20 = 0, s5 = 0, s60 = 0;
+   for(int k = i - 20; k < i; k++) s20 += tr[k];
+   for(int k = i - 5; k < i; k++)  s5 += tr[k];
+   for(int k = i - 60; k < i; k++) s60 += tr[k];
+   atr = s20 / 20.0;
+   if(atr <= 0)
+      return false;
+   // up/down moves of the previous days, each with that day's own ATR
+   double up[6], dn[6];
+   for(int j = 1; j <= 5; j++)
+     {
+      double a = 0;
+      for(int k = i - j - 20; k < i - j; k++) a += tr[k];
+      a /= 20.0;
+      up[j] = (h[i - j] - o[i - j]) / a;
+      dn[j] = (o[i - j] - l[i - j]) / a;
+     }
+   double rng = h[i - 1] - l[i - 1];
+   ArrayResize(x, 14);
+   x[0] = 1;
+   x[1] = tr[i - 1] / atr;
+   x[2] = (o[i] - c[i - 1]) / atr;
+   x[3] = MathAbs(o[i] - c[i - 1]) / atr;
+   x[4] = s5 / 5.0 / atr;
+   x[5] = s60 / 60.0 / atr;
+   x[6] = up[1];
+   x[7] = dn[1];
+   x[8] = (up[1] + up[2] + up[3] + up[4] + up[5]) / 5.0;
+   x[9] = (dn[1] + dn[2] + dn[3] + dn[4] + dn[5]) / 5.0;
+   x[10] = rng > 0 ? (c[i - 1] - l[i - 1]) / rng : 0.5;
+   x[11] = (o[i] - c[i - 20]) / atr;
+   x[12] = dow[i] == 1 ? 1.0 : 0.0;     // Monday
+   x[13] = dow[i] == 5 ? 1.0 : 0.0;     // Friday
+   return true;
+  }
+
+double LockDot(double &coef[], double &x[])
+  {
+   double z = 0;
+   for(int k = 0; k < 14; k++)
+      z += coef[k] * x[k];
+   return MathMax(0.0, z);
+  }
+
+void LockDraw(string id, datetime t1, datetime t2, double hi, double lo, string name, bool label)
+  {
+   Seg(PFX + "kh" + id, t1, hi, t2, hi, InpColHigh, STYLE_SOLID, 2);
+   Seg(PFX + "kl" + id, t1, lo, t2, lo, InpColLow, STYLE_SOLID, 2);
+   if(label)
+     {
+      Text(PFX + "kth" + id, t2, hi, "▲ " + name + " HIGH " + Px(hi), InpColHigh, ANCHOR_LEFT);
+      Text(PFX + "ktl" + id, t2, lo, "▼ " + name + " LOW " + Px(lo), InpColLow, ANCHOR_LEFT);
+     }
+   g_lkHi = hi; g_lkLo = lo; g_lkName = name;
+  }
+
+void DrawLocked()
+  {
+   bool wantDay = InpLockMode == DRP_LOCK_DAY || InpLockMode == DRP_LOCK_ALL || (InpLockMode == DRP_LOCK_AUTO && g_isGold);
+   bool wantSes = !g_isGold && (InpLockMode != DRP_LOCK_DAY);
+   int srvNy = ServerMinusNyHours();
+   g_lkName = "";
+
+   // ---- full day, from D1 bars (the broker's own day open)
+   if(wantDay)
+     {
+      MqlRates d[];
+      ArraySetAsSeries(d, false);
+      int n = CopyRates(_Symbol, PERIOD_D1, 0, 120, d);
+      if(n > 62)
+        {
+         double o[], h[], l[], c[], x[], cu[], cd[];
+         datetime t[];
+         int dw[];
+         ArrayResize(o, n); ArrayResize(h, n); ArrayResize(l, n); ArrayResize(c, n); ArrayResize(t, n); ArrayResize(dw, n);
+         for(int k = 0; k < n; k++)
+           {
+            o[k] = d[k].open; h[k] = d[k].high; l[k] = d[k].low; c[k] = d[k].close; t[k] = d[k].time;
+            MqlDateTime sd;
+            TimeToStruct(d[k].time, sd);          // a D1 bar's server date is the CME trade date
+            dw[k] = sd.day_of_week;
+           }
+         if(g_isGold) { ArrayCopy(cu, T_GC_DAYUP); ArrayCopy(cd, T_GC_DAYDN); }
+         else         { ArrayCopy(cu, T_NQ_DAYUP); ArrayCopy(cd, T_NQ_DAYDN); }
+         for(int i = MathMax(61, n - 1 - InpLockHist); i < n; i++)
+           {
+            double atr;
+            if(!LockFeatures(o, h, l, c, dw, i, x, atr))
+               continue;
+            double u = LockDot(cu, x), v = LockDot(cd, x);
+            datetime t2 = (i < n - 1) ? t[i + 1] : t[i] + PeriodSeconds(PERIOD_D1);
+            LockDraw("d" + IntegerToString((long)t[i]), t[i], t2, o[i] + u * atr, o[i] - v * atr, "DAY", i == n - 1);
+           }
+        }
+     }
+   if(!wantSes)
+      return;
+
+   // ---- regular session (9:30-16:00 NY) and after-market (16:00-9:00), from M30 bars
+   MqlRates b[];
+   ArraySetAsSeries(b, false);
+   int nb = CopyRates(_Symbol, PERIOD_M30, 0, 48 * 110, b);
+   if(nb < 48 * 70)
+      return;
+   double ro[], rh[], rl[], rc[];
+   datetime rt[], rEnd[];
+   int rdw[];
+   int nr = 0, cur = -1;
+   for(int k = 0; k < nb; k++)
+     {
+      MqlDateTime ny;
+      TimeToStruct(b[k].time - srvNy * 3600, ny);
+      int hm = ny.hour * 60 + ny.min;
+      if(ny.day_of_week == 0 || ny.day_of_week == 6 || hm < 570 || hm >= 960)
+         continue;
+      int key = ny.year * 10000 + ny.mon * 100 + ny.day;
+      if(key != cur)
+        {
+         cur = key;
+         nr++;
+         ArrayResize(ro, nr); ArrayResize(rh, nr); ArrayResize(rl, nr); ArrayResize(rc, nr); ArrayResize(rt, nr); ArrayResize(rEnd, nr);
+         ArrayResize(rdw, nr);
+         rdw[nr - 1] = ny.day_of_week;
+         ro[nr - 1] = b[k].open; rh[nr - 1] = b[k].high; rl[nr - 1] = b[k].low; rt[nr - 1] = b[k].time;
+        }
+      rh[nr - 1] = MathMax(rh[nr - 1], b[k].high);
+      rl[nr - 1] = MathMin(rl[nr - 1], b[k].low);
+      rc[nr - 1] = b[k].close;
+      rEnd[nr - 1] = b[k].time + 1800;
+     }
+   double x[];
+   for(int i = MathMax(61, nr - 1 - InpLockHist); i < nr; i++)
+     {
+      double atr;
+      if(!LockFeatures(ro, rh, rl, rc, rdw, i, x, atr))
+         continue;
+      double u = LockDot(T_NQ_RTHUP, x), v = LockDot(T_NQ_RTHDN, x);
+      datetime t2 = rt[i] + 390 * 60;                               // 9:30 + 6.5 h = 16:00
+      LockDraw("r" + IntegerToString((long)rt[i]), rt[i], t2, ro[i] + u * atr, ro[i] - v * atr, "9:30", i == nr - 1);
+      // after-market: from the 16:00 bar, until 9:00 the next weekday
+      int k16 = iBarShift(_Symbol, PERIOD_M30, t2, true);
+      if(k16 < 0)
+         continue;
+      double o16 = iOpen(_Symbol, PERIOD_M30, k16);
+      int di = DayIndex(t2);
+      double datr = (di >= 0) ? g_atr[di] : atr;
+      MqlDateTime ny16;
+      TimeToStruct(t2 - srvNy * 3600, ny16);
+      datetime tEnd = t2 + (ny16.day_of_week == 5 ? 65 : 17) * 3600;
+      LockDraw("a" + IntegerToString((long)t2), t2, tEnd, o16 + T_NQ_AHUP * datr, o16 - T_NQ_AHDN * datr, "4 PM", i == nr - 1);
+     }
+  }
+
 //+------------------------------------------------------------------+
 void Rebuild()
   {
@@ -1052,6 +1250,7 @@ void Rebuild()
    g_lastSignalText = "";
    g_curHi = 0; g_curLo = 0; g_curBuild = 0;
    DrawMaxLevels();
+   DrawLocked();
    g_pLocal = -1;
    datetime lastSig = ScanBars();
    DrawAI();

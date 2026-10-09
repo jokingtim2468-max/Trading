@@ -1,0 +1,11 @@
+Title: Nasdaq AFTER 10-year training — Two Locked Lines vs. the Real High & Low (Sep 16, 2026)
+
+Description:
+AFTER 10-year training. At the 6 PM New York futures open the model locks one predicted HIGH (green) and one predicted LOW (red) for the whole session: overnight, the regular session and after-hours to 5 PM. The lines never move. This day was held out of training. Trained on 2,436 days (2017-01-10 to 2026-09-15), all before this day.
+
+  Predicted high 29,471.58 vs actual 29,549.75 (miss 78.17)
+  Predicted low 29,095.78 vs actual 29,053.00 (miss 42.78)
+
+Educational content, not financial advice. No prediction is 100% certain.
+
+#nasdaq #daytrading #trading #futures #ai #mt5 #tradingview

@@ -4,7 +4,7 @@ Trained 2026-10-09 by `tools/train_drp.py`. Data: Yahoo Finance (daily 10y, hour
 
 ## Nasdaq e-mini / US100 (NQ=F)
 
-Data through 2026-10-09. Google Finance cross-check: Google settlement 30,969.50 vs Yahoo recent closes 31,402.25, 30,969.50, 31,011.75, 31,011.75 → OK.
+Data through 2026-10-09. Google Finance cross-check: Google settlement 30,969.50 vs Yahoo recent closes 31,402.25, 30,969.50, 31,070.00, 31,070.00 → OK.
 
 ### Predicted high/low lines
 
@@ -15,6 +15,18 @@ Chosen: lookback **180 days**, ATR **20**, max line **P96.0** (the narrowest set
 | Trained, holdout last 250 days | 94.8% | 96.8% | 91.6% | 2.76 |
 | Old default (250d, ATR 14, P95), same days | 93.2% | 96.0% | 89.2% | 2.62 |
 
+### Locked lines (set once per session, never moved)
+
+Median regression on daily features known when the session starts. "Before" is the untrained baseline, the median of the last 250 sessions. The numbers are the average miss from the real high and low in daily ATRs, on sessions the model never saw.
+
+| Session | Trained on | High before → after | Low before → after |
+| --- | --- | --- | --- |
+| Full day, locked at 6 PM | 2,454 days | 0.299 → 0.284 | 0.348 → 0.346 |
+| Regular 9:30-4:00, locked at 9:30 | 2,453 days of ^NDX | 0.259 → 0.247 | 0.327 → 0.323 |
+| After-market 4 PM-9 AM, locked at 4 PM | 348 sessions | 0.221 → 0.222 | 0.216 → 0.224 |
+
+The after-market model didn't beat its median baseline on unseen sessions (only ~2 years of free intraday data), so the indicators use the median for that session.
+
 ### Live high / low / build-up lines (update every bar)
 
 Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and the price where the most trading has happened so far. Holdout: 120 unseen days from 2026-04-21. Average distance between the line and the day's real high / low / build-up:
@@ -22,22 +34,22 @@ Green high = high so far + expected extra move, red low = low so far − expecte
 | When | High miss | Low miss | Build-up miss |
 | --- | --- | --- | --- |
 | Old fixed lines at the open | 0.35 ATR (≈172) | 0.35 ATR (≈171) | n/a |
-| Live, at the day open | 0.30 ATR (≈145) | 0.32 ATR (≈156) | 0.20 ATR (≈99) |
-| Live, at session start | 0.08 ATR (≈38) | 0.10 ATR (≈47) | 0.05 ATR (≈23) |
-| Live, average over the day | 0.16 ATR (≈78) | 0.18 ATR (≈86) | 0.10 ATR (≈46) |
+| Live, at the day open | 0.30 ATR (≈145) | 0.32 ATR (≈156) | 0.20 ATR (≈97) |
+| Live, at session start | 0.08 ATR (≈38) | 0.10 ATR (≈47) | 0.05 ATR (≈24) |
+| Live, average over the day | 0.16 ATR (≈78) | 0.18 ATR (≈86) | 0.09 ATR (≈46) |
 
-Share of bars where both live lines were within 0.1 ATR of the real high and low: 31.7%.
+Share of bars where both live lines were within 0.1 ATR of the real high and low: 31.8%.
 
 ### Quick-trade AI TP/SL (5-minute bars, 1-hour max hold, after costs)
 
-Price-only direction model (news is added live by the AI service and can't be backtested). 13,393 bars, holdout from 2026-09-21. Direction accuracy: training 53.1%, holdout 52.8%. Chosen: TP 3.0× / SL 2.0× the 5-minute ATR, setup when confidence ≥ 50%.
+Price-only direction model (news is added live by the AI service and can't be backtested). 13,410 bars, holdout from 2026-09-21. Direction accuracy: training 53.1%, holdout 52.9%. Chosen: TP 3.0× / SL 2.0× the 5-minute ATR, setup when confidence ≥ 50%.
 
 | | Trades | Win rate | Avg result (× 5m ATR) |
 | --- | --- | --- | --- |
 | Training | 961 | 48.0% | +0.029 |
-| Holdout (unseen) | 414 | 46.4% | -0.005 |
+| Holdout (unseen) | 416 | 46.6% | +0.009 |
 
-**Verdict:** no proven edge after costs. The TP/SL lines show sensible placement and the odds, not a reason to trade.
+**Verdict:** positive on unseen data. Small sample; paper trade first.
 
 ### Signals (hourly bars, after estimated spread/commission)
 
@@ -55,7 +67,7 @@ Best in training: zone P85, 4/5 filters, wick ≥50%, RSI 75/25, target 1.5R.
 
 ## Gold / XAUUSD (GC=F)
 
-Data through 2026-10-09. Google Finance cross-check: Google settlement 4,157.00 vs Yahoo recent closes 4,140.70, 4,157.00, 4,211.70, 4,211.70 → OK.
+Data through 2026-10-09. Google Finance cross-check: Google settlement 4,157.00 vs Yahoo recent closes 4,140.70, 4,157.00, 4,214.00, 4,214.00 → OK.
 
 ### Predicted high/low lines
 
@@ -66,6 +78,14 @@ Chosen: lookback **375 days**, ATR **20**, max line **P95.5** (the narrowest set
 | Trained, holdout last 250 days | 94.8% | 94.8% | 90.0% | 2.88 |
 | Old default (250d, ATR 14, P95), same days | 95.2% | 94.0% | 89.2% | 2.79 |
 
+### Locked lines (set once per session, never moved)
+
+Median regression on daily features known when the session starts. "Before" is the untrained baseline, the median of the last 250 sessions. The numbers are the average miss from the real high and low in daily ATRs, on sessions the model never saw.
+
+| Session | Trained on | High before → after | Low before → after |
+| --- | --- | --- | --- |
+| Full day, locked at 6 PM | 2,453 days | 0.304 → 0.302 | 0.345 → 0.344 |
+
 ### Live high / low / build-up lines (update every bar)
 
 Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and the price where the most trading has happened so far. Holdout: 120 unseen days from 2026-04-21. Average distance between the line and the day's real high / low / build-up:
@@ -73,20 +93,20 @@ Green high = high so far + expected extra move, red low = low so far − expecte
 | When | High miss | Low miss | Build-up miss |
 | --- | --- | --- | --- |
 | Old fixed lines at the open | 0.30 ATR (≈$26.5) | 0.31 ATR (≈$27.3) | n/a |
-| Live, at the day open | 0.28 ATR (≈$24.6) | 0.31 ATR (≈$27.2) | 0.28 ATR (≈$24.8) |
+| Live, at the day open | 0.28 ATR (≈$24.6) | 0.31 ATR (≈$27.2) | 0.28 ATR (≈$24.7) |
 | Live, at session start | 0.14 ATR (≈$11.9) | 0.16 ATR (≈$14.4) | 0.15 ATR (≈$13.4) |
 | Live, average over the day | 0.13 ATR (≈$11.0) | 0.14 ATR (≈$11.9) | 0.14 ATR (≈$12.2) |
 
-Share of bars where both live lines were within 0.1 ATR of the real high and low: 43.7%.
+Share of bars where both live lines were within 0.1 ATR of the real high and low: 43.8%.
 
 ### Quick-trade AI TP/SL (5-minute bars, 1-hour max hold, after costs)
 
-Price-only direction model (news is added live by the AI service and can't be backtested). 13,434 bars, holdout from 2026-09-21. Direction accuracy: training 52.2%, holdout 50.4%. Chosen: TP 3.0× / SL 1.0× the 5-minute ATR, setup when confidence ≥ 55%.
+Price-only direction model (news is added live by the AI service and can't be backtested). 13,451 bars, holdout from 2026-09-21. Direction accuracy: training 52.2%, holdout 50.4%. Chosen: TP 3.0× / SL 1.0× the 5-minute ATR, setup when confidence ≥ 55%.
 
 | | Trades | Win rate | Avg result (× 5m ATR) |
 | --- | --- | --- | --- |
 | Training | 323 | 39.0% | +0.148 |
-| Holdout (unseen) | 157 | 28.7% | -0.239 |
+| Holdout (unseen) | 158 | 29.1% | -0.219 |
 
 **Verdict:** no proven edge after costs. The TP/SL lines show sensible placement and the odds, not a reason to trade.
 

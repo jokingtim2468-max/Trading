@@ -14,6 +14,7 @@ Needs: pip install -r tools/requirements.txt matplotlib, and ffmpeg on PATH.
 
 import argparse
 import datetime as dt
+import random
 import sys
 from pathlib import Path
 
@@ -34,6 +35,7 @@ BG, PANEL, GRID, TEXT, MUTED = "#0E1117", "#161B26", "#1F2533", "#E6E9EF", "#8A9
 GREEN, RED, YELLOW = "#00E676", "#FF5252", "#FFD600"
 CANDLE_UP, CANDLE_DN = "#C9CED8", "#5B6478"
 FPS = 30
+SHOW_BUILD = False     # yellow build-up line (off by default; --build turns it on)
 plt.rcParams["font.family"] = ["Inter", "DejaVu Sans"]
 
 
@@ -43,7 +45,7 @@ def replay(symbol_key, date):
     daily = T.yahoo(mk["yahoo"], "10y", "1d")[["o", "h", "l", "c"]]
     daily.index = daily.index.date
     h1 = T.yahoo(mk["yahoo"], "730d", "1h")
-    m5 = T.yahoo(mk["yahoo"], "1mo", "5m")
+    m5 = T.yahoo(mk["yahoo"], "60d", "5m")
     m5 = m5[m5.v > 0] if (m5.v > 0).any() else m5
     m5["day"] = (m5.index + pd.Timedelta(hours=6)).date
     if date is None:
@@ -122,7 +124,7 @@ def draw_frame(fig, ax, df, info, k, call, title_alpha=0.0, final=False):
     # 9:30 call (ghost lines across the rest of the day)
     if call is not None:
         ci = call["i"]
-        for y, c in ((call["lh"], GREEN), (call["ll"], RED), (call["bu"], YELLOW)):
+        for y, c in ((call["lh"], GREEN), (call["ll"], RED)) + (((call["bu"], YELLOW),) if SHOW_BUILD else ()):
             ax.plot([ci, end_x], [y, y], color=c, lw=1, ls=(0, (2, 3)), alpha=0.55)
         ax.text(end_x, call["lh"], " 9:30 call", color=GREEN, fontsize=9, va="center", alpha=0.8)
         ax.text(end_x, call["ll"], " 9:30 call", color=RED, fontsize=9, va="center", alpha=0.8)
@@ -142,7 +144,8 @@ def draw_frame(fig, ax, df, info, k, call, title_alpha=0.0, final=False):
     # live lines (step history up to now)
     ax.step(xs[:k + 1], shown.lh, where="post", color=GREEN, lw=2.2)
     ax.step(xs[:k + 1], shown.ll, where="post", color=RED, lw=2.2)
-    ax.step(xs[:k + 1], shown.bu, where="post", color=YELLOW, lw=2.2)
+    if SHOW_BUILD:
+        ax.step(xs[:k + 1], shown.bu, where="post", color=YELLOW, lw=2.2)
 
     # reached-line dots
     for side, col in (("h", GREEN), ("l", RED)):
@@ -164,9 +167,11 @@ def draw_frame(fig, ax, df, info, k, call, title_alpha=0.0, final=False):
                 x2 = tx(target_t)
                 ax.annotate("", xy=(x2, y), xytext=(k, cur.c),
                             arrowprops=dict(arrowstyle="-|>", color=c, lw=1.6, ls=(0, (4, 3)), mutation_scale=16))
-                ax.plot([x2, end_x], [y, cur.bu], color=YELLOW, lw=1.2, ls=(0, (1, 3)), alpha=0.9)
+                if SHOW_BUILD:
+                    ax.plot([x2, end_x], [y, cur.bu], color=YELLOW, lw=1.2, ls=(0, (1, 3)), alpha=0.9)
         # right-edge value tags
-        for y, c, lab in ((cur.lh, GREEN, "▲ HIGH"), (cur.bu, YELLOW, "◆ BUILD-UP"), (cur.ll, RED, "▼ LOW")):
+        tags = ((cur.lh, GREEN, "▲ HIGH"),) + (((cur.bu, YELLOW, "◆ BUILD-UP"),) if SHOW_BUILD else ()) + ((cur.ll, RED, "▼ LOW"),)
+        for y, c, lab in tags:
             ax.text(k + 1.5, y, f"{lab} {fmt(y, info['key'])}", color=BG, fontsize=10, fontweight="bold", va="center",
                     bbox=dict(boxstyle="round,pad=0.3", fc=c, ec="none"))
 
@@ -188,8 +193,9 @@ def draw_frame(fig, ax, df, info, k, call, title_alpha=0.0, final=False):
     clear_texts(fig)
     keep(fig, fig.text(0.03, 0.955, f"{info['name']}  ·  Day Range Predictor  ·  {pd.Timestamp(info['date']):%a %b %-d, %Y}",
              color=TEXT, fontsize=17, fontweight="bold"))
-    keep(fig, fig.text(0.03, 0.918, "Green = predicted day high   Yellow = build-up / support   Red = predicted day low   "
-             "· every line uses only data available at that moment", color=MUTED, fontsize=11))
+    keep(fig, fig.text(0.03, 0.918, ("Green = predicted day high   Yellow = build-up / support   Red = predicted day low   " if SHOW_BUILD else
+                       "Green = predicted day high   Red = predicted day low   ")
+             + "· every line uses only data available at that moment", color=MUTED, fontsize=11))
     keep(fig, fig.text(0.97, 0.955, f"{cur.name:%-I:%M %p} ET", color=TEXT, fontsize=17, fontweight="bold", ha="right"))
     keep(fig, fig.text(0.97, 0.918, f"price {fmt(cur.c, info['key'])}", color=MUTED, fontsize=12, ha="right"))
     keep(fig, fig.text(0.03, 0.02, "Educational replay. Not financial advice. Predictions are estimates, not guarantees.",
@@ -213,7 +219,8 @@ def result_card(fig, df, info, call):
     k = info["key"]
     act_hi, act_lo = df.h.max(), df.l.min()
     act_bu = df.poc.iloc[-1]
-    rows = [("Day HIGH", GREEN, call["lh"], act_hi), ("Build-up", YELLOW, call["bu"], act_bu), ("Day LOW", RED, call["ll"], act_lo)]
+    rows = [("Day HIGH", GREEN, call["lh"], act_hi)] + ([("Build-up", YELLOW, call["bu"], act_bu)] if SHOW_BUILD else []) + \
+        [("Day LOW", RED, call["ll"], act_lo)]
     title = "9:30 call vs. what really happened" if info["complete"] else "9:30 call vs. the day so far (still trading)"
     fig.text(0.5, 0.86, title, color=TEXT, fontsize=30, fontweight="bold", ha="center")
     fig.text(0.5, 0.80, f"{info['name']} · {pd.Timestamp(info['date']):%a %b %-d, %Y}", color=MUTED, fontsize=15, ha="center")
@@ -248,8 +255,11 @@ def render(df, info, path, per_bar=6):
     writer = FFMpegWriter(fps=FPS, bitrate=8000, codec="libx264", extra_args=["-pix_fmt", "yuv420p"])
     k = info["key"]
     with writer.saving(fig, str(path), dpi=100):
-        card(fig, [(f"Can a model call today's {'Nasdaq' if k == 'NQ' else 'Gold'} high & low at 9:30?", TEXT),
-                   ("Live replay · no hindsight · then we check the result", MUTED)],
+        what = "Nasdaq" if k == "NQ" else "Gold"
+        story = info.get("story")
+        card(fig, [(story or f"Can a model call the {what} high & low at 9:30?", TEXT),
+                   ("Could the model call the high & low at 9:30? No hindsight." if story else
+                    "Live replay · no hindsight · then we check the result", MUTED)],
              sub=f"{info['name']} · {pd.Timestamp(info['date']):%A %B %-d, %Y}")
         for _ in range(int(FPS * 2.5)):
             writer.grab_frame()
@@ -261,7 +271,7 @@ def render(df, info, path, per_bar=6):
         for _ in range(int(FPS * 1.5)):
             writer.grab_frame()
         draw_frame(fig, ax, df, info, open_i, call)                # the 9:30 call
-        keep(fig, fig.text(0.5, 0.5, f"9:30 CALL   ▲ {fmt(call['lh'], k)}   ◆ {fmt(call['bu'], k)}   ▼ {fmt(call['ll'], k)}",
+        keep(fig, fig.text(0.5, 0.5, f"9:30 CALL   ▲ HIGH {fmt(call['lh'], k)}   " + (f"◆ {fmt(call['bu'], k)}   " if SHOW_BUILD else "") + f"▼ LOW {fmt(call['ll'], k)}",
                  color=TEXT, fontsize=24, fontweight="bold", ha="center",
                  bbox=dict(boxstyle="round,pad=0.6", fc=PANEL, ec=MUTED, alpha=0.95)))
         for _ in range(int(FPS * 3)):
@@ -284,11 +294,12 @@ def describe(info, rows, path):
     k = info["key"]
     day = pd.Timestamp(info["date"])
     what = "Nasdaq" if k == "NQ" else "Gold"
-    lines = [f"Title: Can a Model Call the {what} High & Low at 9:30? Live Replay vs. Real Result ({day:%b %-d, %Y})", "",
+    title = (f"{info['story']}: Could a Model Call the High & Low at 9:30? ({day:%b %-d, %Y} Replay)" if info.get("story")
+             else f"Can a Model Call the {what} High & Low at 9:30? Live Replay vs. Real Result ({day:%b %-d, %Y})")
+    lines = [f"Title: {title}", "",
              "Description:",
              f"We replay {day:%A %B %-d, %Y} on {info['name']} bar by bar from the 9:30 AM New York open with the "
-             "Day Range Predictor. Green is the predicted day high, red is the predicted day low, and yellow is the "
-             "predicted build-up/support level. Every line uses only the data available at that moment, with no hindsight. "
+             "Day Range Predictor. Green is the predicted day high and red is the predicted day low. Every line uses only the data available at that moment, with no hindsight. "
              "At the end we compare the 9:30 call with what actually happened:", ""]
     for lab, _, p, a in rows:
         lines.append(f"  {lab}: predicted {fmt(p, k)}, {'actual' if info['complete'] else 'so far'} {fmt(a, k)} "
@@ -299,14 +310,53 @@ def describe(info, rows, path):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def pick_day(key, kind, seed, exclude):
+    """Choose a complete day from the last ~60 days of 5-minute data: random, biggest rally or biggest drop."""
+    mk = T.MARKETS[key]
+    m5 = T.yahoo(mk["yahoo"], "60d", "5m")
+    counts = pd.Series((m5.index + pd.Timedelta(hours=6)).date).value_counts()
+    d = T.yahoo(mk["yahoo"], "1y", "1d")[["o", "h", "l", "c"]]
+    d.index = d.index.date
+    tr = np.maximum(d.h, d.c.shift()) - np.minimum(d.l, d.c.shift())
+    move = (d.c - d.o) / tr.rolling(20).mean().shift()
+    pct = (d.c - d.o) / d.o
+    today = dt.datetime.now(dt.timezone.utc).astimezone(pd.Timestamp.now(tz="America/New_York").tz).date()
+    cands = [x for x in counts.index if counts[x] >= 250 and x in d.index and x < today and x not in exclude
+             and x.weekday() < 5 and np.isfinite(move.get(x, np.nan))]
+    if not cands:
+        raise SystemExit("No complete days to pick from.")
+    if kind == "random":
+        day = random.Random(seed).choice(sorted(cands))
+    else:
+        day = (max if kind == "up" else min)(cands, key=lambda x: move[x])
+    return day, float(move[day]), float(pct[day])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--symbol", choices=list(T.MARKETS), default="NQ")
     ap.add_argument("--date", help="CME trade date YYYY-MM-DD (default: latest)")
     ap.add_argument("--per-bar", type=int, default=6, help="video frames per 5-minute bar")
+    ap.add_argument("--pick", choices=["random", "up", "down"], help="pick a day from the last ~60 days instead of --date")
+    ap.add_argument("--seed", type=int, help="random seed for --pick random")
+    ap.add_argument("--exclude", default="", help="comma-separated dates --pick must skip")
+    ap.add_argument("--build", action="store_true", help="also draw the yellow build-up line")
     a = ap.parse_args()
+    global SHOW_BUILD
+    SHOW_BUILD = a.build
     date = dt.date.fromisoformat(a.date) if a.date else None
+    story = None
+    if a.pick:
+        excl = {dt.date.fromisoformat(x) for x in a.exclude.split(",") if x.strip()}
+        date, mv, pc = pick_day(a.symbol, a.pick, a.seed, excl)
+        what = "Nasdaq" if a.symbol == "NQ" else "Gold"
+        if a.pick == "up":
+            story = f"{what} Skyrocketed {pc:+.1%}"
+        elif a.pick == "down":
+            story = f"{what} Bombed {pc:+.1%}"
+        print(f"picked {date} ({a.pick}): open-to-close {pc:+.2%}, {mv:+.2f} daily ATR")
     df, info = replay(a.symbol, date)
+    info["story"] = story
     out = ROOT / "videos"
     out.mkdir(exist_ok=True)
     path = out / f"DRP_{a.symbol}_{info['date']}.mp4"

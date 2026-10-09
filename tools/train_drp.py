@@ -34,7 +34,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from ai import short_model as SM  # noqa: E402
+from ai import short_model as SM, fixed_model as FM, session_model as SS  # noqa: E402
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 # Yahoo symbol, Google Finance quote id, session (NY minutes), round-trip cost in price units
@@ -455,6 +455,18 @@ def update_sources(res, stamp):
                           ("SEv", round(sm["hold"]["ev"], 3)), ("SEdge", 1.0 if sm["edge"] else 0.0)):
             pine.append(f"t{tag}{name} = {float(val)}")
             mql.append(f"const double T_{key}_{name.upper()} = {float(val)};")
+        lk = res[key]["locked"]
+        arrays = [("DayUp", lk["day"]["up"]), ("DayDn", lk["day"]["dn"])]
+        if "rth" in lk:
+            arrays += [("RthUp", lk["rth"]["up"]), ("RthDn", lk["rth"]["dn"])]
+        for name, vals in arrays:
+            vals = [round(x, 6) for x in vals]
+            pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in vals)})")
+            mql.append(f"double T_{key}_{name.upper()}[{len(vals)}] = {{{', '.join(str(x) for x in vals)}}};")
+        if "ah" in lk:
+            for name, val in (("AhUp", lk["ah"]["up_med"]), ("AhDn", lk["ah"]["dn_med"])):
+                pine.append(f"t{tag}{name} = {float(val)}")
+                mql.append(f"const double T_{key}_{name.upper()} = {float(val)};")
         lv = res[key]["live"]
         for name, k in (("ExtUp", "up"), ("ExtDn", "dn"), ("BuildW", "w"), ("THi", "thi"), ("TLo", "tlo")):
             pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in lv[k])})")
@@ -467,12 +479,26 @@ def fmt3(t):
     return "/".join(f"{x:.3f}" for x in t)
 
 
+def train_locked(key, daily):
+    """Locked lines: full day (10y), and for Nasdaq the regular session (10y ^NDX) and after-market (~2y)."""
+    out = {"day": FM.train(daily, years=10), "day_eval": FM.evaluate(daily, 500)}
+    if key == "NQ":
+        nd = SS.rth_daily(yahoo)
+        out["rth"], out["rth_eval"] = FM.train(nd, years=10), FM.evaluate(nd, 500)
+        t = SS.ah_table(yahoo("NQ=F", "730d", "1h"), daily)
+        out["ah_eval"] = SS.ah_evaluate(t, 120)
+        last = t.tail(250)
+        out["ah"] = {"up_med": round(float(last.up.median()), 4), "dn_med": round(float(last.dn.median()), 4),
+                     "sessions": int(len(last))}
+    return out
+
+
 def write_model(res, stamp):
     """Everything the AI service needs, so it doesn't have to retrain at startup."""
     out = {"trained": stamp, "symbols": {}}
     for key, r in res.items():
         out["symbols"][key] = {"yahoo": MARKETS[key]["yahoo"], "atr_days": r["lines"]["atr"], "live": r["live"],
-                               "short": r["short"], "cost": MARKETS[key]["cost"]}
+                               "short": r["short"], "cost": MARKETS[key]["cost"], "locked": r["locked"]}
     (ROOT / "ai").mkdir(exist_ok=True)
     (ROOT / "ai/model.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 
@@ -499,6 +525,23 @@ def report(res, stamp):
               f"| Old default (250d, ATR 14, P95), same days | {pct(ln['base_hi'])} | {pct(ln['base_lo'])} | {pct(ln['base_both'])} | {ln['base_width']:.2f} |", ""]
         ev, a = r["lev"], r["lev"]["atr"]
         pts = lambda x: f"{x:.2f} ATR (≈{x * a:,.0f})" if key == "NQ" else f"{x:.2f} ATR (≈${x * a:,.1f})"
+        lk = r["locked"]
+        L += ["### Locked lines (set once per session, never moved)", "",
+              "Median regression on daily features known when the session starts. \"Before\" is the untrained "
+              "baseline, the median of the last 250 sessions. The numbers are the average miss from the real high and "
+              "low in daily ATRs, on sessions the model never saw.", "",
+              "| Session | Trained on | High before → after | Low before → after |", "| --- | --- | --- | --- |"]
+        rows_ = [("Full day, locked at 6 PM", f"{lk['day']['days']:,} days", lk["day_eval"])]
+        if "rth" in lk:
+            rows_.append(("Regular 9:30-4:00, locked at 9:30", f"{lk['rth']['days']:,} days of ^NDX", lk["rth_eval"]))
+            rows_.append(("After-market 4 PM-9 AM, locked at 4 PM", f"{lk['ah_eval']['train_days']} sessions", lk["ah_eval"]))
+        for nm, tr_, e in rows_:
+            L.append(f"| {nm} | {tr_} | {e['before']['high']:.3f} → {e['after']['high']:.3f} | "
+                     f"{e['before']['low']:.3f} → {e['after']['low']:.3f} |")
+        if "ah" in lk:
+            L += ["", "The after-market model didn't beat its median baseline on unseen sessions (only ~2 years of free "
+                  "intraday data), so the indicators use the median for that session."]
+        L += [""]
         L += ["### Live high / low / build-up lines (update every bar)", "",
               f"Green high = high so far + expected extra move, red low = low so far − expected extra move, both looked up "
               f"by hour of the day and where price sits in the range. Yellow build-up = blend of the predicted midpoint and "
@@ -576,13 +619,17 @@ def main():
         live, lev = train_live(h1, daily, lines, mk)
         print(f"   live lines (holdout {lev['days']} days, miss in ATRs high/low/build-up): at open {fmt3(lev['open'])}, "
               f"session start {fmt3(lev['session'])}, all bars {fmt3(lev['all'])}; old fixed lines {lev['fixed'][0]:.3f}/{lev['fixed'][1]:.3f}")
+        locked = train_locked(key, daily)
+        ev = locked["day_eval"]
+        print(f"   locked full-day lines (10y): miss high {ev['before']['high']:.3f} -> {ev['after']['high']:.3f} ATR, "
+              f"low {ev['before']['low']:.3f} -> {ev['after']['low']:.3f} ATR on {ev['days']} unseen days")
         short = train_short(daily, lines, mk)
         print(f"   quick-trade AI (price only): direction accuracy holdout {pct(short['acc_hold'])}, TP {short['tpm']}x / SL {short['slm']}x "
               f"5m ATR, threshold {short['thr']}; holdout {short['hold']['n']} trades, win {pct(short['hold']['win'])}, "
               f"EV {short['hold']['ev']:+.3f} ATR -> edge={short['edge']}")
         sig = train_signals(h1, daily, lines, mk)
         print(f"   signals: best {sig['best']} train {sig['train']} holdout {sig['hold']} edge={sig['edge']} -> preset {sig['params']}")
-        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev, "short": short}
+        res[key] = {"lines": lines, "sig": sig, "check": check, "last_day": str(daily.index[-1]), "live": live, "lev": lev, "short": short, "locked": locked}
     if args.no_write:
         return
     (ROOT / "presets").mkdir(exist_ok=True)

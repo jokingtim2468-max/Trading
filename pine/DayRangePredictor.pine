@@ -24,17 +24,22 @@ grpT = "Trained presets"
 useTrained = input.bool(true, "Use trained presets (NQ or gold picked by symbol)", group=grpT, tooltip="Settings tuned on recent Yahoo Finance data by tools/train_drp.py. Turn off to use the values below.")
 
 grpV = "Live high / low / build-up"
-showLive  = input.bool(true, "Show live predicted high, low and build-up", group=grpV)
+showLive  = input.bool(false, "Show live (moving) predicted high, low and build-up", group=grpV)
 showFlow  = input.bool(false, "Show flow lines (projected path; replaced by AI TP/SL)", group=grpV)
 showTouch = input.bool(true, "Mark where price reached the line", group=grpV)
 touchTol  = input.float(0.03, "Reached = within (x daily ATR)", minval=0, step=0.01, group=grpV)
+
+grpK = "Locked lines (set once per session, never moved)"
+lockMode  = input.string("Auto", "Sessions", options=["Auto", "Full day (6 PM-5 PM)", "Regular + after-market", "All"], group=grpK, tooltip="Auto: Nasdaq = regular session (locked 9:30, until 4 PM) + after-market (locked 4 PM, until 9 AM). Gold = full day (locked at the 6 PM open, until 5 PM).")
+lockHist  = input.int(5, "Previous sessions to keep", minval=0, maxval=60, group=grpK)
+ndxTicker = input.symbol("NASDAQ:NDX", "Regular-session data (Nasdaq-100 cash index)", group=grpK)
 
 grpA = "AI quick-trade TP / SL"
 showAI    = input.bool(true, "Show AI TP (green) / SL (red) lines", group=grpA, tooltip="Price-only model trained by tools/train_drp.py on 5-minute bars. TradingView can't read news; the news-aware version runs in MT5 and the app through ai/service.py.")
 aiBars    = input.int(12, "Draw TP/SL lines this many bars ahead", minval=3, maxval=100, group=grpA)
 
 grpL = "Max envelope (day open lines)"
-showMax   = input.bool(true, "Show max high / low lines", group=grpL)
+showMax   = input.bool(false, "Show max high / low lines", group=grpL)
 iLookback = input.int(250, "Lookback days", minval=50, maxval=2000, group=grpL)
 iAtrLen   = input.int(14, "Daily ATR length", minval=5, maxval=100, group=grpL)
 iPctOuter = input.float(95, "Max line percentile", minval=60, maxval=99.5, step=0.5, group=grpL, tooltip="95 = the day's high stayed below this line about 95% of days in testing.")
@@ -80,18 +85,24 @@ tNqWick = 40.0
 tNqOB = 70.0
 tNqOS = 30.0
 tNqRR = 1.0
-var tNqSMu = array.from(0.008212, 0.025807, 0.144035, 0.691638, 0.022466, 0.698255, 0.044386, -0.00063, 0.055312, -0.001301, 0.374559, 0.421534)
-var tNqSSd = array.from(0.679261, 1.139571, 2.184266, 5.158697, 0.241357, 3.90876, 0.303623, 0.478523, 0.690527, 0.72124, 0.179857, 0.242468)
-var tNqSCoef = array.from(0.072653, -0.0079, -0.008063, 0.048647, 0.110232, -0.111858, 0.069067, 0.042162, 0.002519, -0.065399, -0.004674, 0.126193, -0.079668)
+var tNqSMu = array.from(0.007895, 0.025034, 0.141037, 0.686676, 0.022047, 0.696834, 0.044264, -0.000287, 0.055942, -0.002348, 0.374598, 0.42148)
+var tNqSSd = array.from(0.679375, 1.140394, 2.185045, 5.157518, 0.241621, 3.907092, 0.303564, 0.478852, 0.690323, 0.721383, 0.179774, 0.242343)
+var tNqSCoef = array.from(0.072419, -0.007148, -0.008259, 0.050122, 0.112263, -0.115153, 0.069654, 0.040467, 0.001948, -0.065649, -0.004408, 0.126715, -0.079549)
 tNqSThr = 0.5
 tNqSTp = 3.0
 tNqSSl = 2.0
-tNqSWin = 0.464
-tNqSEv = -0.005
-tNqSEdge = 0.0
+tNqSWin = 0.466
+tNqSEv = 0.009
+tNqSEdge = 1.0
+var tNqDayUp = array.from(0.089527, 0.136896, -0.113073, 0.27997, 0.122335, 0.100114, -0.075293, -0.03056, -0.037067, 0.141976, -0.086927, 0.00318, 0.014354, -0.031031)
+var tNqDayDn = array.from(0.217592, -0.20643, -0.140873, 0.082428, 0.046205, 0.059731, 0.210747, 0.236948, 0.020192, 0.12745, -0.068849, 0.002925, -0.070145, -0.028767)
+var tNqRthUp = array.from(0.052677, -0.002677, -0.118568, 0.106759, 0.109282, 0.088568, 0.054195, 0.065587, -0.033362, 0.179636, -0.064753, -0.001576, 0.014124, -0.016889)
+var tNqRthDn = array.from(0.189003, 0.078189, 0.002603, 0.081517, -0.107045, 0.026586, 0.000671, -0.017511, 0.221889, 0.184847, -0.064504, 0.003739, -0.072943, -0.040605)
+tNqAhUp = 0.2522
+tNqAhDn = 0.2286
 var tNqExtUp = array.from(0.261, 0.323, 0.378, 0.241, 0.276, 0.353, 0.178, 0.184, 0.334, 0.101, 0.245, 0.349, 0.12, 0.213, 0.323, 0.12, 0.209, 0.296, 0.071, 0.242, 0.302, 0.079, 0.194, 0.309, 0.061, 0.185, 0.3, 0.007, 0.138, 0.299, 0.008, 0.121, 0.283, 0.0, 0.115, 0.283, 0.0, 0.082, 0.278, 0.0, 0.093, 0.237, 0.0, 0.088, 0.208, 0.0, 0.006, 0.17, 0.0, 0.0, 0.13, 0.0, 0.0, 0.079, 0.0, 0.0, 0.044, 0.0, 0.0, 0.017, 0.0, 0.0, 0.002, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-var tNqExtDn = array.from(0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.237, 0.0, 0.0, 0.129, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-var tNqBuildW = array.from(0.0, 0.1, 0.3, 0.35, 0.35, 0.5, 0.6, 0.7, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+var tNqExtDn = array.from(0.341, 0.325, 0.267, 0.357, 0.3, 0.227, 0.342, 0.295, 0.156, 0.316, 0.267, 0.119, 0.33, 0.257, 0.124, 0.341, 0.244, 0.108, 0.371, 0.216, 0.096, 0.353, 0.163, 0.094, 0.325, 0.158, 0.069, 0.316, 0.197, 0.032, 0.279, 0.193, 0.0, 0.251, 0.204, 0.0, 0.244, 0.192, 0.0, 0.238, 0.133, 0.0, 0.143, 0.123, 0.0, 0.237, 0.0, 0.0, 0.131, 0.0, 0.0, 0.119, 0.0, 0.0, 0.097, 0.0, 0.0, 0.053, 0.0, 0.0, 0.009, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+var tNqBuildW = array.from(0.0, 0.1, 0.3, 0.35, 0.4, 0.5, 0.6, 0.75, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
 var tNqTHi = array.from(16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 18.5, 19.5, 19.5, 20.5, 21.5, 21.5, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5)
 var tNqTLo = array.from(16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 18.5, 18.5, 18.5, 19.5, 20.5, 21.5, 21.5, 21.5, 22.5, 22.5, 23.0, 23.5)
 tGcLookback = 375
@@ -104,15 +115,17 @@ tGcWick = 40.0
 tGcOB = 70.0
 tGcOS = 30.0
 tGcRR = 1.0
-var tGcSMu = array.from(0.002666, 0.006162, 0.01989, 0.126752, 0.002456, 0.184418, 0.007261, -0.000265, 0.054945, 0.001632, 0.39887, 0.413496)
-var tGcSSd = array.from(0.675943, 1.146241, 2.189221, 5.062415, 0.240879, 4.208594, 0.305092, 0.470864, 0.689465, 0.722281, 0.227216, 0.279796)
-var tGcSCoef = array.from(-0.00894, -0.01356, -0.006753, 0.110633, -0.002398, -0.127587, 0.019954, 0.092992, 0.041209, 0.002895, -0.005719, 0.051736, -0.040679)
+var tGcSMu = array.from(0.002779, 0.006648, 0.02082, 0.126722, 0.002583, 0.185415, 0.007514, -0.000315, 0.055574, 0.000585, 0.398759, 0.413753)
+var tGcSSd = array.from(0.675738, 1.145976, 2.188332, 5.059261, 0.240781, 4.206069, 0.304986, 0.470649, 0.689263, 0.722428, 0.227098, 0.279716)
+var tGcSCoef = array.from(-0.009673, -0.013858, -0.005692, 0.111154, -0.001384, -0.130334, 0.022731, 0.0916, 0.041409, 0.002469, -0.004944, 0.052566, -0.041889)
 tGcSThr = 0.55
 tGcSTp = 3.0
 tGcSSl = 1.0
-tGcSWin = 0.287
-tGcSEv = -0.239
+tGcSWin = 0.291
+tGcSEv = -0.219
 tGcSEdge = 0.0
+var tGcDayUp = array.from(0.070614, -0.056609, -0.00668, -0.081058, -0.127883, 0.136338, 0.055917, 0.06767, 0.382608, 0.28732, -0.041411, 0.002432, -0.064543, 0.026655)
+var tGcDayDn = array.from(0.170732, -0.01836, 0.009956, -0.075268, -0.286886, 0.088179, 0.089454, 0.077625, 0.261585, 0.358765, 0.012598, 0.012223, 0.043821, -0.015953)
 var tGcExtUp = array.from(0.294, 0.312, 0.413, 0.239, 0.301, 0.365, 0.173, 0.301, 0.303, 0.013, 0.235, 0.329, 0.0, 0.227, 0.32, 0.0, 0.187, 0.294, 0.0, 0.162, 0.3, 0.0, 0.143, 0.304, 0.0, 0.11, 0.268, 0.0, 0.03, 0.259, 0.0, 0.008, 0.221, 0.0, 0.029, 0.204, 0.0, 0.018, 0.175, 0.0, 0.0, 0.165, 0.0, 0.0, 0.114, 0.0, 0.0, 0.078, 0.0, 0.0, 0.031, 0.0, 0.0, 0.004, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 var tGcExtDn = array.from(0.301, 0.347, 0.236, 0.392, 0.232, 0.199, 0.342, 0.203, 0.074, 0.38, 0.125, 0.0, 0.338, 0.066, 0.0, 0.313, 0.09, 0.0, 0.307, 0.114, 0.0, 0.283, 0.059, 0.0, 0.276, 0.02, 0.0, 0.255, 0.067, 0.0, 0.245, 0.038, 0.0, 0.209, 0.0, 0.0, 0.207, 0.0, 0.0, 0.209, 0.0, 0.0, 0.163, 0.0, 0.0, 0.082, 0.0, 0.0, 0.036, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 var tGcBuildW = array.from(0.1, 0.15, 0.15, 0.2, 0.2, 0.25, 0.45, 0.4, 0.5, 0.55, 0.55, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
@@ -272,6 +285,79 @@ if touchLo
     loReached := true
 plotshape(showTouch and touchHi, "Reached predicted high", shape.circle, location.abovebar, colHigh, size=size.tiny)
 plotshape(showTouch and touchLo, "Reached predicted low", shape.circle, location.belowbar, colLow, size=size.tiny)
+
+// ---------- Locked lines (set once per session, never moved) ----------
+// Full day: locked at the 6 PM futures open (trained on 10 years of daily bars).
+// Regular session: locked at 9:30, until 4:00 PM (trained on 10 years of the Nasdaq-100 cash index).
+// After-market: locked at 4:00 PM, until 9:00 AM (median of the last 250 sessions).
+lockFeat() =>
+    tr  = ta.tr(true)
+    atr = ta.sma(tr, 20)[1]
+    up  = (high - open) / atr
+    dn  = (open - low) / atr
+    rngPrev = high[1] - low[1]
+    dow = dayofweek(time_tradingday)
+    [open, atr, tr[1] / atr, (open - close[1]) / atr, math.abs(open - close[1]) / atr, ta.sma(tr, 5)[1] / atr,
+         ta.sma(tr, 60)[1] / atr, up[1], dn[1], ta.sma(up, 5)[1], ta.sma(dn, 5)[1],
+         rngPrev > 0 ? (close[1] - low[1]) / rngPrev : 0.5, (open - close[20]) / atr,
+         dow == dayofweek.monday ? 1.0 : 0.0, dow == dayofweek.friday ? 1.0 : 0.0]
+
+[kO, kA, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13] = request.security(syminfo.tickerid, "D", lockFeat(), lookahead=barmerge.lookahead_on)
+[nO, nA, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11, n12, n13] = request.security(ndxTicker, "D", lockFeat(), lookahead=barmerge.lookahead_on)
+
+lockDot(float[] c, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13) =>
+    z = array.get(c, 0) + array.get(c, 1) * f1 + array.get(c, 2) * f2 + array.get(c, 3) * f3 + array.get(c, 4) * f4 +
+         array.get(c, 5) * f5 + array.get(c, 6) * f6 + array.get(c, 7) * f7 + array.get(c, 8) * f8 + array.get(c, 9) * f9 +
+         array.get(c, 10) * f10 + array.get(c, 11) * f11 + array.get(c, 12) * f12 + array.get(c, 13) * f13
+    math.max(0.0, z)
+
+dayUpC = isGold ? tGcDayUp : tNqDayUp
+dayDnC = isGold ? tGcDayDn : tNqDayDn
+wantDay = lockMode == "Full day (6 PM-5 PM)" or lockMode == "All" or (lockMode == "Auto" and isGold)
+wantSes = not isGold and (lockMode == "Regular + after-market" or lockMode == "All" or lockMode == "Auto")
+nyHM = hour(time, "America/New_York") * 60 + minute(time, "America/New_York")
+nyDow = dayofweek(time, "America/New_York")
+isWeekday = nyDow != dayofweek.saturday and nyDow != dayofweek.sunday
+
+var line[]  lkLines = array.new_line()
+var label[] lkLbls  = array.new_label()
+var float   lkHi = na
+var float   lkLo = na
+var string  lkName = ""
+
+lockDraw(t1, t2, hi, lo, name) =>
+    array.push(lkLines, line.new(t1, hi, t2, hi, xloc=xloc.bar_time, color=colHigh, width=2))
+    array.push(lkLines, line.new(t1, lo, t2, lo, xloc=xloc.bar_time, color=colLow, width=2))
+    array.push(lkLbls, label.new(t2, hi, "▲ " + name + " HIGH " + str.tostring(hi, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(colHigh, 80), textcolor=colHigh, size=size.small))
+    array.push(lkLbls, label.new(t2, lo, "▼ " + name + " LOW " + str.tostring(lo, format.mintick), xloc=xloc.bar_time, style=label.style_label_left, color=color.new(colLow, 80), textcolor=colLow, size=size.small))
+    while array.size(lkLines) > 2 * (lockHist + 1) * (wantDay and wantSes ? 3 : 2)
+        line.delete(array.shift(lkLines))
+    while array.size(lkLbls) > 4
+        label.delete(array.shift(lkLbls))
+
+if timeframe.isintraday and not na(kA)
+    // full day: at the first bar of the CME day, from the chart's own open (roll-safe)
+    if wantDay and newDay
+        u = lockDot(dayUpC, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
+        v = lockDot(dayDnC, k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13)
+        lkHi := open + u * kA
+        lkLo := open - v * kA
+        lkName := "DAY"
+        lockDraw(time, dayEnd, lkHi, lkLo, "DAY")
+    // regular session: at the first bar at or after 9:30 New York
+    if wantSes and isWeekday and nyHM >= 570 and nyHM[1] < 570 and not na(nA)
+        u = lockDot(tNqRthUp, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11, n12, n13)
+        v = lockDot(tNqRthDn, n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11, n12, n13)
+        lkHi := open + u * nA
+        lkLo := open - v * nA
+        lkName := "9:30"
+        lockDraw(time, time + (16 * 60 - nyHM) * 60000, lkHi, lkLo, "9:30")
+    // after-market: at the first bar at or after 4:00 PM New York
+    if wantSes and isWeekday and nyHM >= 960 and nyHM[1] < 960
+        lkHi := open + tNqAhUp * kA
+        lkLo := open - tNqAhDn * kA
+        lkName := "4 PM"
+        lockDraw(time, time + ((nyDow == dayofweek.friday ? 3 * 1440 : 1440) - nyHM + 540) * 60000, lkHi, lkLo, "4 PM")
 
 // ---------- Labels and flow lines on the current bar ----------
 var label lbHi = na
@@ -471,12 +557,20 @@ if barstate.islast
     if not timeframe.isintraday
         table.cell(panel, 0, 1, "Use an intraday timeframe", text_color=colLow, text_size=size.small)
     else
-        table.cell(panel, 0, 1, "▲ Predicted HIGH", text_color=colHigh, text_size=size.small)
-        table.cell(panel, 1, 1, str.tostring(liveHi, format.mintick), text_color=colHigh, text_size=size.small)
-        table.cell(panel, 0, 2, "◆ Build-up / support", text_color=colBuild, text_size=size.small)
-        table.cell(panel, 1, 2, str.tostring(build, format.mintick), text_color=colBuild, text_size=size.small)
-        table.cell(panel, 0, 3, "▼ Predicted LOW", text_color=colLow, text_size=size.small)
-        table.cell(panel, 1, 3, str.tostring(liveLo, format.mintick), text_color=colLow, text_size=size.small)
+        if not showLive
+            table.cell(panel, 0, 1, "▲ Locked HIGH (" + lkName + ")", text_color=colHigh, text_size=size.small)
+            table.cell(panel, 1, 1, str.tostring(lkHi, format.mintick), text_color=colHigh, text_size=size.small)
+            table.cell(panel, 0, 2, "Lines never move after they lock", text_color=colText, text_size=size.small)
+            table.cell(panel, 1, 2, "", text_color=colText, text_size=size.small)
+            table.cell(panel, 0, 3, "▼ Locked LOW (" + lkName + ")", text_color=colLow, text_size=size.small)
+            table.cell(panel, 1, 3, str.tostring(lkLo, format.mintick), text_color=colLow, text_size=size.small)
+        else
+            table.cell(panel, 0, 1, "▲ Predicted HIGH", text_color=colHigh, text_size=size.small)
+            table.cell(panel, 1, 1, str.tostring(liveHi, format.mintick), text_color=colHigh, text_size=size.small)
+            table.cell(panel, 0, 2, "◆ Build-up / support", text_color=colBuild, text_size=size.small)
+            table.cell(panel, 1, 2, str.tostring(build, format.mintick), text_color=colBuild, text_size=size.small)
+            table.cell(panel, 0, 3, "▼ Predicted LOW", text_color=colLow, text_size=size.small)
+            table.cell(panel, 1, 3, str.tostring(liveLo, format.mintick), text_color=colLow, text_size=size.small)
         table.cell(panel, 0, 4, "Max high / low (P" + str.tostring(pctOuter) + ")", text_color=colText, text_size=size.small)
         table.cell(panel, 1, 4, str.tostring(predHiOut, format.mintick) + " / " + str.tostring(predLoOut, format.mintick), text_color=colText, text_size=size.small)
         table.cell(panel, 0, 5, "Avg miss at day open (" + str.tostring(nOpenDays) + "d)", text_color=colText, text_size=size.small)
