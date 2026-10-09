@@ -39,3 +39,34 @@ Then go to Settings → MT5: Server and click **Connect to MT5**.
 ```bash
 npm test
 ```
+
+## Day Range Predictor (US100 / NQ / XAUUSD)
+
+Two versions of the same model:
+
+| File | Platform | Symbols |
+| --- | --- | --- |
+| `experts/DayRangePredictor.mq5` | MT5 (Expert Advisor, draws only, places no trades) | US100 / NAS100 / USTEC, XAUUSD |
+| `pine/DayRangePredictor.pine` | TradingView (Pine v5) | `CME_MINI:NQ1!`, `OANDA:XAUUSD` (any XAUUSD feed) |
+
+What it draws each day, using only data known at the open (no repainting):
+
+- **Max HIGH / Max LOW** (solid lines): today's open ± the 95th percentile of the last 250 days' up/down moves, scaled by the 14-day ATR.
+- **Likely HIGH / Likely LOW** (dashed lines): the same at the 50th percentile, so price reaches them about half of days.
+- **Reversal zones** (shaded): from the 85th percentile out to the max line.
+- **BUY / SELL signals**: only when all 5 filters agree: price reaches the zone, a rejection candle closes back inside, RSI is stretched and turning, price is beyond the 2σ VWAP band, and it's inside the active session (Nasdaq 09:30–16:00 NY, gold 03:00–12:00 NY). At most one per side per day.
+- **Panel**: a walk-forward accuracy test (how often the day's high and low really stayed inside that morning's max lines) and the win rate and net R of the signals on the chart.
+
+Walk-forward results on daily data (last 500 trading days up to Oct 2026; every day's lines built only from earlier days):
+
+| Max line percentile | NQ: high held | NQ: low held | NQ: both held | Gold: high held | Gold: low held | Gold: both held | Band width |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| P90 | 89.2% | 91.0% | 80.2% | 91.2% | 89.4% | 80.8% | ~2.2× ATR |
+| P95 (default) | 94.4% | 95.4% | 89.8% | 94.4% | 94.2% | 88.6% | ~2.7× ATR |
+| P97 | 96.6% | 97.4% | 94.0% | 96.6% | 96.2% | 92.8% | ~3.1× ATR |
+
+Higher accuracy always means wider lines. The reversal signals tested at around a coin flip on 2 years of hourly NQ and gold data (≈45–55% at 1R, before spread and commission), so treat them as a filter, not a guarantee. No indicator is right 100% of the time, and this is not financial advice.
+
+MT5 install: copy the `.mq5` into `MQL5\Experts` (or use the app's Expert Advisors tab), compile it in MetaEditor, then drag it onto an intraday chart (M5 or M15 work well). In the Strategy Tester, set "Server time minus New York" to your broker's offset (7 for most brokers) because auto-detect needs a live clock.
+
+TradingView install: Pine Editor → paste `pine/DayRangePredictor.pine` → Add to chart. Use an intraday timeframe. The built-in Pine interpreter in this app doesn't run it, because it needs `request.security`, `var` and arrays.
