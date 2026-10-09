@@ -15,3 +15,4 @@ __pycache__/
 ai/finetune/data/
 ai/finetune/cache/
 ai/finetune/out/
+ai/finetune/*.zip

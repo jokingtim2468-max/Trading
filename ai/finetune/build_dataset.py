@@ -57,6 +57,11 @@ PRESS = re.compile(r"rings the nasdaq|announces|appoints|names .* (director|ceo|
 MACRO = re.compile(r"\bfed\b|federal reserve|powell|rate (cut|hike)|inflation|\bcpi\b|\bpce\b|payrolls|jobs report|"
                    r"unemployment|yields?|treasur|tariff|war\b|sanction|recession|gdp|nvidia|apple|microsoft|"
                    r"amazon|alphabet|meta\b|tesla|dollar|geopolit|iran|china|opec", re.I)
+# a headline must talk about markets or the economy to be a useful example (drops "Gold medal..." etc.)
+MARKET = re.compile(r"stock|share|nasdaq|s&p|dow\b|market|wall street|futures|index|equit|bond|yield|treasur|"
+                    r"\bfed\b|federal reserve|rate|inflation|\bcpi\b|jobs|payroll|economy|economic|gdp|recession|"
+                    r"earnings|revenue|guidance|dollar|currenc|tariff|trade war|oil|gold (price|futures|rall|prices)|"
+                    r"bullion|precious metal|investor|trader|rall(y|ies)|sell-?off|crash|volatil", re.I)
 RANGE_SYSTEM = ("You predict the high and low of a trading session (full day, regular session or after-market) for "
                 "Nasdaq 100 or gold from a snapshot taken when the session's lines are locked. Answer only JSON: {\"high\": number, \"low\": number}.")
 QA_SYSTEM = ("You are the assistant inside the Day Range Predictor trading tools (MT5 EA, TradingView script, "
@@ -127,7 +132,7 @@ def news_examples(days, per_query, workers=4):
             if d not in moves["NQ"].index or d not in moves["GC"].index:
                 continue
             for t in titles:
-                if t.lower() in seen:
+                if t.lower() in seen or not MARKET.search(t):
                     continue
                 seen.add(t.lower())
                 rel = 0 if PRESS.search(t) else 3 if MACRO.search(t) else 1
