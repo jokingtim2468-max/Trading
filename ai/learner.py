@@ -280,6 +280,19 @@ def status():
         print(f"{name:>6} {n:>5} {mh:>10.2f} {ml:>9.2f} {w10:>10.0%}")
 
 
+def restart():
+    """Start a fresh copy of this script and exit (state is on disk)."""
+    args = [sys.executable, str(Path(__file__).resolve())] + sys.argv[1:]
+    if os.name == "nt":       # new minimized console; subprocess quotes paths with spaces correctly
+        import subprocess
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 7    # SW_SHOWMINNOACTIVE
+        subprocess.Popen(args, cwd=str(ROOT), creationflags=subprocess.CREATE_NEW_CONSOLE, startupinfo=si)
+        sys.exit(0)
+    os.execv(sys.executable, args)
+
+
 def single_instance():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -319,7 +332,7 @@ def main():
         if any(f.exists() and f.stat().st_mtime != t for f, t in code.items()):
             log("code was updated, restarting the learner")
             lock.close()
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            restart()
 
 
 if __name__ == "__main__":

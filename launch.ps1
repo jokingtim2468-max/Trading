@@ -14,8 +14,30 @@ $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'DRP Trading'
 function Say($msg, $color = 'Gray') { Write-Host $msg -ForegroundColor $color }
-# the Python launcher 'py' is preferred; -CommandType Application so nothing else named py can match
-$py = if (Get-Command py -CommandType Application -ErrorAction SilentlyContinue) { 'py' } else { 'python' }
+# Find the real python.exe: the 'py' launcher, else a per-user or all-users install (python.org / winget
+# don't always add it to PATH), never the Microsoft Store 'python' stub that only opens the Store.
+function Find-Python {
+  $cmd = Get-Command py -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd) { return $cmd.Source }
+  $found = foreach ($root in @((Join-Path $env:LOCALAPPDATA 'Programs\Python'), $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if ($root -and (Test-Path $root)) {
+      Get-ChildItem $root -Directory -Filter 'Python3*' -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.FullName 'python.exe' } | Where-Object { Test-Path $_ }
+    }
+  }
+  $best = $found | Sort-Object { [int](($_ -replace '.*Python3(\d+).*', '$1')) } -Descending | Select-Object -First 1
+  if ($best) { return $best }
+  $cmd = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
+    Where-Object { $_.Source -notlike '*WindowsApps*' } | Select-Object -First 1
+  if ($cmd) { return $cmd.Source }
+  return $null
+}
+$py = Find-Python
+if (-not $py) {
+  Write-Host 'Python 3 was not found. Run the installer command again (it installs Python 3.12).' -ForegroundColor Red
+  Start-Sleep 20
+  exit 1
+}
 $state = Join-Path $PSScriptRoot '.drp_state'
 New-Item -ItemType Directory -Force $state | Out-Null
 
@@ -50,8 +72,10 @@ $reqFile = Join-Path $state 'deps.hash'
 if ($Force -or -not (Test-Path $reqFile) -or (Get-Content $reqFile) -ne $reqHash) {
   Say 'Installing Python packages...' 'Cyan'
   & $py -m pip install --quiet --upgrade pip
-  & $py -m pip install --quiet -r tools\requirements.txt -r bridge\requirements.txt
+  & $py -m pip install --quiet -r tools\requirements.txt      # predictor, trainer, AI service, gold learner
   $pipOk = $LASTEXITCODE -eq 0
+  & $py -m pip install --quiet -r bridge\requirements.txt     # MT5 bridge (separate so it can't block the rest)
+  if ($LASTEXITCODE -ne 0) { Say 'The MT5 bridge package failed to install; everything else still works.' 'Yellow' }
   if (Get-Command npm -ErrorAction SilentlyContinue) { npm install --no-audit --no-fund --silent | Out-Null }
   if ($pipOk) { Set-Content $reqFile $reqHash } else { Say 'Python packages failed to install; will retry next launch.' 'Red' }
 }
@@ -62,10 +86,12 @@ function Deploy-EA {
   $root = Join-Path $env:APPDATA 'MetaQuotes\Terminal'
   $found = 0
   foreach ($t in (Get-ChildItem $root -Directory -ErrorAction SilentlyContinue)) {
-    $experts = Join-Path $t.FullName 'MQL5\Experts'
     $origin = Join-Path $t.FullName 'origin.txt'
-    if (-not (Test-Path $experts) -or -not (Test-Path $origin)) { continue }
-    $install = (Get-Content $origin -Raw).Trim()
+    if (-not (Test-Path $origin)) { continue }
+    $install = (Get-Content $origin -Raw).Trim()          # origin.txt (UTF-16) holds the install folder
+    $experts = Join-Path $t.FullName 'MQL5\Experts'
+    if (-not (Test-Path $experts)) { $experts = [IO.Path]::Combine($install, 'MQL5', 'Experts') }   # portable mode
+    if (-not (Test-Path $experts)) { continue }
     $editor = [IO.Path]::Combine($install, 'metaeditor64.exe')
     $dest = Join-Path $experts 'DayRangePredictor.mq5'
     Copy-Item $src $dest -Force
@@ -105,7 +131,7 @@ if ($Retrain -or ($stale -and -not $NoStart)) {
 }
 
 # ---- always-on gold learner: Windows Startup shortcut (runs minimized at logon) -------------------------
-$pyExe = (Get-Command $py -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$pyExe = $py
 $learnerLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'DRP Gold Learner.lnk'
 if ($NoLearner) { Remove-Item $learnerLnk -ErrorAction SilentlyContinue }
 elseif ($pyExe) {

@@ -5,8 +5,9 @@
 #
 # It installs what's missing (Git, Python, Node.js, Ollama) with winget, downloads the project to
 # %LOCALAPPDATA%\DRPTrading, installs the Python/Node packages, copies and compiles the EA into every
-# MetaTrader 5 on this PC, pulls the local Llama model, and puts a "DRP Trading" shortcut on YOUR
-# Desktop and Start Menu. The shortcut updates everything automatically each time you open it.
+# MetaTrader 5 on this PC, pulls the local Llama model, puts a "DRP Trading" shortcut on YOUR Desktop and
+# Start Menu, adds the always-on gold learner to Windows Startup, and starts everything. The shortcut
+# updates everything automatically each time you open it. Running this command again updates and restarts.
 # Set $env:DRP_NO_OLLAMA = 1 before running to skip the local AI (Ollama + ~2 GB model).
 $ErrorActionPreference = 'Stop'
 $Repo   = 'https://github.com/jokingtim2468-max/Trading.git'
@@ -60,7 +61,8 @@ foreach ($t in $targets) {
   }
 }
 
-# first run: install packages, deploy + compile the EA, pull the model (no services started)
-& $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dir 'launch.ps1') -NoStart -Force
-Write-Host "`nInstalled to $Dir" -ForegroundColor Green
-Write-Host "Open 'DRP Trading' on your Desktop to start. It updates itself every time you open it." -ForegroundColor Green
+# first run: install packages, copy + compile the EA, pull the local AI model, then start everything
+# (AI service, MT5 bridge, the always-on gold learner, MetaTrader 5)
+& $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dir 'launch.ps1') -Force
+Write-Host "`nInstalled to $Dir and started." -ForegroundColor Green
+Write-Host "Next time just open 'DRP Trading' on your Desktop (it updates itself). The gold learner also starts with Windows." -ForegroundColor Green
