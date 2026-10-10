@@ -43,3 +43,16 @@ test('input overrides', () => {
   const r = compilePine('indicator("x")\nl = input(5, "L")\nplot(ta.sma(close, l))', bars, { L: 3 });
   assert.deepEqual(r.plots[0].data, sma(close, 3));
 });
+
+test('bridge exposes no order endpoints', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../bridge/mt5_bridge.py', import.meta.url), 'utf8');
+  assert.ok(!/order_send|order_check|post_order|post_close/.test(src));
+});
+
+test('quote parts emphasise pips', async () => {
+  const { quoteParts } = await import('../src/chartpane.js').catch(() => ({}));
+  if (!quoteParts) return; // chartpane imports the chart lib (browser-only)
+  assert.deepEqual(quoteParts(2730.63, 2), { small: '2730.', big: '63', sup: '' });
+  assert.deepEqual(quoteParts(1.08453, 5), { small: '1.08', big: '45', sup: '3' });
+});

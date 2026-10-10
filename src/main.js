@@ -1,13 +1,13 @@
-import {
-  createChart, CandlestickSeries, BarSeries, LineSeries, AreaSeries, BaselineSeries, HistogramSeries,
-  CrosshairMode, PriceScaleMode, createSeriesMarkers,
-} from 'lightweight-charts';
+// App shell: multi-chart layout, header, drawing toolbar, Favorites /
+// Market Watch / Experts panel, Pine editor, dialogs. Read-only market data;
+// orders are handed off to TradingView (FTMO's execution platform).
 import { TIMEFRAMES, DEFAULT_FAVORITES } from './symbols.js';
 import { BUILTINS } from './indicators.js';
 import { compilePine } from './pine.js';
 import { MT5Client } from './data.js';
 import { SETTINGS_SCHEMA, THEMES, loadSettings, saveSettings, applyThemeCss } from './settings.js';
 import { SAMPLE_SCRIPTS } from './samples.js';
+import { ChartPane, ICON, quoteParts } from './chartpane.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -16,527 +16,590 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } },
 };
 
-let settings = loadSettings();
-const client = new MT5Client(settings.bridgeUrl);
-const state = {
-  symbol: store.get('mt5tv.symbol', 'XAUUSD'),
-  tf: store.get('mt5tv.tf', 'H1'),
-  symbols: [],
-  favorites: store.get('mt5tv.favorites', DEFAULT_FAVORITES),
-  indicators: store.get('mt5tv.indicators', []), // {kind:'builtin'|'pine', name, params|scriptId}
-  scripts: store.get('mt5tv.scripts', SAMPLE_SCRIPTS),
-  drawings: store.get('mt5tv.drawings', {}),
-  bars: [],
-  sideTab: 'fav',
-  tool: 'cursor',
+// TradingView's multi-chart layouts (cell count + CSS grid areas).
+const LAYOUTS = {
+  '1': { n: 1, cols: '1fr', rows: '1fr' },
+  '2v': { n: 2, cols: '1fr 1fr', rows: '1fr' },
+  '2h': { n: 2, cols: '1fr', rows: '1fr 1fr' },
+  '3': { n: 3, cols: '2fr 1fr', rows: '1fr 1fr', areas: '"a b" "a c"' },
+  '3v': { n: 3, cols: '1fr 1fr 1fr', rows: '1fr' },
+  '4': { n: 4, cols: '1fr 1fr', rows: '1fr 1fr' },
+  '6': { n: 6, cols: '1fr 1fr 1fr', rows: '1fr 1fr' },
+  '8': { n: 8, cols: '1fr 1fr 1fr 1fr', rows: '1fr 1fr' },
 };
-// XAUUSD is always favorited by default.
-if (!state.favorites.includes('XAUUSD')) state.favorites.unshift('XAUUSD');
-
-const log = (msg) => { const j = $('#journal'); j.textContent = `${new Date().toLocaleTimeString()}  ${msg}\n` + j.textContent; };
-
-// ---------------- Chart ----------------
-const chart = createChart($('#chart'), { autoSize: true });
-let mainSeries, volSeries, indSeries = [], mainMarkers, priceLines = [];
-
-function applyChartOptions() {
-  applyThemeCss(settings.theme);
-  chart.applyOptions({
-    layout: { background: { color: settings.background }, textColor: settings.textColor, panes: { separatorColor: '#2A2E39' } },
-    grid: { vertLines: { color: settings.gridColor }, horzLines: { color: settings.gridColor } },
-    crosshair: { mode: settings.crosshair === 'Magnet' ? CrosshairMode.Magnet : CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#2A2E39', mode: settings.logScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal },
-    timeScale: { borderColor: '#2A2E39', timeVisible: true, secondsVisible: false, rightOffset: settings.chartShift ? 12 : 0, shiftVisibleRangeOnNewBar: settings.autoScroll },
-    localization: settings.timezone === 'UTC' ? { timeFormatter: (t) => new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ') } : {},
-  });
-  document.body.style.background = settings.background;
-}
-
-function heikinAshi(bars) {
-  const out = [];
-  bars.forEach((b, i) => {
-    const close = (b.open + b.high + b.low + b.close) / 4;
-    const open = i === 0 ? (b.open + b.close) / 2 : (out[i - 1].open + out[i - 1].close) / 2;
-    out.push({ time: b.time, open, close, high: Math.max(b.high, open, close), low: Math.min(b.low, open, close) });
-  });
-  return out;
-}
-
-function buildMainSeries() {
-  if (mainSeries) chart.removeSeries(mainSeries);
-  if (volSeries) { chart.removeSeries(volSeries); volSeries = null; }
-  const t = settings.chartType;
-  const up = settings.upColor, dn = settings.downColor;
-  const sym = state.symbols.find((s) => s.name === state.symbol);
-  const digits = sym?.digits ?? 2;
-  const priceFormat = { type: 'price', precision: digits, minMove: 1 / 10 ** digits };
-  if (t === 'Candles' || t === 'Heikin Ashi') mainSeries = chart.addSeries(CandlestickSeries, { upColor: up, downColor: dn, borderVisible: false, wickUpColor: up, wickDownColor: dn, priceFormat });
-  else if (t === 'Hollow candles') mainSeries = chart.addSeries(CandlestickSeries, { upColor: 'transparent', downColor: dn, borderUpColor: up, borderDownColor: dn, wickUpColor: up, wickDownColor: dn, priceFormat });
-  else if (t === 'Bars') mainSeries = chart.addSeries(BarSeries, { upColor: up, downColor: dn, priceFormat });
-  else if (t === 'Line') mainSeries = chart.addSeries(LineSeries, { color: '#2962FF', lineWidth: 2, priceFormat });
-  else if (t === 'Area') mainSeries = chart.addSeries(AreaSeries, { lineColor: '#2962FF', topColor: '#2962FF55', bottomColor: '#2962FF05', priceFormat });
-  else mainSeries = chart.addSeries(BaselineSeries, { topLineColor: up, bottomLineColor: dn, priceFormat });
-  mainMarkers = createSeriesMarkers(mainSeries, []);
-  if (settings.showVolume) {
-    volSeries = chart.addSeries(HistogramSeries, { priceFormat: { type: 'volume' }, priceScaleId: 'vol', lastValueVisible: false, priceLineVisible: false });
-    volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-  }
-}
-
-function setMainData() {
-  const t = settings.chartType;
-  const bars = t === 'Heikin Ashi' ? heikinAshi(state.bars) : state.bars;
-  if (['Line', 'Area', 'Baseline'].includes(t)) {
-    mainSeries.setData(bars.map((b) => ({ time: b.time, value: b.close })));
-    if (t === 'Baseline' && bars.length) mainSeries.applyOptions({ baseValue: { type: 'price', price: bars[Math.floor(bars.length / 2)].close } });
-  } else mainSeries.setData(bars);
-  volSeries?.setData(state.bars.map((b) => ({ time: b.time, value: b.volume, color: b.close >= b.open ? settings.upColor + '66' : settings.downColor + '66' })));
-}
-
-function barsArrays() {
-  const b = state.bars;
-  return { open: b.map((x) => x.open), high: b.map((x) => x.high), low: b.map((x) => x.low), close: b.map((x) => x.close), volume: b.map((x) => x.volume) };
-}
-
-function renderIndicators() {
-  indSeries.forEach((s) => chart.removeSeries(s));
-  indSeries = [];
-  const markers = [];
-  const arrays = barsArrays();
-  let pane = 1;
-  const legendItems = [];
-  state.indicators.forEach((ind, idx) => {
-    let out, overlay, hlines = [];
-    try {
-      if (ind.kind === 'builtin') {
-        const def = BUILTINS[ind.name];
-        out = def.calc(arrays, ind.params);
-        overlay = def.pane === 'main';
-        hlines = (def.levels || []).map((p) => ({ price: p, color: '#787B86' }));
-      } else {
-        const sc = state.scripts.find((s) => s.id === ind.scriptId);
-        if (!sc) return;
-        const r = compilePine(sc.code, arrays, ind.params || {});
-        out = r.plots; overlay = r.overlay; hlines = r.hlines;
-        r.markers.forEach((m) => markers.push({ time: state.bars[m.index].time, position: m.position, color: m.color, shape: m.shape, text: m.text }));
-        ind.title = r.title;
-      }
-    } catch (e) { log(`Indicator error (${ind.name}): ${e.message}`); return; }
-    const paneIndex = overlay ? 0 : pane++;
-    out.forEach((p) => {
-      const S = p.type === 'histogram' ? HistogramSeries : LineSeries;
-      const s = chart.addSeries(S, { color: p.color, lineWidth: p.width || 1.5, priceLineVisible: false, lastValueVisible: true, title: '' }, paneIndex);
-      s.setData(state.bars.map((b, i) => (Number.isFinite(p.data[i]) ? { time: b.time, value: p.data[i], ...(p.type === 'histogram' ? { color: p.data[i] >= 0 ? '#26A69A88' : '#EF535088' } : {}) } : { time: b.time })));
-      indSeries.push(s);
-      if (p === out[0]) hlines.forEach((h) => s.createPriceLine({ price: h.price, color: h.color, lineStyle: 2, lineWidth: 1, axisLabelVisible: false }));
-    });
-    legendItems.push({ idx, label: ind.kind === 'pine' ? `${ind.title || ind.name} (Pine)` : `${ind.name} ${Object.values(ind.params).join(' ')}` });
-  });
-  mainMarkers?.setMarkers(markers.sort((a, b) => a.time - b.time));
-  renderLegend(legendItems);
-}
-
-function renderLegend(items = []) {
-  const sym = state.symbols.find((s) => s.name === state.symbol);
-  const last = state.bars.at(-1);
-  const d = sym?.digits ?? 2;
-  const ohlc = settings.showOHLC && last ? ` <span class="${last.close >= last.open ? 'up' : 'down'}">O ${last.open.toFixed(d)} H ${last.high.toFixed(d)} L ${last.low.toFixed(d)} C ${last.close.toFixed(d)}</span>` : '';
-  $('#legend').innerHTML = `<div><b>${state.symbol}</b> · ${state.tf} · ${client.connected ? 'MT5' : 'Demo'}${ohlc}</div>` +
-    items.map((it) => `<div class="ind">${esc(it.label)} <button data-edit="${it.idx}" title="Settings">⚙</button><button data-rm="${it.idx}" title="Remove">✕</button></div>`).join('');
-}
-$('#legend').addEventListener('click', (e) => {
-  const rm = e.target.dataset.rm, ed = e.target.dataset.edit;
-  if (rm != null) { state.indicators.splice(+rm, 1); persistInds(); renderIndicators(); }
-  if (ed != null) editIndicator(+ed);
-});
-function persistInds() { store.set('mt5tv.indicators', state.indicators); }
-
-// ---------------- Data loading ----------------
-let pollTimer;
-async function loadChart() {
-  const tfSec = TIMEFRAMES.find(([n]) => n === state.tf)[1];
-  const max = settings.maxBars === 'Unlimited' ? 20000 : Math.min(+settings.maxBars, 20000);
-  state.bars = await client.bars(state.symbol, state.tf, tfSec, Math.min(max, 2000));
-  buildMainSeries();
-  setMainData();
-  renderIndicators();
-  chart.timeScale().fitContent();
-  chart.timeScale().scrollToRealTime();
-  updateFavToggle();
-  renderTopbar();
-  renderSide();
-  await refreshTradeLevels();
-  redrawDrawings();
-  clearInterval(pollTimer);
-  if (client.connected) pollTimer = setInterval(pollTick, 1000);
-}
-
-async function pollTick() {
-  try {
-    const t = await client.tick(state.symbol);
-    if (!t) return;
-    const tfSec = TIMEFRAMES.find(([n]) => n === state.tf)[1];
-    const last = state.bars.at(-1);
-    const barTime = Math.floor(t.time / tfSec) * tfSec;
-    const price = t.bid;
-    if (last && barTime === last.time) Object.assign(last, { close: price, high: Math.max(last.high, price), low: Math.min(last.low, price) });
-    else if (last && barTime > last.time) state.bars.push({ time: barTime, open: price, high: price, low: price, close: price, volume: 0 });
-    setMainData();
-    drawBidAsk(t);
-  } catch { /* bridge hiccup */ }
-}
-
-let bidLine, askLine;
-function drawBidAsk(t) {
-  if (bidLine) mainSeries.removePriceLine(bidLine);
-  if (askLine) mainSeries.removePriceLine(askLine);
-  bidLine = askLine = null;
-  if (settings.showBidLine) bidLine = mainSeries.createPriceLine({ price: t.bid, color: '#787B86', lineWidth: 1, lineStyle: 0, title: 'Bid' });
-  if (settings.showAskLine) askLine = mainSeries.createPriceLine({ price: t.ask, color: '#F23645', lineWidth: 1, lineStyle: 0, title: 'Ask' });
-}
-
-async function refreshTradeLevels() {
-  priceLines.forEach((l) => mainSeries.removePriceLine(l));
-  priceLines = [];
-  if (!client.connected) { $('#tradeTbl').innerHTML = '<tr><td>Connect the MT5 bridge to see positions (Settings → MT5: Server).</td></tr>'; return; }
-  try {
-    const [pos, acc] = await Promise.all([client.positions(), client.account()]);
-    $('#tradeTbl').innerHTML = `<tr><th>Ticket</th><th>Symbol</th><th>Type</th><th>Volume</th><th>Price</th><th>S/L</th><th>T/P</th><th>Profit</th><th></th></tr>` +
-      pos.map((p) => `<tr><td>${p.ticket}</td><td>${p.symbol}</td><td>${p.type}</td><td>${p.volume}</td><td>${p.price_open}</td><td>${p.sl || ''}</td><td>${p.tp || ''}</td><td class="${p.profit >= 0 ? 'up' : 'down'}">${p.profit.toFixed(2)}</td><td><button data-close="${p.ticket}">✕</button></td></tr>`).join('') +
-      `<tr><td colspan="9">Balance ${acc.balance} ${acc.currency} · Equity ${acc.equity} · Margin ${acc.margin} · Free ${acc.margin_free} · Level ${acc.margin_level ? acc.margin_level.toFixed(1) + '%' : '—'}</td></tr>`;
-    if (settings.showTradeLevels) pos.filter((p) => p.symbol === state.symbol).forEach((p) => {
-      priceLines.push(mainSeries.createPriceLine({ price: p.price_open, color: p.type === 'BUY' ? '#2962FF' : '#F23645', lineStyle: 1, title: `${p.type} ${p.volume}` }));
-      if (p.sl) priceLines.push(mainSeries.createPriceLine({ price: p.sl, color: '#F23645', lineStyle: 2, title: 'SL' }));
-      if (p.tp) priceLines.push(mainSeries.createPriceLine({ price: p.tp, color: '#089981', lineStyle: 2, title: 'TP' }));
-    });
-    const hist = await client.history();
-    $('#histTbl').innerHTML = '<tr><th>Time</th><th>Ticket</th><th>Symbol</th><th>Type</th><th>Volume</th><th>Price</th><th>Profit</th></tr>' +
-      hist.map((h) => `<tr><td>${new Date(h.time * 1000).toLocaleString()}</td><td>${h.ticket}</td><td>${h.symbol}</td><td>${h.type}</td><td>${h.volume}</td><td>${h.price}</td><td class="${h.profit >= 0 ? 'up' : 'down'}">${h.profit.toFixed(2)}</td></tr>`).join('');
-  } catch (e) { log(`Trade refresh failed: ${e.message}`); }
-}
-$('#tradeTbl').addEventListener('click', async (e) => {
-  const t = e.target.dataset.close;
-  if (!t) return;
-  try { await client.close(+t); log(`Closed #${t}`); refreshTradeLevels(); } catch (err) { log(`Close failed: ${err.message}`); }
-});
-
-// ---------------- Trading ----------------
-$('#lots').value = store.get('mt5tv.lastLots', settings.defaultVolume);
-async function sendOrder(side) {
-  if (!client.connected) { alert('Connect to MT5 first: Settings → MT5: Server. Orders are only sent through your own MT5 terminal.'); return; }
-  const volume = +$('#lots').value;
-  if (!settings.oneClickTrading && !confirm(`${side} ${volume} lots ${state.symbol} at market?`)) return;
-  if (settings.volumeMode === 'Last used') store.set('mt5tv.lastLots', volume);
-  try {
-    const r = await client.order({ symbol: state.symbol, side, volume, deviation: settings.deviation, sl_points: settings.defaultSL, tp_points: settings.defaultTP, magic: settings.magic, filling: settings.fillingMode });
-    log(`${side} ${volume} ${state.symbol}: ${r.comment || r.retcode}`);
-    refreshTradeLevels();
-  } catch (e) { log(`Order failed: ${e.message}`); alert(e.message); }
-}
-$('#buyBtn').onclick = () => sendOrder('BUY');
-$('#sellBtn').onclick = () => sendOrder('SELL');
-
-// ---------------- Top bar ----------------
 const QUICK_TF = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1'];
-function renderTopbar() {
-  $('#symbolBtn').textContent = state.symbol;
-  $('#tfBar').innerHTML = QUICK_TF.map((t) => `<button data-tf="${t}" class="${t === state.tf ? 'active' : ''}">${t}</button>`).join('');
-  $('#tfMore').innerHTML = `<option value="">More…</option>` + TIMEFRAMES.map(([t]) => `<option ${t === state.tf ? 'selected' : ''}>${t}</option>`).join('');
-  $('#chartType').innerHTML = SETTINGS_SCHEMA['Chart (TradingView)'].chartType.options.map((o) => `<option ${o === settings.chartType ? 'selected' : ''}>${o}</option>`).join('');
-}
-function setTf(tf) { if (!tf) return; state.tf = tf; store.set('mt5tv.tf', tf); loadChart(); }
-$('#tfBar').onclick = (e) => setTf(e.target.dataset.tf);
-$('#tfMore').onchange = (e) => setTf(e.target.value);
-$('#chartType').onchange = (e) => { settings.chartType = e.target.value; saveSettings(settings); buildMainSeries(); setMainData(); refreshTradeLevels(); };
-$('#symbolBtn').onclick = () => { state.sideTab = 'watch'; renderSide(); $('#sideSearch').focus(); };
+const CHART_TYPE_ICON = {
+  Candles: '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="M9 7v3m0 9v3m-2-12h4v9H7zm12-5v4m0 10v2m-2-12h4v10h-4z"/></svg>',
+  'Hollow candles': '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="M9 7v3m0 9v3m-2-12h4v9H7zm12-5v4m0 10v2m-2-12h4v10h-4z"/></svg>',
+  Bars: '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="M9 6v16M6 9h3m0 9h3M19 8v14m-3-3h3m0-7h3"/></svg>',
+  Line: '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="m5 19 6-7 5 4 7-9"/></svg>',
+  Area: '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="currentColor" fill-opacity=".25" stroke="currentColor" d="m5 19 6-7 5 4 7-9v16H5z"/></svg>',
+  Baseline: '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="M4 15h20M5 19l5-8 5 6 4-9 4 5"/></svg>',
+  'Heikin Ashi': '<svg viewBox="0 0 28 28" width="22" height="22"><path fill="none" stroke="currentColor" d="M9 6v16m-2-12h4v8H7zm12-6v16m-2-11h4v7h-4z"/></svg>',
+};
+const TOOLS = [
+  ['cursor', 'Cross', '<path fill="none" stroke="currentColor" d="M14 5v18M5 14h18"/>'],
+  ['trend', 'Trend line', '<path fill="none" stroke="currentColor" d="m7.5 20.5 13-13"/><circle cx="6.5" cy="21.5" r="1.5" fill="none" stroke="currentColor"/><circle cx="21.5" cy="6.5" r="1.5" fill="none" stroke="currentColor"/>'],
+  ['hline', 'Horizontal line', '<path fill="none" stroke="currentColor" d="M4 14h20"/><circle cx="14" cy="14" r="1.5" fill="none" stroke="currentColor"/>'],
+  ['vline', 'Vertical line', '<path fill="none" stroke="currentColor" d="M14 4v20"/><circle cx="14" cy="14" r="1.5" fill="none" stroke="currentColor"/>'],
+  ['rect', 'Rectangle', '<rect x="6.5" y="8.5" width="15" height="11" fill="none" stroke="currentColor"/>'],
+  ['fib', 'Fib retracement', '<path fill="none" stroke="currentColor" d="M5 7h18M5 11.5h18M5 16.5h18M5 21h18"/>'],
+  ['clear', 'Remove drawings', '<path fill="none" stroke="currentColor" d="M9 9v12h10V9M7 9h14m-9-2h4M12 12v6m4-6v6"/>'],
+];
+const STAR = (on) => `<svg viewBox="0 0 18 18" width="18" height="18"><path fill="${on ? '#FFB300' : 'none'}" stroke="${on ? '#FFB300' : 'currentColor'}" stroke-width="1.2" d="m9 2.3 2 4.3 4.6.5-3.4 3.2.9 4.6L9 12.6l-4.1 2.3.9-4.6-3.4-3.2 4.6-.5z"/></svg>`;
+const layoutIcon = (key) => {
+  const L = LAYOUTS[key], cols = L.cols.split(' ').length, rows = L.rows.split(' ').length;
+  let r = '';
+  if (key === '3') r = '<rect x="3.5" y="5.5" width="12" height="17"/><rect x="16.5" y="5.5" width="8" height="8"/><rect x="16.5" y="14.5" width="8" height="8"/>';
+  else for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) r += `<rect x="${3.5 + (i * 21) / cols}" y="${5.5 + (j * 17) / rows}" width="${21 / cols - 1}" height="${17 / rows - 1}"/>`;
+  return `<svg viewBox="0 0 28 28" width="22" height="22"><g fill="none" stroke="currentColor">${r}</g></svg>`;
+};
 
-function setSymbol(name) {
-  state.symbol = name; store.set('mt5tv.symbol', name);
-  loadChart();
-}
-function toggleFav(name) {
-  const i = state.favorites.indexOf(name);
-  if (i >= 0) state.favorites.splice(i, 1); else state.favorites.push(name);
-  store.set('mt5tv.favorites', state.favorites);
-  updateFavToggle(); renderSide();
-}
-function updateFavToggle() {
-  const on = state.favorites.includes(state.symbol);
-  $('#favToggle').textContent = on ? '★' : '☆';
-  $('#favToggle').style.color = on ? '#FFB300' : '';
-  $('#favToggle').title = on ? 'Remove from favorites' : 'Add to favorites';
-}
-$('#favToggle').onclick = () => toggleFav(state.symbol);
-
-// ---------------- Side panel ----------------
-function renderSide() {
-  document.querySelectorAll('#sideTabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.sideTab));
-  const q = $('#sideSearch').value.trim().toUpperCase();
-  $('#sideSearch').classList.toggle('hidden', state.sideTab === 'ea');
-  if (state.sideTab === 'ea') return renderEAList();
-  let list = state.symbols;
-  if (state.sideTab === 'fav') list = state.favorites.map((f) => list.find((s) => s.name === f) || { name: f, desc: '', group: '' });
-  if (q) list = list.filter((s) => s.name.includes(q) || (s.desc || '').toUpperCase().includes(q));
-  let html = '', grp = null;
-  for (const s of list) {
-    if (state.sideTab === 'watch' && s.group !== grp) { grp = s.group; html += `<div class="grp">${grp}</div>`; }
-    const fav = state.favorites.includes(s.name);
-    html += `<div class="item ${s.name === state.symbol ? 'cur' : ''}" data-sym="${s.name}"><button class="star ${fav ? 'on' : ''}" data-star="${s.name}">${fav ? '★' : '☆'}</button><div>${esc(s.name)}<small>${esc(s.desc)}</small></div><span></span><span></span></div>`;
+class App {
+  constructor() {
+    this.settings = loadSettings();
+    this.client = new MT5Client(this.settings.bridgeUrl);
+    this.symbols = [];
+    this.favorites = store.get('mt5tv.favorites', DEFAULT_FAVORITES);
+    if (!this.favorites.includes('XAUUSD')) this.favorites.unshift('XAUUSD'); // XAUUSD is always a favorite
+    this.scripts = store.get('mt5tv.scripts', SAMPLE_SCRIPTS);
+    this.drawings = store.get('mt5tv.drawings', {});
+    const saved = store.get('mt5tv.layout', null);
+    this.layout = saved?.layout && LAYOUTS[saved.layout] ? saved : {
+      layout: '1', active: 0,
+      sync: { symbol: false, interval: false, crosshair: true, time: false },
+      cells: [{ symbol: store.get('mt5tv.symbol', 'XAUUSD'), tf: store.get('mt5tv.tf', 'H1'), indicators: store.get('mt5tv.indicators', []) }],
+    };
+    this.panes = [];
+    this.tool = 'cursor';
+    this.sideTab = store.get('mt5tv.sideTab', 'watch');
+    this.quotes = {};
+    this.watchFilter = '';
   }
-  if (!list.length) html = `<div class="grp">${state.sideTab === 'fav' ? 'No favorites — click ☆ next to any symbol' : 'No symbols match'}</div>`;
-  $('#sideList').innerHTML = html;
-}
-$('#sideTabs').onclick = (e) => { if (e.target.dataset.tab) { state.sideTab = e.target.dataset.tab; renderSide(); } };
-$('#sideSearch').oninput = renderSide;
-$('#sideList').addEventListener('click', (e) => {
-  const star = e.target.closest('[data-star]');
-  if (star) { e.stopPropagation(); return toggleFav(star.dataset.star); }
-  const it = e.target.closest('[data-sym]');
-  if (it) setSymbol(it.dataset.sym);
-});
 
-// ---------------- Expert Advisors ----------------
-let eaCache = [];
-async function renderEAList() {
-  let html = `<div class="row" style="padding:8px"><label class="btn primary">Upload EA (.mq5/.ex5)<input id="eaFile" type="file" accept=".mq5,.ex5,.mqh" hidden multiple></label></div>`;
-  if (!client.connected) html += `<div class="grp">Connect the MT5 bridge to install EAs into your terminal's MQL5\\Experts folder.</div>`;
-  else {
-    try { eaCache = await client.experts(); } catch (e) { eaCache = []; html += `<div class="grp">${esc(e.message)}</div>`; }
-    html += eaCache.map((n) => `<div class="item" style="grid-template-columns:1fr auto"><div>${esc(n)}<small>MQL5\\Experts\\${esc(n)}</small></div><button data-del="${esc(n)}">✕</button></div>`).join('') || '<div class="grp">No EAs installed yet</div>';
-    html += `<div class="grp">Algo trading: ${settings.allowAlgoTrading ? 'ALLOWED' : 'disabled'} (Settings → MT5: Expert Advisors). Attach the EA to a chart inside MT5 (Navigator → drag onto chart).</div>`;
+  // ---------- helpers ----------
+  log(msg) { const j = $('#journal'); j.textContent = `${new Date().toLocaleTimeString()}  ${msg}\n` + j.textContent; }
+  accent() { return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#2962FF'; }
+  symbolInfo(name) { return this.symbols.find((s) => s.name === name); }
+  get active() { return this.panes[this.layout.active] || this.panes[0]; }
+  persistLayout() { this.layout.cells = this.panes.map((p) => p.cfg); store.set('mt5tv.layout', this.layout); }
+  drawingsFor(sym) { return (this.drawings[sym] ||= []); }
+  drawingsChanged(sym) { store.set('mt5tv.drawings', this.drawings); this.panes.filter((p) => p.cfg.symbol === sym).forEach((p) => p.scheduleOverlay()); }
+
+  // ---------- boot ----------
+  async init() {
+    applyThemeCss(this.settings.theme);
+    this.buildStaticUi();
+    await this.connect(true);
+    this.buildPanes();
+    this.renderHeader();
+    this.renderSide();
+    this.renderPineList();
+    this.setBottom(store.get('mt5tv.bottom', { tab: 'pine', open: false }));
+    setInterval(() => this.pollQuotes(), 1000);
   }
-  $('#sideList').innerHTML = html;
-  $('#eaFile')?.addEventListener('change', async (e) => {
-    for (const f of e.target.files) {
-      const buf = new Uint8Array(await f.arrayBuffer());
-      let bin = ''; buf.forEach((b) => (bin += String.fromCharCode(b)));
-      try { await client.uploadExpert(f.name, btoa(bin)); log(`Installed EA ${f.name}`); } catch (err) { log(`EA upload failed: ${err.message}`); alert(err.message); }
+
+  async connect(first) {
+    const st = await this.client.connect();
+    this.client.url = this.settings.bridgeUrl;
+    $('#conn').textContent = this.client.connected ? `MT5 · ${st.server || ''} ${st.login || ''}` : 'Demo data — MT5 bridge offline';
+    $('#conn').className = `conn ${this.client.connected ? 'on' : 'off'}`;
+    $('#conn').title = this.client.connected ? 'Live prices from your MT5 terminal (read-only)' : 'Start the bridge on your MT5 PC, then Settings → MT5: Server → Connect';
+    this.symbols = await this.client.symbols();
+    if (first) this.log(this.client.connected ? 'Connected to MT5 (read-only price feed)' : 'MT5 bridge not reachable — showing demo data');
+  }
+
+  buildPanes() {
+    const L = LAYOUTS[this.layout.layout];
+    while (this.layout.cells.length < L.n) {
+      const base = this.layout.cells.at(-1) || { symbol: 'XAUUSD', tf: 'H1' };
+      const nextSym = this.favorites.find((f) => !this.layout.cells.some((c) => c.symbol === f)) || base.symbol;
+      this.layout.cells.push({ symbol: this.layout.sync.symbol ? base.symbol : nextSym, tf: base.tf, indicators: [] });
     }
-    renderEAList();
-  });
-}
-$('#sideList').addEventListener('click', async (e) => {
-  const d = e.target.dataset.del;
-  if (d && confirm(`Remove ${d} from MQL5\\Experts?`)) { await client.deleteExpert(d).catch((err) => alert(err.message)); renderEAList(); }
-});
-$('#eaBtn').onclick = () => { state.sideTab = 'ea'; renderSide(); };
-
-// ---------------- Dialogs ----------------
-const dlg = $('#dlg');
-function openDialog(title, navItems, renderPane, onSave) {
-  let cur = navItems[0];
-  const draw = () => {
-    $('#dlgBody').innerHTML = `<div class="dlg-h">${title}<div class="grow"></div><button class="icon" id="dlgX">✕</button></div>
-      <div class="dlg-c">${navItems.length > 1 ? `<div class="dlg-nav">${navItems.map((n) => `<button data-nav="${n}" class="${n === cur ? 'active' : ''}">${n}</button>`).join('')}</div>` : ''}<div class="dlg-p" id="dlgP"></div></div>
-      ${onSave ? '<div class="dlg-f"><button id="dlgCancel">Cancel</button><button id="dlgOk" class="primary">Ok</button></div>' : ''}`;
-    renderPane(cur, $('#dlgP'));
-    $('#dlgX').onclick = () => dlg.close();
-    if (onSave) { $('#dlgCancel').onclick = () => dlg.close(); $('#dlgOk').onclick = () => { onSave(); dlg.close(); }; }
-    $('#dlgBody').querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => { cur = b.dataset.nav; draw(); }));
-  };
-  draw();
-  dlg.showModal();
-}
-
-function fieldHtml(key, f, val) {
-  if (f.type === 'bool') return `<label class="field"><span>${f.label}</span><input type="checkbox" data-k="${key}" ${val ? 'checked' : ''}></label>`;
-  if (f.type === 'select') return `<label class="field"><span>${f.label}</span><select data-k="${key}">${f.options.map((o) => `<option ${o === val ? 'selected' : ''}>${o}</option>`).join('')}</select></label>`;
-  return `<label class="field"><span>${f.label}</span><input type="${f.type}" data-k="${key}" value="${String(val ?? '').replace(/"/g, '&quot;')}" ${f.step ? `step="${f.step}"` : ''}></label>`;
-}
-
-function openSettings(startTab) {
-  const draft = { ...settings };
-  const navs = Object.keys(SETTINGS_SCHEMA);
-  if (startTab) navs.unshift(...navs.splice(navs.indexOf(startTab), 1));
-  openDialog('Settings', navs, (sec, el) => {
-    el.innerHTML = Object.entries(SETTINGS_SCHEMA[sec]).map(([k, f]) => fieldHtml(k, f, draft[k])).join('') +
-      (sec === 'MT5: Server' ? '<div class="row" style="margin-top:10px"><button id="mt5Connect" class="primary">Connect to MT5</button><span id="mt5Status"></span></div>' : '');
-    el.querySelectorAll('[data-k]').forEach((inp) => (inp.onchange = () => {
-      const f = SETTINGS_SCHEMA[sec][inp.dataset.k];
-      draft[inp.dataset.k] = f.type === 'bool' ? inp.checked : f.type === 'number' ? +inp.value : inp.value;
-    }));
-    const btn = el.querySelector('#mt5Connect');
-    if (btn) btn.onclick = async () => {
-      $('#mt5Status').textContent = 'Connecting…';
-      client.url = draft.bridgeUrl;
-      try {
-        const st = await client.connect();
-        if (!st.connected || draft.login) await client.login({ login: draft.login, password: draft.password, server: draft.server, path: draft.terminalPath });
-        await client.connect();
-        $('#mt5Status').textContent = client.connected ? 'Connected ✓' : 'Bridge reachable but terminal not logged in';
-      } catch (e) { $('#mt5Status').textContent = `Failed: ${e.message}`; }
-    };
-  }, async () => {
-    if (draft.theme !== settings.theme) Object.assign(draft, THEMES[draft.theme].chart);
-    settings = draft; saveSettings(settings);
-    client.url = settings.bridgeUrl;
-    applyChartOptions();
-    await init(false);
-  });
-}
-$('#settingsBtn').onclick = () => openSettings();
-
-function openIndicators() {
-  openDialog('Indicators, Metrics & Strategies', ['Built-ins', 'My Pine scripts'], (sec, el) => {
-    const items = sec === 'Built-ins' ? Object.keys(BUILTINS).map((n) => ({ n, a: `b:${n}` })) : state.scripts.map((s) => ({ n: s.name, a: `p:${s.id}` }));
-    el.innerHTML = items.map((i) => `<button class="list-btn" data-add="${esc(i.a)}">${esc(i.n)}</button>`).join('');
-    el.onclick = (e) => {
-      const a = e.target.dataset.add;
-      if (!a) return;
-      if (a.startsWith('b:')) { const n = a.slice(2); state.indicators.push({ kind: 'builtin', name: n, params: { ...BUILTINS[n].params } }); }
-      else { const s = state.scripts.find((x) => x.id === a.slice(2)); state.indicators.push({ kind: 'pine', name: s.name, scriptId: s.id, params: {} }); }
-      persistInds(); renderIndicators(); dlg.close();
-    };
-  });
-}
-$('#indBtn').onclick = openIndicators;
-
-function editIndicator(idx) {
-  const ind = state.indicators[idx];
-  let fields = [];
-  if (ind.kind === 'builtin') fields = Object.entries(ind.params).map(([k, v]) => ({ k, v }));
-  else {
-    const sc = state.scripts.find((s) => s.id === ind.scriptId);
-    try { fields = compilePine(sc.code, barsArrays(), ind.params).inputs.filter((i) => typeof i.def !== 'string').map((i) => ({ k: i.title, v: ind.params[i.title] ?? i.def })); } catch { /* ignore */ }
+    this.panes.forEach((p) => p.destroy());
+    const grid = $('#grid');
+    grid.style.gridTemplateColumns = L.cols;
+    grid.style.gridTemplateRows = L.rows;
+    grid.style.gridTemplateAreas = L.areas || '';
+    this.panes = this.layout.cells.slice(0, L.n).map((cfg, i) => {
+      const p = new ChartPane(this, cfg);
+      if (L.areas) p.el.style.gridArea = 'abc'[i];
+      grid.appendChild(p.el);
+      p.applyOptions();
+      p.load();
+      return p;
+    });
+    if (this.layout.active >= L.n) this.layout.active = 0;
+    grid.classList.toggle('multi', L.n > 1);
+    this.setActive(this.active, true);
+    this.persistLayout();
   }
-  const draft = {};
-  openDialog(`${ind.name} — Inputs`, ['Inputs'], (_, el) => {
-    el.innerHTML = fields.map((f) => `<label class="field"><span>${f.k}</span><input type="number" step="any" data-k="${f.k}" value="${f.v}"></label>`).join('') || 'No numeric inputs.';
-    el.querySelectorAll('[data-k]').forEach((i) => (i.onchange = () => (draft[i.dataset.k] = +i.value)));
-  }, () => { Object.assign(ind.params, draft); persistInds(); renderIndicators(); });
-}
 
-// ---------------- Pine editor ----------------
-function showBottom(tab) {
-  $('#bottom').classList.remove('hidden');
-  document.querySelectorAll('#bottomTabs [data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
-  document.querySelectorAll('#bottom .pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== tab));
-}
-$('#bottomTabs').onclick = (e) => { if (e.target.dataset.tab) showBottom(e.target.dataset.tab); };
-$('#bottomClose').onclick = () => $('#bottom').classList.add('hidden');
-$('#pineBtn').onclick = () => { showBottom('pine'); renderPineList(); };
+  setActive(pane, force) {
+    const idx = this.panes.indexOf(pane);
+    if (idx < 0 || (idx === this.layout.active && !force)) return;
+    this.layout.active = idx;
+    this.panes.forEach((p, i) => p.el.classList.toggle('active', i === idx));
+    store.set('mt5tv.layout', this.layout);
+    this.renderHeader();
+    this.renderSide();
+  }
 
-let curScript = state.scripts[0]?.id;
-function renderPineList() {
-  $('#pineList').innerHTML = state.scripts.map((s) => `<option value="${s.id}" ${s.id === curScript ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
-  $('#pineCode').value = state.scripts.find((s) => s.id === curScript)?.code || '';
-}
-function saveScripts() { store.set('mt5tv.scripts', state.scripts); }
-$('#pineList').onchange = (e) => { curScript = e.target.value; renderPineList(); };
-$('#pineNew').onclick = () => {
-  const id = 's' + Date.now();
-  state.scripts.push({ id, name: 'Untitled script', code: '//@version=5\nindicator("My script", overlay=true)\nplot(ta.sma(close, 20), "SMA", color=color.blue)\n' });
-  curScript = id; saveScripts(); renderPineList();
-};
-function saveCurrent() {
-  const s = state.scripts.find((x) => x.id === curScript);
-  if (!s) return null;
-  s.code = $('#pineCode').value;
-  try {
-    const r = compilePine(s.code, barsArrays());
-    s.name = r.title;
-    $('#pineMsg').className = ''; $('#pineMsg').textContent = `Compiled “${r.title}”: ${r.plots.length} plot(s), ${r.inputs.length} input(s).`;
-  } catch (e) { $('#pineMsg').className = 'err'; $('#pineMsg').textContent = `Compile error: ${e.message}`; return null; }
-  saveScripts(); renderPineList(); renderIndicators();
-  return s;
-}
-$('#pineSave').onclick = saveCurrent;
-$('#pineAdd').onclick = () => {
-  const s = saveCurrent();
-  if (!s) return;
-  state.indicators.push({ kind: 'pine', name: s.name, scriptId: s.id, params: {} });
-  persistInds(); renderIndicators();
-};
-$('#pineDel').onclick = () => {
-  if (!confirm('Delete this script?')) return;
-  state.scripts = state.scripts.filter((s) => s.id !== curScript);
-  state.indicators = state.indicators.filter((i) => i.scriptId !== curScript);
-  curScript = state.scripts[0]?.id; saveScripts(); persistInds(); renderPineList(); renderIndicators();
-};
-$('#pineFile').onchange = async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  const id = 's' + Date.now();
-  state.scripts.push({ id, name: f.name.replace(/\.\w+$/, ''), code: await f.text() });
-  curScript = id; saveScripts(); renderPineList(); saveCurrent();
-};
-$('#pineCode').addEventListener('keydown', (e) => {
-  if (e.key === 'Tab') { e.preventDefault(); const t = e.target, p = t.selectionStart; t.value = t.value.slice(0, p) + '    ' + t.value.slice(t.selectionEnd); t.selectionStart = t.selectionEnd = p + 4; }
-  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveCurrent(); }
-});
+  // Symbol / interval changes go to the active chart, or to all charts when synced.
+  setSymbol(sym) {
+    const targets = this.layout.sync.symbol ? this.panes : [this.active];
+    targets.forEach((p) => p.setSymbol(sym));
+    this.persistLayout(); this.renderHeader(); this.renderSide();
+  }
+  setTf(tf) {
+    const targets = this.layout.sync.interval ? this.panes : [this.active];
+    targets.forEach((p) => p.setTf(tf));
+    this.persistLayout(); this.renderHeader();
+  }
 
-// ---------------- Drawing tools ----------------
-const svg = $('#draw');
-let pending = null;
-const key = () => `${state.symbol}`;
-function drawingsList() { return (state.drawings[key()] ||= []); }
-document.querySelectorAll('#drawbar [data-tool]').forEach((b) => (b.onclick = () => {
-  if (b.dataset.tool === 'clear') { state.drawings[key()] = []; store.set('mt5tv.drawings', state.drawings); redrawDrawings(); return; }
-  state.tool = b.dataset.tool; pending = null;
-  document.querySelectorAll('#drawbar [data-tool]').forEach((x) => x.classList.toggle('active', x === b));
-  svg.classList.toggle('drawing', state.tool !== 'cursor');
-}));
-function toPoint(e) {
-  const r = svg.getBoundingClientRect();
-  const x = e.clientX - r.left, y = e.clientY - r.top;
-  return { time: chart.timeScale().coordinateToTime(x), price: mainSeries.coordinateToPrice(y) };
-}
-svg.addEventListener('click', (e) => {
-  const p = toPoint(e);
-  if (p.time == null || p.price == null) return;
-  const one = { hline: 1, vline: 1 }[state.tool];
-  if (one) { drawingsList().push({ t: state.tool, a: p }); finish(); return; }
-  if (!pending) { pending = p; return; }
-  drawingsList().push({ t: state.tool, a: pending, b: p }); pending = null; finish();
-});
-function finish() { store.set('mt5tv.drawings', state.drawings); redrawDrawings(); }
-function redrawDrawings() {
-  if (!mainSeries) return;
-  const ts = chart.timeScale();
-  const X = (t) => ts.timeToCoordinate(t), Y = (p) => mainSeries.priceToCoordinate(p);
-  const W = svg.clientWidth;
-  let h = '';
-  for (const d of drawingsList()) {
-    const ax = X(d.a.time), ay = Y(d.a.price);
-    if (d.t === 'hline' && ay != null) h += `<line x1="0" x2="${W}" y1="${ay}" y2="${ay}" stroke="#2962FF"/>`;
-    if (d.t === 'vline' && ax != null) h += `<line x1="${ax}" x2="${ax}" y1="0" y2="100%" stroke="#2962FF"/>`;
-    if (!d.b) continue;
-    const bx = X(d.b.time), by = Y(d.b.price);
-    if ([ax, ay, bx, by].some((v) => v == null)) continue;
-    if (d.t === 'trend') h += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#2962FF" stroke-width="2"/>`;
-    if (d.t === 'rect') h += `<rect x="${Math.min(ax, bx)}" y="${Math.min(ay, by)}" width="${Math.abs(bx - ax)}" height="${Math.abs(by - ay)}" fill="#2962FF22" stroke="#2962FF"/>`;
-    if (d.t === 'fib') [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1].forEach((lv) => {
-      const pr = d.b.price + (d.a.price - d.b.price) * lv, y = Y(pr);
-      h += `<line x1="${Math.min(ax, bx)}" x2="${Math.max(ax, bx)}" y1="${y}" y2="${y}" stroke="#FF9800"/><text x="${Math.min(ax, bx) + 2}" y="${y - 2}" fill="#FF9800" font-size="11">${lv} (${pr.toFixed(2)})</text>`;
+  syncCrosshair(src, p) {
+    if (!this.layout.sync.crosshair || this.syncing || this.panes.length < 2) return;
+    this.syncing = true;
+    for (const o of this.panes) {
+      if (o === src || !o.main) continue;
+      if (!p.time) { o.chart.clearCrosshairPosition(); continue; }
+      let lo = 0, hi = o.bars.length - 1, hit = -1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (o.bars[m].time <= p.time) { hit = m; lo = m + 1; } else hi = m - 1; }
+      if (hit < 0) o.chart.clearCrosshairPosition();
+      else o.chart.setCrosshairPosition(o.bars[hit].close, o.bars[hit].time, o.main);
+    }
+    this.syncing = false;
+  }
+
+  syncTime(src) {
+    if (!this.layout.sync.time || this.syncingTime || this.panes.length < 2) return;
+    const r = src.chart.timeScale().getVisibleRange();
+    if (!r) return;
+    this.syncingTime = true;
+    this.panes.forEach((o) => { if (o !== src && o.bars.length) try { o.chart.timeScale().setVisibleRange(r); } catch { /* out of data range */ } });
+    this.syncingTime = false;
+  }
+
+  // ---------- quotes ----------
+  async pollQuotes() {
+    const want = new Set(this.panes.map((p) => p.cfg.symbol));
+    if (this.sideTab === 'watch') this.watchList().slice(0, 60).forEach((s) => want.add(s.name));
+    if (this.sideTab === 'fav') this.favorites.forEach((s) => want.add(s));
+    let ticks;
+    try { ticks = await this.client.ticks([...want]); } catch (e) {
+      if (this.client.connected) { this.log(`Price feed lost: ${e.message}`); await this.connect(false); this.panes.forEach((p) => p.load()); }
+      return;
+    }
+    for (const t of ticks) {
+      const prev = this.quotes[t.symbol];
+      t.dir = prev ? (t.bid > prev.bid ? 1 : t.bid < prev.bid ? -1 : prev.dir) : 0;
+      this.quotes[t.symbol] = t;
+      this.panes.forEach((p) => p.onTick(t));
+    }
+    this.updateWatchQuotes();
+  }
+
+  // ---------- trade hand-off ----------
+  handOffTrade(symbol, side) {
+    const go = () => {
+      const tv = (this.settings.tvPrefix ? `${this.settings.tvPrefix.trim()}:` : '') + symbol;
+      window.open(`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tv)}`, 'tv-trade');
+      this.log(`${side} ${symbol}: opened on TradingView for execution`);
+    };
+    if (store.get('mt5tv.handoffAck', false)) return go();
+    this.openDialog('Trade on TradingView', ['x'], (_, el) => {
+      el.innerHTML = `<p class="note">This app never sends orders. Orders, closes, TP and SL go through FTMO's own TradingView connection, so every trade is a normal manual trade on FTMO's infrastructure — no EA, no API, no scripts.</p>
+        <p class="note">Clicking <b>${esc(side)}</b> opens <b>${esc(symbol)}</b> on TradingView. Connect your FTMO account in TradingView's <i>Trading Panel</i> once, then place the order there (one-click buy/sell, drag TP/SL on the chart).</p>
+        <p class="note muted">Set the broker prefix in Settings → Trading if TradingView needs one for FTMO's symbols.</p>`;
+    }, () => { store.set('mt5tv.handoffAck', true); go(); }, 'Open TradingView');
+  }
+
+  // ---------- header ----------
+  buildStaticUi() {
+    $('#drawbar').innerHTML = TOOLS.map(([k, title, path]) => `<button data-tool="${k}" title="${title}"><svg viewBox="0 0 28 28" width="28" height="28">${path}</svg></button>`).join('');
+    $('#drawbar').onclick = (e) => {
+      const b = e.target.closest('[data-tool]');
+      if (!b) return;
+      if (b.dataset.tool === 'clear') {
+        const sym = this.active.cfg.symbol;
+        if (this.drawingsFor(sym).length && confirm(`Remove all drawings on ${sym}?`)) { this.drawings[sym] = []; this.drawingsChanged(sym); }
+        return;
+      }
+      this.setTool(b.dataset.tool);
+    };
+    this.setTool('cursor');
+    $('#symbolBtn').onclick = () => this.openSymbolSearch();
+    $('#favToggle').onclick = () => this.toggleFav(this.active.cfg.symbol);
+    $('#tfBar').onclick = (e) => e.target.dataset.tf && this.setTf(e.target.dataset.tf);
+    $('#tfMore').onclick = (e) => this.menu(e.currentTarget, TIMEFRAMES.map(([t]) => ({ label: t, checked: t === this.active.cfg.tf, run: () => this.setTf(t) })));
+    $('#chartTypeBtn').onclick = (e) => this.menu(e.currentTarget, Object.keys(CHART_TYPE_ICON).map((t) => ({ icon: CHART_TYPE_ICON[t], label: t, checked: t === this.settings.chartType, run: () => this.updateSettings({ chartType: t }) })));
+    $('#indBtn').onclick = () => this.openIndicators();
+    $('#layoutBtn').onclick = (e) => this.openLayoutMenu(e.currentTarget);
+    $('#settingsBtn').onclick = () => this.openSettings();
+    $('#sideTabs').onclick = (e) => { if (e.target.dataset.tab) { this.sideTab = e.target.dataset.tab; store.set('mt5tv.sideTab', this.sideTab); this.renderSide(); } };
+    $('#bottomTabs').onclick = (e) => { const t = e.target.closest('[data-tab]'); if (t) this.setBottom({ tab: t.dataset.tab, open: true }); };
+    $('#bottomToggle').onclick = () => this.setBottom({ ...this.bottom, open: !this.bottom.open });
+    document.addEventListener('keydown', (e) => {
+      if (e.target.matches('input, textarea, select') || $('#dlg').open) return;
+      if (e.key === 'Escape') this.setTool('cursor');
+      if (/^[a-z]$/i.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) this.openSymbolSearch(e.key);
+    });
+    document.addEventListener('mousedown', (e) => { if (!e.target.closest('#menu')) $('#menu').classList.add('hidden'); });
+    this.bindPine();
+  }
+
+  setTool(tool) {
+    this.tool = tool;
+    document.querySelectorAll('#drawbar [data-tool]').forEach((x) => x.classList.toggle('active', x.dataset.tool === tool));
+    document.body.classList.toggle('drawing', tool !== 'cursor');
+    this.panes.forEach((p) => (p.pending = null));
+  }
+
+  renderHeader() {
+    const p = this.active;
+    if (!p) return;
+    $('#symbolName').textContent = p.cfg.symbol;
+    const fav = this.favorites.includes(p.cfg.symbol);
+    $('#favToggle').innerHTML = STAR(fav);
+    $('#favToggle').title = fav ? 'Remove from favorites' : 'Add to favorites';
+    const tfs = QUICK_TF.includes(p.cfg.tf) ? QUICK_TF : [...QUICK_TF, p.cfg.tf];
+    $('#tfBar').innerHTML = tfs.map((t) => `<button data-tf="${t}" class="hb${t === p.cfg.tf ? ' on' : ''}">${t}</button>`).join('');
+    $('#chartTypeBtn').innerHTML = CHART_TYPE_ICON[this.settings.chartType];
+    $('#layoutBtn').innerHTML = layoutIcon(this.layout.layout);
+  }
+
+  menu(anchor, items) {
+    const m = $('#menu');
+    m.innerHTML = items.map((it, i) => it.sep ? '<div class="menu-sep"></div>' : it.header ? `<div class="menu-h">${esc(it.header)}</div>`
+      : `<button data-i="${i}" class="${it.checked ? 'on' : ''}">${it.icon || ''}<span>${esc(it.label)}</span>${it.toggle != null ? `<i class="sw${it.toggle ? ' on' : ''}"></i>` : ''}</button>`).join('');
+    const r = anchor.getBoundingClientRect();
+    m.style.left = `${Math.min(r.left, innerWidth - 240)}px`;
+    m.style.top = `${r.bottom + 4}px`;
+    m.classList.remove('hidden');
+    m.onclick = (e) => {
+      const b = e.target.closest('[data-i]');
+      if (!b) return;
+      const it = items[+b.dataset.i];
+      it.run();
+      if (it.toggle == null) m.classList.add('hidden');
+      else { it.toggle = !it.toggle; b.querySelector('.sw').classList.toggle('on', it.toggle); }
+    };
+  }
+
+  openLayoutMenu(anchor) {
+    const m = $('#menu');
+    const s = this.layout.sync;
+    m.innerHTML = `<div class="menu-h">Layout</div><div class="layout-grid">${Object.keys(LAYOUTS).map((k) => `<button data-layout="${k}" class="${k === this.layout.layout ? 'on' : ''}" title="${LAYOUTS[k].n} chart${LAYOUTS[k].n > 1 ? 's' : ''}">${layoutIcon(k)}</button>`).join('')}</div>
+      <div class="menu-sep"></div><div class="menu-h">Sync in layout</div>
+      ${[['symbol', 'Symbol'], ['interval', 'Interval'], ['crosshair', 'Crosshair'], ['time', 'Time']].map(([k, l]) => `<button data-sync="${k}"><span>${l}</span><i class="sw${s[k] ? ' on' : ''}"></i></button>`).join('')}`;
+    const r = anchor.getBoundingClientRect();
+    m.style.left = `${Math.min(r.left, innerWidth - 240)}px`;
+    m.style.top = `${r.bottom + 4}px`;
+    m.classList.remove('hidden');
+    m.onclick = (e) => {
+      const l = e.target.closest('[data-layout]'), y = e.target.closest('[data-sync]');
+      if (l) { this.layout.layout = l.dataset.layout; this.buildPanes(); this.renderHeader(); m.classList.add('hidden'); }
+      if (y) {
+        const k = y.dataset.sync;
+        s[k] = !s[k];
+        y.querySelector('.sw').classList.toggle('on', s[k]);
+        if (k === 'symbol' && s[k]) this.setSymbol(this.active.cfg.symbol);
+        if (k === 'interval' && s[k]) this.setTf(this.active.cfg.tf);
+        store.set('mt5tv.layout', this.layout);
+      }
+    };
+  }
+
+  toggleFav(name) {
+    const i = this.favorites.indexOf(name);
+    if (i >= 0) this.favorites.splice(i, 1); else this.favorites.push(name);
+    store.set('mt5tv.favorites', this.favorites);
+    this.renderHeader(); this.renderSide();
+  }
+
+  // ---------- side panel ----------
+  watchList() {
+    const q = this.watchFilter.toUpperCase();
+    return q ? this.symbols.filter((s) => s.name.includes(q) || (s.desc || '').toUpperCase().includes(q)) : this.symbols;
+  }
+
+  renderSide() {
+    document.querySelectorAll('#sideTabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === this.sideTab));
+    const body = $('#sideBody');
+    if (this.sideTab === 'ea') return this.renderExperts();
+    const cur = this.active?.cfg.symbol;
+    const list = this.sideTab === 'fav' ? this.favorites.map((f) => this.symbolInfo(f) || { name: f, desc: '' }) : this.watchList();
+    let html = this.sideTab === 'watch' ? `<div class="mw-search"><input id="watchSearch" placeholder="Search symbol" value="${esc(this.watchFilter)}"></div>` : '';
+    html += `<table class="mw"><thead><tr><th></th><th>Symbol</th><th>Bid</th><th>Ask</th><th>Spr</th></tr></thead><tbody>`;
+    let grp = null;
+    for (const s of list) {
+      if (this.sideTab === 'watch' && !this.watchFilter && s.group !== grp) { grp = s.group; html += `<tr class="mw-grp"><td colspan="5">${esc(grp)}</td></tr>`; }
+      const fav = this.favorites.includes(s.name);
+      html += `<tr data-sym="${esc(s.name)}" class="${s.name === cur ? 'cur' : ''}" title="${esc(s.desc)}"><td><button class="star" data-star="${esc(s.name)}">${STAR(fav)}</button></td><td class="mw-name">${esc(s.name)}</td><td class="mw-bid"></td><td class="mw-ask"></td><td class="mw-spr"></td></tr>`;
+    }
+    html += '</tbody></table>';
+    if (!list.length) html += `<p class="empty">${this.sideTab === 'fav' ? 'Star a symbol in Market Watch to pin it here.' : `No MT5 symbol matches “${esc(this.watchFilter)}”.`}</p>`;
+    body.innerHTML = html;
+    const search = $('#watchSearch');
+    if (search) {
+      search.oninput = () => { this.watchFilter = search.value.trim(); const pos = search.selectionStart; this.renderSide(); const n = $('#watchSearch'); n.focus(); n.setSelectionRange(pos, pos); };
+    }
+    body.onclick = (e) => {
+      const star = e.target.closest('[data-star]');
+      if (star) return this.toggleFav(star.dataset.star);
+      const row = e.target.closest('[data-sym]');
+      if (row) this.setSymbol(row.dataset.sym);
+    };
+    body.ondblclick = (e) => { const row = e.target.closest('[data-sym]'); if (row) this.handOffTrade(row.dataset.sym, 'New order'); };
+    this.updateWatchQuotes();
+  }
+
+  // MT5 Market Watch colouring: blue when the price ticked up, red when down.
+  updateWatchQuotes() {
+    document.querySelectorAll('#sideBody tr[data-sym]').forEach((row) => {
+      const t = this.quotes[row.dataset.sym];
+      if (!t) return;
+      const cls = t.dir > 0 ? 'q-up' : t.dir < 0 ? 'q-down' : '';
+      const fmt = (v) => { const q = quoteParts(v, t.digits); return `${q.small}<b>${q.big}</b>${q.sup ? `<sup>${q.sup}</sup>` : ''}`; };
+      row.children[2].innerHTML = fmt(t.bid); row.children[2].className = `mw-bid ${cls}`;
+      row.children[3].innerHTML = fmt(t.ask); row.children[3].className = `mw-ask ${cls}`;
+      row.children[4].textContent = Math.round((t.ask - t.bid) / t.point);
     });
   }
-  svg.innerHTML = h;
-}
-chart.timeScale().subscribeVisibleLogicalRangeChange(() => requestAnimationFrame(redrawDrawings));
-new ResizeObserver(() => requestAnimationFrame(redrawDrawings)).observe($('#chart'));
 
-// Crosshair legend OHLC
-chart.subscribeCrosshairMove((p) => {
-  if (!p.time || !settings.showOHLC) return;
-  const b = state.bars.find((x) => x.time === p.time);
-  const first = $('#legend div');
-  if (b && first) {
-    const d = state.symbols.find((s) => s.name === state.symbol)?.digits ?? 2;
-    const span = first.querySelector('span') || first.appendChild(document.createElement('span'));
-    span.className = b.close >= b.open ? 'up' : 'down';
-    span.textContent = ` O ${b.open.toFixed(d)} H ${b.high.toFixed(d)} L ${b.low.toFixed(d)} C ${b.close.toFixed(d)}`;
+  async renderExperts() {
+    const body = $('#sideBody');
+    let html = `<div class="ea-head"><label class="btn primary">Upload Expert (.mq5 / .ex5)<input id="eaFile" type="file" accept=".mq5,.ex5,.mqh" hidden multiple></label></div>
+      <p class="note muted">Copies files into your terminal's <code>MQL5\\Experts</code> folder. Experts never trade through this app; don't attach them to an FTMO account if you trade it manually.</p>`;
+    if (!this.client.connected) html += '<p class="empty">Connect the MT5 bridge (Settings → MT5: Server) to manage Experts.</p>';
+    else {
+      let list = [];
+      try { list = await this.client.experts(); } catch (e) { html += `<p class="empty">${esc(e.message)}</p>`; }
+      html += list.map((n) => `<div class="ea-row"><span>${esc(n)}</span><button class="hb-icon" data-del="${esc(n)}" title="Delete">${ICON.close}</button></div>`).join('') || '<p class="empty">No Experts in MQL5\\Experts yet.</p>';
+    }
+    if (this.sideTab !== 'ea') return;
+    body.innerHTML = html;
+    $('#eaFile')?.addEventListener('change', async (e) => {
+      for (const f of e.target.files) {
+        const buf = new Uint8Array(await f.arrayBuffer());
+        let bin = ''; buf.forEach((b) => (bin += String.fromCharCode(b)));
+        try { await this.client.uploadExpert(f.name, btoa(bin)); this.log(`Copied ${f.name} to MQL5\\Experts`); } catch (err) { this.log(`Upload failed: ${err.message}`); }
+      }
+      this.renderExperts();
+    });
+    body.onclick = async (e) => {
+      const d = e.target.closest('[data-del]');
+      if (d && confirm(`Delete ${d.dataset.del} from MQL5\\Experts?`)) { await this.client.deleteExpert(d.dataset.del).catch((err) => this.log(err.message)); this.renderExperts(); }
+    };
   }
-});
 
-// ---------------- Boot ----------------
-async function init(first = true) {
-  const st = await client.connect();
-  $('#conn').textContent = client.connected ? `MT5 · ${st.server || ''} ${st.login || ''}` : 'Demo data (MT5 bridge offline)';
-  $('#conn').className = `conn ${client.connected ? 'on' : 'off'}`;
-  state.symbols = await client.symbols();
-  if (first) log(client.connected ? 'Connected to MT5 bridge' : 'MT5 bridge not reachable — showing demo data');
-  await loadChart();
+  // ---------- dialogs ----------
+  openDialog(title, navItems, renderPane, onOk, okLabel = 'Ok') {
+    const dlg = $('#dlg');
+    let cur = navItems[0];
+    const draw = () => {
+      $('#dlgBody').innerHTML = `<div class="dlg-h"><span>${esc(title)}</span><button class="hb-icon" id="dlgX">${ICON.close}</button></div>
+        <div class="dlg-c">${navItems.length > 1 ? `<div class="dlg-nav">${navItems.map((n) => `<button data-nav="${esc(n)}" class="${n === cur ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}<div class="dlg-p" id="dlgP"></div></div>
+        ${onOk ? `<div class="dlg-f"><button class="btn" id="dlgCancel">Cancel</button><button id="dlgOk" class="btn primary">${esc(okLabel)}</button></div>` : ''}`;
+      renderPane(cur, $('#dlgP'));
+      $('#dlgX').onclick = () => dlg.close();
+      if (onOk) { $('#dlgCancel').onclick = () => dlg.close(); $('#dlgOk').onclick = () => { dlg.close(); onOk(); }; }
+      $('#dlgBody').querySelectorAll('[data-nav]').forEach((b) => (b.onclick = () => { cur = b.dataset.nav; draw(); }));
+    };
+    draw();
+    dlg.classList.toggle('narrow', navItems.length <= 1);
+    if (!dlg.open) dlg.showModal();
+  }
+
+  openSymbolSearch(initial = '') {
+    let q = initial;
+    this.openDialog('Symbol search', ['x'], (_, el) => {
+      el.innerHTML = `<input id="symQ" class="sym-q" placeholder="Search MT5 symbols" value="${esc(q)}"><div id="symList" class="sym-list"></div>`;
+      const render = () => {
+        const Q = q.toUpperCase();
+        const list = this.symbols.filter((s) => !Q || s.name.includes(Q) || (s.desc || '').toUpperCase().includes(Q));
+        $('#symList').innerHTML = list.map((s) => `<button data-sym="${esc(s.name)}"><b>${esc(s.name)}</b><span>${esc(s.desc)}</span><i>${esc(s.group)}</i></button>`).join('') || `<p class="empty">No MT5 symbol matches “${esc(q)}”.</p>`;
+      };
+      const inp = $('#symQ');
+      inp.oninput = () => { q = inp.value; render(); };
+      inp.onkeydown = (e) => { if (e.key === 'Enter') $('#symList [data-sym]')?.click(); };
+      $('#symList').onclick = (e) => { const b = e.target.closest('[data-sym]'); if (b) { $('#dlg').close(); this.setSymbol(b.dataset.sym); } };
+      render();
+      setTimeout(() => { inp.focus(); inp.setSelectionRange(q.length, q.length); });
+    });
+  }
+
+  fieldHtml(key, f, val) {
+    if (f.type === 'bool') return `<label class="field"><span>${esc(f.label)}</span><input type="checkbox" data-k="${key}" ${val ? 'checked' : ''}></label>`;
+    if (f.type === 'select') return `<label class="field"><span>${esc(f.label)}</span><select data-k="${key}">${f.options.map((o) => `<option ${o === val ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+    return `<label class="field"><span>${esc(f.label)}</span><input type="${f.type}" data-k="${key}" value="${esc(val)}"></label>`;
+  }
+
+  openSettings() {
+    const draft = { ...this.settings };
+    const navs = [...Object.keys(SETTINGS_SCHEMA), 'MT5: Terminal'];
+    this.openDialog('Settings', navs, (sec, el) => {
+      if (sec === 'MT5: Terminal') return this.renderTerminal(el);
+      el.innerHTML = Object.entries(SETTINGS_SCHEMA[sec]).map(([k, f]) => this.fieldHtml(k, f, draft[k])).join('') +
+        (sec === 'MT5: Server' ? '<div class="row"><button id="mt5Connect" class="btn primary">Connect</button><span id="mt5Status" class="muted"></span></div><p class="note muted">Used for prices only. Any MT5 account works, e.g. a free MetaQuotes-Demo account. Nothing is ever traded through it.</p>' : '') +
+        (sec === 'Trading' ? '<p class="note muted">Orders are never sent from this app. SELL / BUY open the symbol on TradingView, where FTMO\'s own connection executes them. Leave the prefix empty to let TradingView resolve the symbol.</p>' : '');
+      el.querySelectorAll('[data-k]').forEach((inp) => (inp.onchange = () => {
+        const f = SETTINGS_SCHEMA[sec][inp.dataset.k];
+        draft[inp.dataset.k] = f.type === 'bool' ? inp.checked : inp.value;
+        if (inp.dataset.k === 'theme') {
+          Object.assign(draft, THEMES[inp.value].chart);
+          for (const [k, v] of Object.entries(THEMES[inp.value].chart)) { const c = el.querySelector(`[data-k="${k}"]`); if (c) c.value = v; }
+        }
+      }));
+      const btn = el.querySelector('#mt5Connect');
+      if (btn) btn.onclick = async () => {
+        $('#mt5Status').textContent = 'Connecting…';
+        this.client.url = draft.bridgeUrl;
+        try {
+          if (draft.login) await this.client.login({ login: draft.login, password: draft.password, server: draft.server, path: draft.terminalPath });
+          await this.client.connect();
+          $('#mt5Status').textContent = this.client.connected ? 'Connected' : 'Bridge is running but MT5 is not logged in';
+        } catch (e) { $('#mt5Status').textContent = `Bridge not reachable at ${draft.bridgeUrl} (${e.message})`; }
+      };
+    }, () => this.updateSettings(draft, true));
+  }
+
+  async renderTerminal(el) {
+    el.innerHTML = '<p class="muted">Reading terminal…</p>';
+    if (!this.client.connected) { el.innerHTML = '<p class="empty">Connect to MT5 first (MT5: Server tab).</p>'; return; }
+    try {
+      const { terminal: t, account: a, version } = await this.client.terminal();
+      const yes = (v) => `<b class="${v ? 'up' : 'down'}">${v ? 'On' : 'Off'}</b>`;
+      const rows = [
+        ['Account', a ? `${a.login} · ${esc(a.server)}` : '—'], ['Company', esc(t?.company)], ['Build', version ? esc(version[1]) : '—'],
+        ['Connected', yes(t?.connected)], ['Ping', t?.ping_last ? `${(t.ping_last / 1000).toFixed(1)} ms` : '—'],
+        ['Algo Trading button', yes(t?.trade_allowed)], ['DLL imports', yes(t?.dlls_allowed)],
+        ['Push notifications', yes(t?.notifications_enabled)], ['Email', yes(t?.email_enabled)], ['FTP', yes(t?.ftp_enabled)],
+        ['MQL5 community', yes(t?.community_account)], ['Max bars in chart', esc(t?.maxbars)], ['Data folder', `<code>${esc(t?.data_path)}</code>`],
+      ];
+      el.innerHTML = `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>
+        <p class="note muted">These are MT5's own Tools → Options settings, read live from the terminal. Change them in MT5; outside programs can't.</p>`;
+    } catch (e) { el.innerHTML = `<p class="empty">Couldn't read the terminal: ${esc(e.message)}</p>`; }
+  }
+
+  async updateSettings(patch, reconnect) {
+    const themeChanged = patch.theme && patch.theme !== this.settings.theme;
+    Object.assign(this.settings, patch);
+    if (themeChanged && !reconnect) Object.assign(this.settings, THEMES[this.settings.theme].chart);
+    saveSettings(this.settings);
+    applyThemeCss(this.settings.theme);
+    if (reconnect) { this.client.url = this.settings.bridgeUrl; await this.connect(false); this.panes.forEach((p) => { p.applyOptions(); p.load(); }); }
+    else this.panes.forEach((p) => p.applyOptions());
+    this.renderHeader(); this.renderSide();
+  }
+
+  openIndicators() {
+    const pane = this.active;
+    this.openDialog(`Indicators — ${pane.cfg.symbol} ${pane.cfg.tf}`, ['Technicals', 'My scripts'], (sec, el) => {
+      const items = sec === 'Technicals' ? Object.keys(BUILTINS).map((n) => ({ n, a: `b:${n}` })) : this.scripts.map((s) => ({ n: s.name, a: `p:${s.id}` }));
+      el.innerHTML = `<div class="list">${items.map((i) => `<button data-add="${esc(i.a)}">${esc(i.n)}</button>`).join('')}</div>` +
+        (sec === 'My scripts' ? '<p class="note muted">Write or open Pine scripts in the Pine Editor at the bottom of the screen.</p>' : '');
+      el.onclick = (e) => {
+        const a = e.target.closest('[data-add]')?.dataset.add;
+        if (!a) return;
+        if (a.startsWith('b:')) { const n = a.slice(2); pane.cfg.indicators.push({ kind: 'builtin', name: n, params: { ...BUILTINS[n].params } }); }
+        else { const s = this.scripts.find((x) => x.id === a.slice(2)); pane.cfg.indicators.push({ kind: 'pine', name: s.name, scriptId: s.id, params: {} }); }
+        pane.rebuildIndicators(); this.persistLayout(); $('#dlg').close();
+      };
+    });
+  }
+
+  editIndicator(pane, idx) {
+    const ind = pane.cfg.indicators[idx];
+    let fields = [];
+    if (ind.kind === 'builtin') fields = Object.entries(ind.params).map(([k, v]) => ({ k, v }));
+    else {
+      const sc = this.scripts.find((s) => s.id === ind.scriptId);
+      try { fields = compilePine(sc.code, pane.arrays(), ind.params).inputs.filter((i) => typeof i.def === 'number').map((i) => ({ k: i.title, v: ind.params[i.title] ?? i.def })); } catch { /* shows none */ }
+    }
+    const draft = {};
+    this.openDialog(`${ind.name} — Inputs`, ['x'], (_, el) => {
+      el.innerHTML = fields.map((f) => `<label class="field"><span>${esc(f.k)}</span><input type="number" step="any" data-k="${esc(f.k)}" value="${f.v}"></label>`).join('') || '<p class="empty">This indicator has no numeric inputs.</p>';
+      el.querySelectorAll('[data-k]').forEach((i) => (i.onchange = () => (draft[i.dataset.k] = +i.value)));
+    }, () => { ind.params = { ...ind.params, ...draft }; pane.rebuildIndicators(); this.persistLayout(); });
+  }
+
+  // ---------- bottom panel / Pine editor ----------
+  setBottom(b) {
+    this.bottom = b;
+    store.set('mt5tv.bottom', b);
+    $('#bottom').classList.toggle('open', b.open);
+    document.querySelectorAll('#bottomTabs [data-tab]').forEach((t) => t.classList.toggle('on', b.open && t.dataset.tab === b.tab));
+    document.querySelectorAll('#bottom .pane').forEach((p) => p.classList.toggle('hidden', p.dataset.pane !== b.tab));
+    if (b.open && b.tab === 'pine') this.renderPineList();
+  }
+
+  bindPine() {
+    const code = $('#pineCode');
+    const gutter = () => { $('#pineGutter').textContent = code.value.split('\n').map((_, i) => i + 1).join('\n'); };
+    code.addEventListener('input', gutter);
+    code.addEventListener('scroll', () => ($('#pineGutter').scrollTop = code.scrollTop));
+    code.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') { e.preventDefault(); const p = code.selectionStart; code.value = code.value.slice(0, p) + '    ' + code.value.slice(code.selectionEnd); code.selectionStart = code.selectionEnd = p + 4; gutter(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); this.savePine(); }
+    });
+    this.pineGutter = gutter;
+    $('#pineList').onchange = (e) => { this.curScript = e.target.value; this.renderPineList(); };
+    $('#pineNew').onclick = () => {
+      const id = 's' + Date.now();
+      this.scripts.push({ id, name: 'My script', code: '//@version=5\nindicator("My script", overlay=true)\nlength = input.int(20, "Length")\nplot(ta.sma(close, length), "SMA", color=color.blue)\n' });
+      this.curScript = id; this.saveScripts(); this.renderPineList();
+    };
+    $('#pineSave').onclick = () => this.savePine();
+    $('#pineAdd').onclick = () => {
+      const s = this.savePine();
+      if (!s) return;
+      this.active.cfg.indicators.push({ kind: 'pine', name: s.name, scriptId: s.id, params: {} });
+      this.active.rebuildIndicators(); this.persistLayout();
+    };
+    $('#pineDel').onclick = () => {
+      const s = this.scripts.find((x) => x.id === this.curScript);
+      if (!s || !confirm(`Delete “${s.name}”?`)) return;
+      this.scripts = this.scripts.filter((x) => x.id !== s.id);
+      this.panes.forEach((p) => { p.cfg.indicators = p.cfg.indicators.filter((i) => i.scriptId !== s.id); p.rebuildIndicators(); });
+      this.curScript = this.scripts[0]?.id; this.saveScripts(); this.persistLayout(); this.renderPineList();
+    };
+    $('#pineFile').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const id = 's' + Date.now();
+      this.scripts.push({ id, name: f.name.replace(/\.\w+$/, ''), code: await f.text() });
+      this.curScript = id; this.saveScripts(); this.renderPineList(); this.savePine();
+      e.target.value = '';
+    };
+  }
+
+  saveScripts() { store.set('mt5tv.scripts', this.scripts); }
+
+  renderPineList() {
+    if (!this.scripts.some((s) => s.id === this.curScript)) this.curScript = this.scripts[0]?.id;
+    $('#pineList').innerHTML = this.scripts.map((s) => `<option value="${esc(s.id)}" ${s.id === this.curScript ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+    $('#pineCode').value = this.scripts.find((s) => s.id === this.curScript)?.code || '';
+    this.pineGutter();
+  }
+
+  savePine() {
+    const s = this.scripts.find((x) => x.id === this.curScript);
+    if (!s) return null;
+    s.code = $('#pineCode').value;
+    const msg = $('#pineMsg');
+    try {
+      const r = compilePine(s.code, this.active.arrays());
+      s.name = r.title;
+      msg.className = 'ok';
+      msg.textContent = `Compiled “${r.title}”: ${r.plots.length} plot${r.plots.length === 1 ? '' : 's'}, ${r.inputs.length} input${r.inputs.length === 1 ? '' : 's'}.`;
+    } catch (e) { msg.className = 'err'; msg.textContent = `Compile error: ${e.message}`; return null; }
+    this.saveScripts();
+    $('#pineList').querySelector(`[value="${CSS.escape(s.id)}"]`).textContent = s.name;
+    this.panes.forEach((p) => p.cfg.indicators.some((i) => i.scriptId === s.id) && p.rebuildIndicators());
+    return s;
+  }
 }
-applyChartOptions();
-renderPineList();
-init();
-setInterval(() => client.connected && refreshTradeLevels(), 5000);
+
+const app = new App();
+if (import.meta.env?.DEV) window.__app = app; // dev-tools access
+app.init();

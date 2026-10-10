@@ -1,4 +1,8 @@
-"""Local HTTP bridge between the web chart UI and a running MetaTrader 5 terminal.
+"""Read-only HTTP bridge between the web chart UI and a running MetaTrader 5 terminal.
+
+It serves prices, symbols and terminal status only. It has no endpoint that
+places, modifies or closes orders: trading is done on the broker's own
+platform (FTMO via TradingView), never through this bridge.
 
 Run on the same Windows machine as MT5:
     pip install -r requirements.txt
@@ -130,56 +134,23 @@ class Handler(BaseHTTPRequestHandler):
         t = mt5.symbol_info_tick(q["symbol"])
         return {"time": t.time, "bid": t.bid, "ask": t.ask, "last": t.last}
 
-    def get_account(self, q):
-        return mt5.account_info()._asdict()
+    def get_ticks(self, q):
+        out = []
+        for sym in q.get("symbols", "").split(",")[:60]:
+            if not sym:
+                continue
+            mt5.symbol_select(sym, True)
+            t, info = mt5.symbol_info_tick(sym), mt5.symbol_info(sym)
+            if t and info:
+                out.append({"symbol": sym, "time": t.time, "bid": t.bid, "ask": t.ask,
+                            "digits": info.digits, "point": info.point})
+        return out
 
-    def get_positions(self, q):
-        return [{**p._asdict(), "type": "BUY" if p.type == mt5.POSITION_TYPE_BUY else "SELL"} for p in mt5.positions_get() or []]
-
-    def get_orders(self, q):
-        return [o._asdict() for o in mt5.orders_get() or []]
-
-    def get_history(self, q):
-        import time
-        deals = mt5.history_deals_get(time.time() - 30 * 86400, time.time() + 86400) or []
-        return [{"time": d.time, "ticket": d.ticket, "symbol": d.symbol, "type": "BUY" if d.type == 0 else "SELL",
-                 "volume": d.volume, "price": d.price, "profit": d.profit} for d in deals if d.symbol][::-1]
-
-    def post_order(self, q):
-        b = self._body()
-        sym, side = b["symbol"], b["side"]
-        info, tick = mt5.symbol_info(sym), mt5.symbol_info_tick(sym)
-        price = tick.ask if side == "BUY" else tick.bid
-        sign = 1 if side == "BUY" else -1
-        fill = {"Fill or Kill": mt5.ORDER_FILLING_FOK, "Immediate or Cancel": mt5.ORDER_FILLING_IOC,
-                "Return": mt5.ORDER_FILLING_RETURN}.get(b.get("filling"), mt5.ORDER_FILLING_IOC)
-        req = {"action": mt5.TRADE_ACTION_DEAL, "symbol": sym, "volume": float(b["volume"]),
-               "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL, "price": price,
-               "deviation": int(b.get("deviation", 20)), "magic": int(b.get("magic", 0)),
-               "comment": "web-chart", "type_time": mt5.ORDER_TIME_GTC, "type_filling": fill}
-        if b.get("sl_points"):
-            req["sl"] = price - sign * b["sl_points"] * info.point
-        if b.get("tp_points"):
-            req["tp"] = price + sign * b["tp_points"] * info.point
-        r = mt5.order_send(req)
-        if r is None or r.retcode != mt5.TRADE_RETCODE_DONE:
-            raise RuntimeError(f"order rejected: {r.comment if r else mt5.last_error()}")
-        return r._asdict()
-
-    def post_close(self, q):
-        ticket = int(self._body()["ticket"])
-        p = (mt5.positions_get(ticket=ticket) or [None])[0]
-        if not p:
-            raise RuntimeError("position not found")
-        tick = mt5.symbol_info_tick(p.symbol)
-        buy = p.type == mt5.POSITION_TYPE_BUY
-        r = mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": p.symbol, "volume": p.volume, "position": ticket,
-                            "type": mt5.ORDER_TYPE_SELL if buy else mt5.ORDER_TYPE_BUY,
-                            "price": tick.bid if buy else tick.ask, "deviation": 20,
-                            "type_filling": mt5.ORDER_FILLING_IOC})
-        if r is None or r.retcode != mt5.TRADE_RETCODE_DONE:
-            raise RuntimeError(f"close rejected: {r.comment if r else mt5.last_error()}")
-        return r._asdict()
+    def get_terminal(self, q):
+        t, a = mt5.terminal_info(), mt5.account_info()
+        return {"terminal": t._asdict() if t else None,
+                "account": {k: getattr(a, k) for k in ("login", "server", "company", "name", "currency", "trade_mode")} if a else None,
+                "version": mt5.version()}
 
     def get_experts(self, q):
         d = experts_dir()
