@@ -1,0 +1,16 @@
+Title: Gold's High & Low Locked 6 Times in One Day — How Close Did Each Call Get? (Oct 9, 2026)
+
+Description:
+Replay of Friday October 9, 2026 on gold (XAUUSD / GC futures). The Day Range Predictor locks a predicted HIGH (green) and LOW (red) at the 6 PM New York open, then re-locks them at 8 PM, 3 AM, 8 AM, 10 AM and 12 PM from what the day has done so far. Each lock uses only data available at that moment, and the models were trained only on earlier days. Actual high $4,233.70, actual low $4,156.10:
+
+   6 PM lock: high $4,191.92 (miss $41.78), low $4,136.58 (miss $19.52)
+   8 PM lock: high $4,199.17 (miss $34.53), low $4,142.25 (miss $13.85)
+   3 AM lock: high $4,261.62 (miss $27.92), low $4,153.36 (miss $2.74)
+   8 AM lock: high $4,243.01 (miss $9.31), low $4,150.53 (miss $5.57)
+  10 AM lock: high $4,237.79 (miss $4.09), low $4,156.02 (miss $0.08)
+  12 PM lock: high $4,233.77 (miss $0.07), low $4,156.08 (miss $0.02)
+
+Later locks are more accurate partly because one of the day's extremes is often already in by then.
+Educational content, not financial advice. No prediction is 100% certain.
+
+#gold #xauusd #daytrading #mt5 #trading #futures #ai

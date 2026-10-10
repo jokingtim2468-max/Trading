@@ -34,7 +34,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from ai import short_model as SM, fixed_model as FM, session_model as SS, band_model as BM  # noqa: E402
+from ai import short_model as SM, fixed_model as FM, session_model as SS, band_model as BM, gold_locks as GL  # noqa: E402
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
 # Yahoo symbol, Google Finance quote id, session (NY minutes), round-trip cost in price units
@@ -466,6 +466,9 @@ def update_sources(res, stamp):
             vals = [round(x, 6) for x in vals]
             pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in vals)})")
             mql.append(f"double T_{key}_{name.upper()}[{len(vals)}] = {{{', '.join(str(x) for x in vals)}}};")
+        if "ck" in lk:
+            for name, vals in (("CkUp", lk["ck"]["up"]), ("CkDn", lk["ck"]["dn"]), ("CkMed", lk["ck"]["med"])):
+                mql.append(f"double T_{key}_{name.upper()}[{len(vals)}] = {{{', '.join(str(x) for x in vals)}}};")
         if "ah" in lk:
             for name, val in (("AhUp", lk["ah"]["up_med"]), ("AhDn", lk["ah"]["dn_med"])):
                 pine.append(f"t{tag}{name} = {float(val)}")
@@ -482,9 +485,12 @@ def fmt3(t):
     return "/".join(f"{x:.3f}" for x in t)
 
 
-def train_locked(key, daily):
-    """Locked lines: full day (10y), and for Nasdaq the regular session (10y ^NDX) and after-market (~2y)."""
+def train_locked(key, daily, h1):
+    """Locked lines: full day (10y); gold also re-locks at 5 checkpoints of the day (~2y hourly);
+    Nasdaq: the regular session (10y ^NDX) and after-market (~2y)."""
     out = {"day": FM.train(daily, years=10), "day_eval": FM.evaluate(daily, 500)}
+    if key == "GC":
+        out["ck"], out["ck_eval"] = GL.train(h1, daily), GL.evaluate(h1, daily)
     if key == "NQ":
         nd = SS.rth_daily(yahoo)
         out["rth"], out["rth_eval"] = FM.train(nd, years=10), FM.evaluate(nd, 500)
@@ -541,6 +547,20 @@ def report(res, stamp):
         for nm, tr_, e in rows_:
             L.append(f"| {nm} | {tr_} | {e['before']['high']:.3f} → {e['after']['high']:.3f} | "
                      f"{e['before']['low']:.3f} → {e['after']['low']:.3f} |")
+        if "ck_eval" in lk:
+            ce = lk["ck_eval"]
+            L += ["", f"**Checkpoint locks (gold).** The 6 PM lines can only use yesterday's data. Extra inputs (gold volatility "
+                  f"index, dollar index, yields, silver, stocks, jobs-report days) did not lower their miss in a 1,000-day "
+                  f"walk-forward test, so the indicator re-predicts the high and low at fixed checkpoints from what the day has "
+                  f"already done, and holds each lock until the next checkpoint. Walk-forward on {ce['days']} unseen days "
+                  f"({ce['from']} to {ce['to']}, average daily ATR ${ce['avg_atr']:.0f}), refit every 21 days on earlier days only:", "",
+                  "| Locked at (New York) | Miss high | Miss low | Miss (× ATR) | Within $10 | High still to come | Low still to come | Miss on those (× ATR) |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+            for c in ce["checkpoints"]:
+                L.append(f"| {c['name']} | ${c['miss_hi']:.2f} | ${c['miss_lo']:.2f} | {c['miss_atr']:.3f} | {pct(c['within10'])} | "
+                         f"{pct(c['still_hi'])} | {pct(c['still_lo'])} | {c['miss_still_atr']:.3f} |")
+            L += ["", "Later locks are more accurate partly because one extreme is often already in. The last column is the "
+                  "miss only on days where that extreme was still to come, which is the fair measure of the prediction itself."]
         if "ah" in lk:
             L += ["", "The after-market model didn't beat its median baseline on unseen sessions (only ~2 years of free "
                   "intraday data), so the indicators use the median for that session."]
@@ -626,7 +646,10 @@ def main():
         band = BM.calibrate(m5[m5.v > 0] if (m5.v > 0).mean() > 0.5 else m5)
         print(f"   80% band (5-minute bars): price 1 hour later landed inside it {band['test_cover']:.0%} "
               f"of the time on {band['test_days']} test days")
-        locked = train_locked(key, daily)
+        locked = train_locked(key, daily, h1)
+        for c in locked.get("ck_eval", {}).get("checkpoints", []):
+            print(f"   checkpoint lock {c['name']:>5}: miss high ${c['miss_hi']:.2f} low ${c['miss_lo']:.2f} ({c['miss_atr']:.3f} ATR), "
+                  f"within $10 {c['within10']:.0%}")
         ev = locked["day_eval"]
         print(f"   locked full-day lines (10y): miss high {ev['before']['high']:.3f} -> {ev['after']['high']:.3f} ATR, "
               f"low {ev['before']['low']:.3f} -> {ev['after']['low']:.3f} ATR on {ev['days']} unseen days")

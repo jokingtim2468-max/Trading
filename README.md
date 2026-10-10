@@ -143,6 +143,30 @@ Choose sessions in the EA/script input "Sessions" (Auto, Full day, Regular + aft
 
 Before/after videos on held-out days: `python tools/fixed_video.py --session day|rth|ah --pick random`.
 
+### Gold checkpoint locks (XAUUSD, on by default)
+
+On gold the 6 PM lines can only use yesterday's data. In a 1,000-day walk-forward test, nothing else available
+at that moment made them more accurate: not the gold volatility index, dollar index, yields, silver, stocks, jobs-report
+days, or a gradient-boosted model. All of them stayed at a miss of about 0.31 daily ATR. So the EA re-predicts the
+high and low at **8 PM, 3 AM (London), 8 AM (COMEX), 10 AM and 12 PM New York** from what the day has already done,
+and locks them again. The current lock is the solid full-width pair. Earlier locks stay as faint dotted lines.
+
+Walk-forward on 250 unseen days (Sep 2025 – Oct 2026, average daily ATR about $121):
+
+| Locked at | Avg miss high | Avg miss low | Line within $10 of the real high/low |
+| --- | --- | --- | --- |
+| 6 PM | $33.90 | $39.70 | 22% |
+| 8 PM | $30.09 | $37.66 | 21% |
+| 3 AM | $20.30 | $23.58 | 43% |
+| 8 AM | $15.86 | $17.09 | 57% |
+| 10 AM | $9.62 | $11.10 | 78% |
+| 12 PM | $4.54 | $4.27 | 89% |
+
+Later locks are more accurate partly because one of the day's extremes is often already in. The training report
+also gives the miss only on days where the extreme was still to come. Inputs: "Gold: re-lock at ..." and
+"Gold: keep today's earlier locks". Model: `ai/gold_locks.py`. Video of a held-out day:
+`python tools/gold_ck_video.py --date 2026-10-09`.
+
 ## Fine-tune your own Llama (Unsloth)
 
 `ai/finetune/` builds a chat dataset from ~10 years of headlines (labelled with what Nasdaq and gold really did), locked-line snapshots with the real highs and lows, and Q&A about the tools. It then fine-tunes Llama with Unsloth and exports it to Ollama as `drp-llama`. Step-by-step instructions and the RTX 4060 settings are in [`ai/finetune/TRAINING.md`](ai/finetune/TRAINING.md).
