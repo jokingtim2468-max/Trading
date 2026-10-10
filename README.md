@@ -19,13 +19,13 @@ Open **PowerShell** (no admin needed), paste this and press Enter:
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/jokingtim2468-max/Trading/vibe-coded/gracious-mccarthy-72mdp8/install.ps1 | iex"
 ```
 
-It installs anything missing (Git, Python, Node.js, Ollama), downloads the project to `%LOCALAPPDATA%\DRPTrading`, copies and compiles the EA into every MetaTrader 5 on the PC, pulls the local Llama model, and adds a **DRP Trading** shortcut to *your* Desktop and Start Menu. A "DRP Trading - Retrain" entry is also added to the Start Menu.
+That one command does everything. It installs anything missing (Git, Python, Node.js, Ollama), downloads the project to `%LOCALAPPDATA%\DRPTrading`, copies and compiles the EA into every MetaTrader 5 on the PC, pulls the local Llama model, and adds a **DRP Trading** shortcut to *your* Desktop and Start Menu (plus "DRP Trading - Retrain" in the Start Menu). It also adds the always-on **gold learner** to Windows Startup, then starts everything: the AI service, the MT5 bridge, the gold learner and MetaTrader 5. Running the same command again updates and restarts it. MetaTrader 5 itself (from your broker) must be installed and opened once first, so the EA has somewhere to go.
 
 Each time you open the **DRP Trading** shortcut, it:
 1. updates everything from GitHub, keeping your own edits in `git stash`,
 2. reinstalls packages only if they changed,
 3. recopies and recompiles the EA in MetaTrader 5, and shows any compile errors,
-4. starts Ollama, the AI service and the MT5 bridge minimized, then opens MetaTrader 5,
+4. starts Ollama, the AI service, the MT5 bridge and the gold learner minimized, then opens MetaTrader 5,
 5. retrains on the latest market data once a week.
 
 To skip the local AI, run `$env:DRP_NO_OLLAMA=1` before the install command, or start the launcher with `launch.ps1 -NoAI`. Add `-Charts` to also open the web charts app.

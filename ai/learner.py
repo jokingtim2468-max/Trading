@@ -199,16 +199,18 @@ def track_summary():
 
 
 # ---------------------------------------------------------------- publish
+def nums(xs):
+    """Plain decimals (never 1e-05 style) so MT5 parses every value the same way."""
+    return ",".join(f"{float(x):.6f}" for x in xs)
+
+
 def publish(champ, stamp_live):
     ck, day = champ["ck"], champ["day"]
     lines = ["model=gold_locks", f"version={champ['version']}", f"trained_through={champ['trained_through']}",
              f"published={dt.datetime.now(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ}", f"config={champ['config']}",
              f"score_atr={champ['score']:.4f}", f"live_days={stamp_live}",
-             "ckmed=" + ",".join(str(x) for x in ck["med"]),
-             "ckup=" + ",".join(str(x) for x in ck["up"]),
-             "ckdn=" + ",".join(str(x) for x in ck["dn"]),
-             "dayup=" + ",".join(str(round(x, 6)) for x in day["up"]),
-             "daydn=" + ",".join(str(round(x, 6)) for x in day["dn"])]
+             "ckmed=" + nums(ck["med"]), "ckup=" + nums(ck["up"]), "ckdn=" + nums(ck["dn"]),
+             "dayup=" + nums(day["up"]), "daydn=" + nums(day["dn"])]
     text = "\n".join(lines) + "\n"
     atomic_write(DATA / "DRP_MODEL_GC.txt", text)
     d = mt5_files_dir()
