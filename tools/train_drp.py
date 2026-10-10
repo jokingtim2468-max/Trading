@@ -477,6 +477,9 @@ def update_sources(res, stamp):
         for name, k in (("ExtUp", "up"), ("ExtDn", "dn"), ("BuildW", "w"), ("THi", "thi"), ("TLo", "tlo")):
             pine.append(f"var t{tag}{name} = array.from({', '.join(str(x) for x in lv[k])})")
             mql.append(f"double T_{key}_{name.upper()}[{len(lv[k])}] = {{{', '.join(str(x) for x in lv[k])}}};")
+    # last complete trade day in the training data (the EA prefers ai/learner.py's model when it's at least this new)
+    done = (pd.Timestamp.now(tz="America/New_York") - pd.Timedelta(hours=17, minutes=5)).date().isoformat()
+    mql.append(f'const string T_DATA_THROUGH = "{min(done, res["GC"]["last_day"])}";')
     rewrite_block(ROOT / "pine/DayRangePredictor.pine", START, END, "\n".join(pine) + "\n")
     rewrite_block(ROOT / "experts/DayRangePredictor.mq5", START, END, "\n".join(mql) + "\n")
 

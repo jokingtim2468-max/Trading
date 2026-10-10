@@ -16,3 +16,6 @@ ai/finetune/data/
 ai/finetune/cache/
 ai/finetune/out/
 ai/finetune/*.zip
+
+# gold learner: local price history, model state and live track record
+ai/data/

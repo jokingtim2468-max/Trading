@@ -47,7 +47,7 @@ def rows(h1, daily):
     return R
 
 
-def _fit(tr):
+def _fit(tr, l2=1e-2):
     """LAD per checkpoint; returns raw-unit coefficients (so the EA just takes a dot product)."""
     med = tr.groupby("k").rngs.median()
     res = {}
@@ -60,7 +60,7 @@ def _fit(tr):
         sd[sd == 0] = 1.0
         co = {}
         for y in ("y_up", "y_dn"):
-            w = FM.fit_lad((X - mu) / sd, q[y].to_numpy(float), iters=80, l2=1e-2)
+            w = FM.fit_lad((X - mu) / sd, q[y].to_numpy(float), iters=80, l2=l2)
             raw = w / sd
             raw[0] = w[0] - float((w[1:] * mu[1:] / sd[1:]).sum())
             co[y] = raw
@@ -72,6 +72,19 @@ def _predict(m, q):
     k = q.k.iloc[0]
     X = q.assign(rngfrac=q.rngs / m[k]["med"])[FEATURES].to_numpy(float)
     return np.maximum(0, X @ m[k]["up"]), np.maximum(0, X @ m[k]["dn"])
+
+
+def flat(m):
+    """Model dict -> the flat arrays the EA reads."""
+    return {"med": [round(m[k]["med"], 6) for k, _ in CHECKPOINTS],
+            "up": [round(float(x), 6) for k, _ in CHECKPOINTS for x in m[k]["up"]],
+            "dn": [round(float(x), 6) for k, _ in CHECKPOINTS for x in m[k]["dn"]]}
+
+
+def unflat(f):
+    """Flat arrays -> model dict usable by _predict."""
+    return {k: {"med": f["med"][c], "up": np.array(f["up"][c * 8:c * 8 + 8]), "dn": np.array(f["dn"][c * 8:c * 8 + 8])}
+            for c, (k, _) in enumerate(CHECKPOINTS)}
 
 
 def train(h1, daily):

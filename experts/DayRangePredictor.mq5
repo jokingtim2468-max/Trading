@@ -64,6 +64,7 @@ input ENUM_DRP_LOCK InpLockMode = DRP_LOCK_AUTO; // Sessions
 input int    InpLockHist     = 0;     // Previous sessions to keep as short segments (0 = only the current lines)
 input bool   InpCkLocks      = true;  // Gold: re-lock at 8 PM, 3 AM, 8 AM, 10 AM, 12 PM New York (each lock more accurate)
 input bool   InpCkEarlier    = true;  // Gold: keep today's earlier locks as faint dotted lines
+input bool   InpUseLearner   = true;  // Gold: use the always-on learner's newest model (Common\Files\DRP_MODEL_GC.txt)
 
 input group "Short-term projection (next hour)"
 input bool   InpShowBand     = true;  // Show the 80% band for the next hour
@@ -212,6 +213,7 @@ double T_GC_EXTDN[72] = {0.301, 0.347, 0.236, 0.392, 0.232, 0.199, 0.342, 0.203,
 double T_GC_BUILDW[24] = {0.1, 0.15, 0.15, 0.2, 0.2, 0.25, 0.45, 0.4, 0.5, 0.55, 0.55, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 double T_GC_THI[24] = {15.5, 15.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 17.5, 17.5, 17.5, 18.5, 19.5, 21.5, 21.5, 22.5, 22.5, 22.5, 23.0, 23.5};
 double T_GC_TLO[24] = {14.5, 14.5, 15.5, 15.5, 15.5, 15.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 16.5, 17.5, 17.5, 18.5, 19.5, 21.0, 21.5, 21.5, 21.5, 22.5, 23.0, 23.5};
+const string T_DATA_THROUGH = "2026-10-09";
 // === TRAINED PRESETS END ===
 
 // Effective settings: trained presets for this symbol, or the inputs when presets are off
@@ -905,10 +907,9 @@ double QuickProb(MqlRates &r[], double &rsi[], int i, double vw, double hs, doub
    return 1.0 / (1.0 + MathExp(-z));
   }
 
-// Read the AI service file (MT5 Common\Files\DRP_AI_NQ.txt or _GC.txt) into key/value arrays
-bool ReadAIFile(string &keys[], string &vals[])
+// key=value lines from a file in MT5 Common\Files
+bool ReadKVFile(string fn, string &keys[], string &vals[])
   {
-   string fn = g_isGold ? "DRP_AI_GC.txt" : "DRP_AI_NQ.txt";
    int h = FileOpen(fn, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE, 0, CP_UTF8);
    if(h == INVALID_HANDLE)
       return false;
@@ -928,6 +929,12 @@ bool ReadAIFile(string &keys[], string &vals[])
      }
    FileClose(h);
    return true;
+  }
+
+// Read the AI service file (MT5 Common\Files\DRP_AI_NQ.txt or _GC.txt) into key/value arrays
+bool ReadAIFile(string &keys[], string &vals[])
+  {
+   return ReadKVFile(g_isGold ? "DRP_AI_GC.txt" : "DRP_AI_NQ.txt", keys, vals);
   }
 
 string KV(string &keys[], string &vals[], string key)
@@ -1197,6 +1204,59 @@ void LockDraw(string id, datetime t1, datetime t2, double hi, double lo, string 
 //| u, v = median regression on 8 inputs, trained walk-forward.       |
 //+------------------------------------------------------------------+
 int    CK_H[5] = {2, 9, 14, 16, 18};                    // hours after the 6 PM New York open
+
+// Gold model in use: built-in (TRAINED PRESETS) or the learner's newer file (ai/learner.py)
+double   g_ckUp[40], g_ckDn[40], g_ckMed[5], g_dayUp[14], g_dayDn[14];
+string   g_modelSrc = "";
+datetime g_modelChecked = 0;
+
+bool ParseList(string v, double &out[], int need)
+  {
+   string parts[];
+   if(StringSplit(v, ',', parts) != need)
+      return false;
+   for(int i = 0; i < need; i++)
+     {
+      out[i] = StringToDouble(parts[i]);
+      if(!MathIsValidNumber(out[i]))
+         return false;
+     }
+   return true;
+  }
+
+// Built-in coefficients first; then, at most once a minute, the learner's file if it is valid and at
+// least as recent as the EA's own training.
+void LoadGoldModel()
+  {
+   if(g_modelSrc == "")
+     {
+      ArrayCopy(g_ckUp, T_GC_CKUP); ArrayCopy(g_ckDn, T_GC_CKDN); ArrayCopy(g_ckMed, T_GC_CKMED);
+      ArrayCopy(g_dayUp, T_GC_DAYUP); ArrayCopy(g_dayDn, T_GC_DAYDN);
+      g_modelSrc = "built-in (" + T_DATA_THROUGH + ")";
+     }
+   if(!InpUseLearner || TimeLocal() - g_modelChecked < 60)
+      return;
+   g_modelChecked = TimeLocal();
+   string keys[], vals[];
+   if(!ReadKVFile("DRP_MODEL_GC.txt", keys, vals))
+      return;
+   string through = KV(keys, vals, "trained_through");
+   if(KV(keys, vals, "model") != "gold_locks" || through < T_DATA_THROUGH)
+      return;
+   double up[40], dn[40], med[5], du[14], dd[14];
+   if(!ParseList(KV(keys, vals, "ckup"), up, 40) || !ParseList(KV(keys, vals, "ckdn"), dn, 40) ||
+      !ParseList(KV(keys, vals, "ckmed"), med, 5) || !ParseList(KV(keys, vals, "dayup"), du, 14) ||
+      !ParseList(KV(keys, vals, "daydn"), dd, 14))
+     {
+      Print("DayRangePredictor: DRP_MODEL_GC.txt is incomplete, keeping the current model.");
+      return;
+     }
+   ArrayCopy(g_ckUp, up); ArrayCopy(g_ckDn, dn); ArrayCopy(g_ckMed, med); ArrayCopy(g_dayUp, du); ArrayCopy(g_dayDn, dd);
+   string src = "learner v" + KV(keys, vals, "version") + " (" + through + ")";
+   if(src != g_modelSrc)
+      Print("DayRangePredictor: gold model -> ", src);
+   g_modelSrc = src;
+  }
 string CK_N[5] = {"8 PM", "3 AM", "8 AM", "10 AM", "12 PM"};
 
 // Most recent 6 PM New York open of a gold trading day (no session starts Friday or Saturday evening).
@@ -1268,11 +1328,11 @@ void DrawGoldCk(double dayHi, double dayLo, double datr, double r5, double prng)
       x[2] = (o - ls) / datr;
       x[3] = (px - o) / datr;
       x[4] = rngs;
-      x[5] = T_GC_CKMED[c] > 0 ? rngs / T_GC_CKMED[c] : 1.0;
+      x[5] = g_ckMed[c] > 0 ? rngs / g_ckMed[c] : 1.0;
       x[6] = r5;
       x[7] = prng;
-      double hi = hs + CkDot(T_GC_CKUP, c, x) * datr;
-      double lo = ls - CkDot(T_GC_CKDN, c, x) * datr;
+      double hi = hs + CkDot(g_ckUp, c, x) * datr;
+      double lo = ls - CkDot(g_ckDn, c, x) * datr;
       if(InpCkEarlier)
          CkSeg(IntegerToString(c), prevT, tEnd, prevHi, prevLo);       // the lock this one replaces, kept faint
       prevHi = hi; prevLo = lo; prevT = tc; prevName = CK_N[c];
@@ -1308,7 +1368,7 @@ void DrawLocked()
             TimeToStruct(d[k].time, sd);          // a D1 bar's server date is the CME trade date
             dw[k] = sd.day_of_week;
            }
-         if(g_isGold) { ArrayCopy(cu, T_GC_DAYUP); ArrayCopy(cd, T_GC_DAYDN); }
+         if(g_isGold) { ArrayCopy(cu, g_dayUp); ArrayCopy(cd, g_dayDn); }
          else         { ArrayCopy(cu, T_NQ_DAYUP); ArrayCopy(cd, T_NQ_DAYDN); }
          for(int i = MathMax(61, n - 1 - InpLockHist); i < n; i++)
            {
@@ -1451,6 +1511,8 @@ void Rebuild()
   {
    if(!BuildDaily())
       return;
+   if(g_isGold)
+      LoadGoldModel();
    ObjectsDeleteAll(0, PFX);
    g_lastSignalText = "";
    g_curHi = 0; g_curLo = 0; g_curBuild = 0;

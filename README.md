@@ -167,6 +167,31 @@ also gives the miss only on days where the extreme was still to come. Inputs: "G
 "Gold: keep today's earlier locks". Model: `ai/gold_locks.py`. Video of a held-out day:
 `python tools/gold_ck_video.py --date 2026-10-09`.
 
+### Always-on gold learner
+
+`ai/learner.py` runs until you close its window, saves everything in `ai/data/`, and picks up where it
+left off. The DRP Trading shortcut starts it minimized and adds **DRP Gold Learner** to Windows Startup, so it
+also comes back after a reboot. Every 15 minutes it:
+
+1. Adds the newest gold bars to its own history. Yahoo only keeps about 2 years of hourly bars, but this
+   history keeps growing.
+2. After each 5 PM close, scores that day with the model that was live **before** the day. This builds a true
+   out-of-sample track record in `ai/data/GC_track.csv`.
+3. Re-tests a few settings walk-forward on the last 120 days, keeps the best one, refits it on all its data,
+   and publishes it to `MT5 Common\Files\DRP_MODEL_GC.txt`.
+
+The EA reloads that file by itself within a minute, with no recompile. It uses the file when it's at least
+as recent as the EA's built-in training (input "Gold: use the always-on learner's newest model").
+
+    py ai\learner.py --status     # current model and the live track record
+    py ai\learner.py --once       # one update now
+
+What to expect: daily refits and more data keep the model current and help a little. Tested: about 2% lower
+miss going from 120 to 420 training days. The error won't go to zero, though, because it levels off at how
+unpredictable gold is. The track record shows what it really achieves. It uses about a minute of CPU per day
+plus a few small downloads, so the electricity cost is negligible. To turn it off, close its window and run
+the launcher with `-NoLearner`, which also removes the Startup entry.
+
 ## Fine-tune your own Llama (Unsloth)
 
 `ai/finetune/` builds a chat dataset from ~10 years of headlines (labelled with what Nasdaq and gold really did), locked-line snapshots with the real highs and lows, and Q&A about the tools. It then fine-tunes Llama with Unsloth and exports it to Ollama as `drp-llama`. Step-by-step instructions and the RTX 4060 settings are in [`ai/finetune/TRAINING.md`](ai/finetune/TRAINING.md).

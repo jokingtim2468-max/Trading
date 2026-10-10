@@ -4,10 +4,12 @@
 #  3. Copies the EA into every MetaTrader 5 on this PC and compiles it with MetaEditor.
 #  4. Starts Ollama, the AI service and the MT5 bridge (minimized), then opens MetaTrader 5.
 #  5. Once a week, retrains on the latest market data in the background and recompiles the EA.
+#  6. Starts the always-on gold learner (ai\learner.py) minimized and adds it to Windows Startup, so it
+#     keeps learning until you close its window and picks up where it left off after a restart.
 #
 # Options: -NoStart (update/deploy only)  -NoAI  -Charts (also open the web charts app)
-#          -Retrain (retrain now)  -Force (reinstall packages)
-param([switch]$NoStart, [switch]$NoAI, [switch]$Charts, [switch]$Retrain, [switch]$Force)
+#          -Retrain (retrain now)  -Force (reinstall packages)  -NoLearner (don't run the gold learner)
+param([switch]$NoStart, [switch]$NoAI, [switch]$Charts, [switch]$Retrain, [switch]$Force, [switch]$NoLearner)
 $ErrorActionPreference = 'Continue'
 Set-Location $PSScriptRoot
 $Host.UI.RawUI.WindowTitle = 'DRP Trading'
@@ -102,6 +104,20 @@ if ($Retrain -or ($stale -and -not $NoStart)) {
   Deploy-EA
 }
 
+# ---- always-on gold learner: Windows Startup shortcut (runs minimized at logon) -------------------------
+$pyExe = (Get-Command $py -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+$learnerLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'DRP Gold Learner.lnk'
+if ($NoLearner) { Remove-Item $learnerLnk -ErrorAction SilentlyContinue }
+elseif ($pyExe) {
+  $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($learnerLnk)
+  $lnk.TargetPath = $pyExe
+  $lnk.Arguments = "`"$PSScriptRoot\ai\learner.py`""
+  $lnk.WorkingDirectory = $PSScriptRoot
+  $lnk.WindowStyle = 7
+  $lnk.Description = 'DRP gold learner: keeps improving the gold model; progress is saved in ai\data'
+  $lnk.Save()
+}
+
 if ($NoStart) { Say 'Done.' 'Green'; return }
 
 # ---- 6. start everything ------------------------------------------------------------------------------
@@ -111,6 +127,11 @@ if (-not $NoAI) {
 }
 Start-Process $py -ArgumentList 'bridge\mt5_bridge.py' -WorkingDirectory $PSScriptRoot -WindowStyle Minimized
 Say 'MT5 bridge started (minimized).'
+if (-not $NoLearner) {
+  # only one copy ever runs (it exits at once if it's already running)
+  Start-Process $py -ArgumentList 'ai\learner.py' -WorkingDirectory $PSScriptRoot -WindowStyle Minimized
+  Say 'Gold learner running (minimized). It saves its progress; see it with: py ai\learner.py --status'
+}
 if ($Charts) { Start-Process (Join-Path $PSScriptRoot 'start.bat') -WorkingDirectory $PSScriptRoot }
 
 $terminal = Get-ChildItem (Join-Path $env:APPDATA 'MetaQuotes\Terminal') -Directory -ErrorAction SilentlyContinue |
