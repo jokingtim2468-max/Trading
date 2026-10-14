@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, History } from 'lucide-react';
+import { ArrowLeft, History, MessageSquare } from 'lucide-react';
 import * as api from '@/lib/quantApi';
 import { client } from '@/api/client';
 import { missingKey, defaultModel } from '@/lib/models';
@@ -59,6 +59,18 @@ export default function StrategyConverter() {
           </div>
         )}
         {lab.error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{lab.error}</div>}
+        {lab.chatId && !lab.running && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 animate-in fade-in zoom-in-95 duration-pop ease-pop motion-reduce:animate-none">
+            <MessageSquare className="w-5 h-5 text-primary shrink-0" />
+            <div className="flex-1 min-w-[200px] text-sm">
+              <div className="font-medium">Chat ready to fine-tune {cfg.botName}</div>
+              <div className="text-muted-foreground">It has the results and code, and the AI can read every test, trade and candle behind them.</div>
+            </div>
+            <Link to={`/?chat=${lab.chatId}`} className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
+              Fine-tune in chat
+            </Link>
+          </div>
+        )}
         {lab.runs.length > 0 && <VersionPills runs={lab.runs} activeIdx={lab.activeIdx} onSelect={lab.setActiveIdx} />}
         {active && (
           <>

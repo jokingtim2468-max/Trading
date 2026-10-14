@@ -11,6 +11,10 @@
       "default": "General",
       "description": "Group / project name"
     },
+    "bot_name": {
+      "type": "string",
+      "description": "Bot this chat fine-tunes (set when the Strategy Converter opens the chat); its tests go into the AI's context"
+    },
     "last_message_at": {
       "type": "string",
       "format": "date-time",

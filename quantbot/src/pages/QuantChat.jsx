@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
 import { missingKey, knownModel } from '@/lib/models';
@@ -24,6 +25,7 @@ export default function QuantChat() {
   const [model, setModel] = useState(() => knownModel(localStorage.getItem('quant_model'), 'builtin'));
   const [keyStatus, setKeyStatus] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
 
   useEffect(() => { client.auth.me().then(setUser); api.getKeyStatus().then(setKeyStatus); }, []);
 
@@ -45,6 +47,14 @@ export default function QuantChat() {
     setSidebarOpen(false);
     setMessages(await api.loadMessages(id));
   };
+
+  // /?chat=<id> opens that chat (the Strategy Converter's "Fine-tune in chat")
+  useEffect(() => {
+    const id = params.get('chat');
+    if (!id) return;
+    setParams({}, { replace: true });
+    openSession(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const newChat = () => { setQueue([]); setActiveId(null); setMessages([]); setSidebarOpen(false); };
 

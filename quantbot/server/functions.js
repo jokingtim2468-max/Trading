@@ -5,11 +5,13 @@ import { CONVERTER_SYSTEM, converterInputError, converterTask, converterResult }
 import { TESTER_SYSTEM, testerInputError, testerTask, testerResult } from './lib/testerPrompt.js';
 import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
+import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
 
 const fail = (message) => { throw new Error(message); };
 
-export function createFunctions({ db, user, keys }) {
+export function createFunctions({ db, user, keys, market }) {
+  const chatTools = createChatTools({ db, market });
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   function pickModel(model) {
     if (model && model !== 'builtin') return model;
@@ -29,10 +31,10 @@ export function createFunctions({ db, user, keys }) {
     return keys.get(provider) || fail(`No ${PROVIDER_NAMES[provider]} API key linked. Add one in Settings.`);
   }
 
-  async function ask(model, system, messages, maxTokens) {
+  async function ask(model, system, messages, maxTokens, tools) {
     const id = pickModel(model);
     const provider = providerOf(id) || fail('Unknown model');
-    return callModel(provider, credentials(provider), id, system, messages, maxTokens);
+    return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools);
   }
 
   return {
@@ -65,8 +67,11 @@ export function createFunctions({ db, user, keys }) {
     async quantChat({ session_id, style, model }) {
       const session = db.run('ChatSession', 'get', session_id);
       const recent = db.run('ChatMessage', 'filter', { session_id }, { sort: '-created_date', limit: 20 }).items.reverse();
-      const system = chatSystem(session.group, style, user.me().full_name);
-      const reply = String(await ask(model, system, toTurns(chatHistory(recent))));
+      const system = chatSystem(session.group, style, user.me().full_name, {
+        linked: session.bot_name ? chatTools.testBrief(session.bot_name) : '',
+        today: new Date().toISOString().slice(0, 10),
+      });
+      const reply = String(await ask(model, system, toTurns(chatHistory(recent)), 16000, chatTools));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       db.run('ChatSession', 'update', session_id, {

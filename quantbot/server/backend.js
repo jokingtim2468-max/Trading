@@ -15,13 +15,14 @@ export function entityDefaults(dir) {
   }));
 }
 
-export function createBackend({ dataDir, encrypt, decrypt, userName, defaults }) {
+// market: the built-in market data store (server/market/store.js), read by the chat's data tools
+export function createBackend({ dataDir, encrypt, decrypt, userName, defaults, market = null }) {
   fs.mkdirSync(dataDir, { recursive: true });
   const user = createUser(dataDir, userName);
   const db = createDb(path.join(dataDir, 'entities'), 'local', defaults);
   const keys = createKeys(dataDir, encrypt, decrypt);
   const files = createFiles(path.join(dataDir, 'files'));
-  const functions = createFunctions({ db, user, keys });
+  const functions = createFunctions({ db, user, keys, market });
 
   return {
     handle(kind, ...args) {

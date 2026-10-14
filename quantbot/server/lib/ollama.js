@@ -26,19 +26,38 @@ export async function listOllamaModels(url) {
   return ((await res.json()).models || []).map((m) => m.name);
 }
 
-export async function callOllama(url, model, system, messages, maxTokens = 8192) {
-  const res = await request(`${ollamaBase(url)}/api/chat`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model, stream: false,
-      messages: [{ role: 'system', content: system }, ...messages],
-      options: { num_ctx: NUM_CTX, num_predict: maxTokens },
-    }),
-  }, 15 * 60000);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Local model: ${data.error || res.status}${res.status === 404 ? ` (run: ollama pull ${model})` : ''}`);
-  const text = data.message?.content || '';
-  if (!text) throw new Error('The local model returned an empty reply.');
-  return text;
+const MAX_TOOL_ROUNDS = 6;
+
+// tools: { defs, run(name, input) -> text }. Models without tool support (Ollama answers "does not support tools")
+// are asked again without them.
+export async function callOllama(url, model, system, messages, maxTokens = 8192, tools = null) {
+  const turns = [{ role: 'system', content: system }, ...messages];
+  let withTools = !!tools;
+  for (let round = 0; ; round++) {
+    const useTools = withTools && round < MAX_TOOL_ROUNDS;
+    const res = await request(`${ollamaBase(url)}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model, stream: false, messages: turns,
+        options: { num_ctx: NUM_CTX, num_predict: maxTokens },
+        ...(useTools ? { tools: tools.defs.map((t) => ({ type: 'function', function: t })) } : {}),
+      }),
+    }, 15 * 60000);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && useTools && /does not support tools/i.test(String(data.error))) {
+      withTools = false;
+      continue;
+    }
+    if (!res.ok) throw new Error(`Local model: ${data.error || res.status}${res.status === 404 ? ` (run: ollama pull ${model})` : ''}`);
+    const calls = data.message?.tool_calls || [];
+    if (useTools && calls.length) {
+      turns.push(data.message);
+      for (const c of calls) turns.push({ role: 'tool', tool_name: c.function.name, content: await tools.run(c.function.name, c.function.arguments) });
+      continue;
+    }
+    const text = data.message?.content || '';
+    if (!text) throw new Error('The local model returned an empty reply.');
+    return text;
+  }
 }

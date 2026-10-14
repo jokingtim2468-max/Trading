@@ -120,7 +120,9 @@ function serveStatic(req, res, dist) {
 // app: hooks from the desktop launcher ({ heartbeat, info, updates, restart }); absent with npm start
 export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false, app = null } = {}) {
   const cipher = createCipher(dataDir);
+  const market = createMarketStore(dataDir);
   const backend = createBackend({
+    market,
     dataDir,
     encrypt: cipher.encrypt,
     decrypt: cipher.decrypt,
@@ -128,7 +130,6 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     defaults: entityDefaults(path.join(root, 'server', 'entities')),
   });
 
-  const market = createMarketStore(dataDir);
   const server = http.createServer();
   let vite = null;
   const dist = path.join(root, 'dist');

@@ -1,4 +1,4 @@
-import { Download, Trash2, Menu, Folder } from 'lucide-react';
+import { Download, Trash2, Menu, Folder, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { GROUPS } from '@/lib/models';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,6 +19,11 @@ export default function ChatHeader({ session, onGroupChange, onExport, onDelete,
                 {GROUPS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
               </SelectContent>
             </Select>
+            {session.bot_name && (
+              <span title="This chat fine-tunes a tested bot: the AI reads its tests, trades and market data" className="hidden sm:flex items-center gap-1 rounded-md border border-primary/40 px-2 h-7 text-xs text-primary whitespace-nowrap">
+                <FlaskConical className="w-3 h-3" />Linked to tests
+              </span>
+            )}
           </>
         )}
       </div>

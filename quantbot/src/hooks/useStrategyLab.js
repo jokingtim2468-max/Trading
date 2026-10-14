@@ -10,6 +10,7 @@ import { createTestSession, saveRun } from '@/lib/backtest/persist';
 import { testSignals } from '@/lib/backtest/signals';
 import { runMonteCarlo } from '@/lib/backtest/monteCarlo';
 import { marketStats } from '@/lib/backtest/marketStats';
+import { openConverterChat, addVersionToChat } from '@/lib/backtest/converterChat';
 
 const WARMUP = WARMUP_BARS;
 const DAY = 86400000;
@@ -21,6 +22,7 @@ export default function useStrategyLab(config) {
   const [activeIdx, setActiveIdx] = useState(-1);
   const [phase, setPhase] = useState('');
   const [error, setError] = useState('');
+  const [chatId, setChatId] = useState(null);
   const stopRef = useRef(false);
   const runsRef = useRef([]);
   const sessionsRef = useRef({});
@@ -136,6 +138,7 @@ export default function useStrategyLab(config) {
   async function execute(previous, iterations = 1) {
     setError('');
     stopRef.current = false;
+    if (!previous) setChatId(null);
     const push = (run) => {
       runsRef.current = [...runsRef.current, run];
       setRuns(runsRef.current);
@@ -147,17 +150,28 @@ export default function useStrategyLab(config) {
         if (!picked.length) throw new Error('Pick at least one market.');
         // Convert once, then test that same bot on every picked market
         let conv = null;
-        for (const ds of picked) {
-          if (stopRef.current) break;
-          const run = await runOnce(null, null, ds, conv);
-          conv = conv || { code: run.code, sim_code: run.sim_code, summary: run.summary, results: run.convResults, firstSymbol: ds.symbol };
-          push(run);
+        const tested = [];
+        try {
+          for (const ds of picked) {
+            if (stopRef.current) break;
+            const run = await runOnce(null, null, ds, conv);
+            conv = conv || { code: run.code, sim_code: run.sim_code, summary: run.summary, results: run.convResults, firstSymbol: ds.symbol };
+            tested.push(run);
+            push(run);
+          }
+        } finally {
+          // Then a chat linked to this bot opens with the results and code, ready for fine-tuning
+          if (tested.length) {
+            setPhase('Opening a chat to fine-tune it...');
+            setChatId(await openConverterChat(config, tested));
+          }
         }
       } else {
         let prev = previous;
         for (let k = 0; k < iterations && !stopRef.current; k++) {
           const run = await runOnce(prev, sessionsRef.current[prev.sessionId], prev.ds);
           push(run);
+          if (chatId) await addVersionToChat(chatId, config, run);
           prev = run;
         }
       }
@@ -173,7 +187,7 @@ export default function useStrategyLab(config) {
   };
 
   return {
-    datasets, runs, activeIdx, setActiveIdx, phase, error, running: !!phase,
+    datasets, runs, activeIdx, setActiveIdx, phase, error, running: !!phase, chatId,
     run: () => execute(null), fix: (run, iterations) => execute(run, iterations),
     stop: () => { stopRef.current = true; }, updateFixPrompt,
   };
