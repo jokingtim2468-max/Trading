@@ -1,0 +1,79 @@
+{
+  "name": "Trade",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "TestSession id"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "StrategyRun id"
+    },
+    "bot_name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short"
+      ]
+    },
+    "lots": {
+      "type": "number"
+    },
+    "entry": {
+      "type": "number"
+    },
+    "exit": {
+      "type": "number"
+    },
+    "entry_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit_day": {
+      "type": "string",
+      "description": "UTC exit date, YYYY-MM-DD"
+    },
+    "exit_week": {
+      "type": "string",
+      "description": "Monday of the UTC exit week, YYYY-MM-DD"
+    },
+    "exit_month": {
+      "type": "string",
+      "description": "UTC exit month, YYYY-MM"
+    },
+    "pnl": {
+      "type": "number"
+    },
+    "mae": {
+      "type": "number"
+    },
+    "mfe": {
+      "type": "number"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Exit reason: sl, tp, reverse, close, end"
+    }
+  },
+  "required": [
+    "run_id",
+    "bot_name",
+    "side",
+    "exit_time",
+    "pnl"
+  ]
+}

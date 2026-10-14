@@ -45,3 +45,7 @@ Then go to Settings → MT5: Server and click **Connect**. The MT5 account only 
 ```bash
 npm test
 ```
+
+## QuantBot
+
+The `quantbot/` folder is QuantBot (formerly the DevSync app on Base44), now running fully locally. See [quantbot/README.md](quantbot/README.md).

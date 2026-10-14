@@ -1,0 +1,53 @@
+{
+  "name": "MarketData",
+  "type": "object",
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "description": "e.g. XAUUSD, US100"
+    },
+    "timeframe": {
+      "type": "string",
+      "description": "Bar size, e.g. M15"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "TradingView"
+      ]
+    },
+    "start": {
+      "type": "string",
+      "format": "date-time",
+      "description": "First bar time"
+    },
+    "end": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last bar time"
+    },
+    "bars": {
+      "type": "number",
+      "description": "Number of bars"
+    },
+    "contract_size": {
+      "type": "number",
+      "description": "Units per 1.0 lot"
+    },
+    "point": {
+      "type": "number",
+      "description": "Price value of 1 point (spread unit)"
+    },
+    "file_uri": {
+      "type": "string",
+      "description": "Private file with the candle CSV"
+    }
+  },
+  "required": [
+    "symbol",
+    "timeframe",
+    "source",
+    "file_uri"
+  ]
+}

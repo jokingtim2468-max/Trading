@@ -1,0 +1,58 @@
+{
+  "name": "TestSession",
+  "type": "object",
+  "properties": {
+    "bot_name": {
+      "type": "string"
+    },
+    "strategy": {
+      "type": "string",
+      "description": "Strategy description as entered"
+    },
+    "rules": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "Pine"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "timeframe": {
+      "type": "string"
+    },
+    "balance": {
+      "type": "number",
+      "description": "Starting balance used for every version"
+    },
+    "versions": {
+      "type": "number",
+      "default": 0
+    },
+    "best_net": {
+      "type": "number"
+    },
+    "latest_net": {
+      "type": "number"
+    },
+    "latest_rules": {
+      "type": "string",
+      "description": "Latest rule check, e.g. 4/5"
+    },
+    "last_run_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "bot_name",
+    "target"
+  ]
+}

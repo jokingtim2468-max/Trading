@@ -1,0 +1,89 @@
+{
+  "name": "StrategyRun",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "description": "TestSession this version belongs to"
+    },
+    "bot_name": {
+      "type": "string"
+    },
+    "version": {
+      "type": "number"
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "Pine"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "window_label": {
+      "type": "string",
+      "description": "e.g. 1 week unseen, Custom"
+    },
+    "start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rules": {
+      "type": "string"
+    },
+    "code": {
+      "type": "string",
+      "description": "Converted MQL5 / Pine code"
+    },
+    "sim_code": {
+      "type": "string",
+      "description": "JavaScript simulation of the strategy"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "log": {
+      "type": "string",
+      "description": "Run log, one entry per line"
+    },
+    "fix_prompt": {
+      "type": "string",
+      "description": "Auto-generated prompt to fix issues"
+    }
+  },
+  "required": [
+    "bot_name",
+    "version",
+    "target"
+  ]
+}

@@ -1,0 +1,27 @@
+import { Play } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import DatasetPicker from '@/components/tester/DatasetPicker';
+
+export default function TesterControls({ chats, datasets, chatId, datasetIds, onChat, onDatasets, onRun, running }) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-end gap-3">
+      <label className="space-y-1 flex-1 min-w-[220px]">
+        <span className="text-xs text-muted-foreground">Chat with the script</span>
+        <Select value={chatId} onValueChange={onChat}>
+          <SelectTrigger className="h-10"><SelectValue placeholder={chats.length ? 'Pick a chat' : 'No chats yet'} /></SelectTrigger>
+          <SelectContent>
+            {chats.map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </label>
+      <label className="space-y-1 w-full sm:w-60">
+        <span className="text-xs text-muted-foreground">Markets</span>
+        <DatasetPicker datasets={datasets} value={datasetIds} onChange={onDatasets} />
+      </label>
+      <Button onClick={onRun} disabled={running || !chatId || !datasetIds.length} className="h-10">
+        <Play className="w-4 h-4 mr-2" />Run test
+      </Button>
+    </div>
+  );
+}

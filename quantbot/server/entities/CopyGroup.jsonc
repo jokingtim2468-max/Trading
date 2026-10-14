@@ -1,0 +1,25 @@
+{
+  "name": "CopyGroup",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "Tradovate"
+      ]
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When off, trades in this group are not copied"
+    }
+  },
+  "required": [
+    "name",
+    "platform"
+  ]
+}

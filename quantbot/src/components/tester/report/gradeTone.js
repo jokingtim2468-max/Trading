@@ -1,0 +1,1 @@
+export const GRADE_TONE = { A: 'text-chart-2', B: 'text-chart-2', C: 'text-chart-4', D: 'text-destructive', F: 'text-destructive' };

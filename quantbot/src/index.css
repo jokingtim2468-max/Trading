@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 60 3% 15%;
+    --foreground: 51 30% 95%;
+    --card: 60 2% 19%;
+    --card-foreground: 51 30% 95%;
+    --popover: 60 2% 19%;
+    --popover-foreground: 51 30% 95%;
+    --primary: 204 85% 66%;
+    --primary-foreground: 210 50% 10%;
+    --secondary: 48 5% 21%;
+    --secondary-foreground: 51 30% 95%;
+    --muted: 60 2% 19%;
+    --muted-foreground: 42 5% 64%;
+    --accent: 43 4% 16%;
+    --accent-foreground: 51 30% 95%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 48 4% 23%;
+    --input: 48 4% 23%;
+    --ring: 204 85% 66%;
+    --chart-1: 204 85% 66%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 199 89% 60%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.75rem;
+    --font-heading: 'Source Serif 4', Georgia, serif;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Source Serif 4', Georgia, serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --sidebar-background: 30 3% 12%;
+    --sidebar-foreground: 48 15% 88%;
+    --sidebar-primary: 204 85% 66%;
+    --sidebar-primary-foreground: 210 50% 10%;
+    --sidebar-accent: 43 4% 16%;
+    --sidebar-accent-foreground: 51 30% 95%;
+    --sidebar-border: 48 4% 23%;
+    --sidebar-ring: 204 85% 66%;
+  }
+
+  .dark {
+    --background: 60 3% 15%;
+    --foreground: 51 30% 95%;
+    --card: 60 2% 19%;
+    --card-foreground: 51 30% 95%;
+    --popover: 60 2% 19%;
+    --popover-foreground: 51 30% 95%;
+    --primary: 204 85% 66%;
+    --primary-foreground: 210 50% 10%;
+    --secondary: 48 5% 21%;
+    --secondary-foreground: 51 30% 95%;
+    --muted: 60 2% 19%;
+    --muted-foreground: 42 5% 64%;
+    --accent: 43 4% 16%;
+    --accent-foreground: 51 30% 95%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 48 4% 23%;
+    --input: 48 4% 23%;
+    --ring: 204 85% 66%;
+    --chart-1: 204 85% 66%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 199 89% 60%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 30 3% 12%;
+    --sidebar-foreground: 48 15% 88%;
+    --sidebar-primary: 204 85% 66%;
+    --sidebar-primary-foreground: 210 50% 10%;
+    --sidebar-accent: 43 4% 16%;
+    --sidebar-accent-foreground: 51 30% 95%;
+    --sidebar-border: 48 4% 23%;
+    --sidebar-ring: 204 85% 66%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+}
+
+@layer components {
+  .quant-md { @apply text-[15px] leading-7; }
+  .quant-md p { @apply my-3; }
+  .quant-md h1, .quant-md h2, .quant-md h3 { @apply font-heading font-semibold mt-5 mb-2; }
+  .quant-md h1 { @apply text-2xl; }
+  .quant-md h2 { @apply text-xl; }
+  .quant-md h3 { @apply text-lg; }
+  .quant-md ul { @apply list-disc pl-6 my-3 space-y-1; }
+  .quant-md ol { @apply list-decimal pl-6 my-3 space-y-1; }
+  .quant-md a { @apply text-primary underline; }
+  .quant-md code { @apply font-mono text-[13px] bg-sidebar px-1.5 py-0.5 rounded; }
+  .quant-md pre { @apply bg-sidebar border border-border rounded-lg p-4 my-4 overflow-x-auto; }
+  .quant-md pre code { @apply bg-transparent p-0; }
+  .quant-md table { @apply w-full my-4 text-sm border-collapse; }
+  .quant-md th, .quant-md td { @apply border border-border px-3 py-1.5 text-left; }
+  .quant-md blockquote { @apply border-l-2 border-primary pl-4 text-muted-foreground; }
+}
+
+/* Every button dips down when pressed, then springs back */
+button, [role="button"], a[href] {
+  transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1), background-color 0.15s, color 0.15s, opacity 0.15s;
+}
+button:active:not(:disabled), [role="button"]:active, a[href]:active {
+  transform: translateY(2px) scale(0.95);
+  transition-duration: 0.06s;
+}
+
+/* Dark thin scrollbars */
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--muted-foreground) / 0.35); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.6); }

@@ -1,0 +1,23 @@
+{
+  "name": "ChatSession",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Conversation title"
+    },
+    "group": {
+      "type": "string",
+      "default": "General",
+      "description": "Group / project name"
+    },
+    "last_message_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time of the latest message"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "name": "TradingAccount",
+  "type": "object",
+  "properties": {
+    "platform": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "Tradovate"
+      ]
+    },
+    "label": {
+      "type": "string",
+      "description": "Display name"
+    },
+    "login": {
+      "type": "string",
+      "description": "MT5 account number or Tradovate username"
+    },
+    "server": {
+      "type": "string",
+      "description": "MT5 trade server, e.g. FTMO-Demo"
+    },
+    "terminal_path": {
+      "type": "string",
+      "description": "Installed MT5 folder this account runs a private copy of"
+    },
+    "chart_symbol": {
+      "type": "string",
+      "default": "EURUSD",
+      "description": "MT5 chart the bridge EA runs on"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "demo",
+        "live"
+      ],
+      "default": "demo",
+      "description": "Tradovate server"
+    },
+    "account_spec": {
+      "type": "string",
+      "description": "Tradovate account name; empty uses the first account on the login"
+    },
+    "group_id": {
+      "type": "string",
+      "description": "CopyGroup id; empty means not copying"
+    }
+  },
+  "required": [
+    "platform",
+    "label",
+    "login"
+  ]
+}

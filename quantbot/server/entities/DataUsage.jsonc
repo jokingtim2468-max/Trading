@@ -1,0 +1,31 @@
+{
+  "name": "DataUsage",
+  "type": "object",
+  "properties": {
+    "bot_name": {
+      "type": "string",
+      "description": "Bot / strategy name this data was shown to"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "start": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "end": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "StrategyRun that used this window"
+    }
+  },
+  "required": [
+    "bot_name",
+    "symbol",
+    "start",
+    "end"
+  ]
+}
