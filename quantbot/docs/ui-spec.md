@@ -112,6 +112,10 @@ Everything that opens from a click uses one motion.
 - **Loading window:** frameless 440 x 460, a 22 px rounded card with a soft shadow and grain; grows in from 60% scale
   (400 ms); same logo morph, wordmark, progress bar and percentage as below. At 100% it scales up slightly and fades
   while the main window fades in (about 200 ms).
+- **Opening:** the main window starts as the loading card and grows to its full size while fading in (400 ms,
+  ease-out cubic) as the card fades away. A maximized window just fades in.
+- **Motion setting:** Settings > Motion, "Full animations" (default) or "Reduced". QuantBot follows this, not
+  Windows' "Animation effects" switch (which used to turn every animation off on PCs where it's off).
 - **Main window:** Windows dark title bar with the QuantBot icon, 1440 x 920 by default (remembers its size and
   position), minimum 960 x 640, background `#272725` so it never flashes white.
 

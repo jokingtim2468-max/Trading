@@ -19,7 +19,7 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
       <div className={`fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-pop ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={onClose} />
       <aside
         style={{ transformOrigin: origin }}
-        className={`fixed md:static z-40 inset-y-0 left-0 w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-[transform,opacity] motion-reduce:transition-none duration-pop ease-pop ${open ? 'scale-100 opacity-100' : 'scale-[0.05] opacity-0 pointer-events-none'} md:scale-100 md:opacity-100 md:pointer-events-auto`}
+        className={`fixed md:static z-40 inset-y-0 left-0 w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-[transform,opacity] calm:transition-none duration-pop ease-pop ${open ? 'scale-100 opacity-100' : 'scale-[0.05] opacity-0 pointer-events-none'} md:scale-100 md:opacity-100 md:pointer-events-auto`}
       >
         <div className="h-14 flex items-center justify-between px-4">
           <span className="font-heading text-lg font-semibold">QuantBot</span>

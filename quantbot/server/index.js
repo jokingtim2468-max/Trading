@@ -53,6 +53,13 @@ async function handleApi(req, res, { backend, market, app }, url) {
   // The desktop launcher (launcher/launch.js) passes `app`: updates, restart and the window heartbeat
   if (url.pathname === '/api/app/ping') return send(res, 200, { app: 'quantbot', phase: 'ready', managed: !!app });
   if (req.method === 'POST' && url.pathname === '/api/app/heartbeat') { app?.heartbeat(); return send(res, 200, { ok: true }); }
+  // Settings > Motion, so the desktop app's loading window and window opening follow it
+  if (req.method === 'POST' && url.pathname === '/api/app/prefs') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    const body = JSON.parse((await readBody(req, 1000)).toString('utf8') || '{}');
+    if (app?.setPrefs) await app.setPrefs({ motion: body.motion === 'reduced' ? 'reduced' : 'full' });
+    return send(res, 200, { ok: true });
+  }
   if (req.method === 'GET' && url.pathname === '/api/app/info') return send(res, 200, app ? { managed: true, ...(await app.info()) } : { managed: false });
   if (req.method === 'POST' && url.pathname === '/api/app/check') {
     if (!app || !json()) return send(res, 400, { error: 'Updates are handled by the desktop shortcut' });

@@ -23,7 +23,8 @@ export default function ChartCard({ title, right, children }) {
 }
 
 // Spread on every chart series (Area, Line, Bar, Scatter) so they all draw the same way
-export const CHART_ANIM = { isAnimationActive: !reducedMotion(), animationDuration: 1000, animationEasing: 'ease-out' };
+// A getter, so a change in Settings > Motion applies to the next chart without reloading
+export const CHART_ANIM = { get isAnimationActive() { return !reducedMotion(); }, animationDuration: 1000, animationEasing: 'ease-out' };
 
 export const axisProps = { stroke: 'hsl(var(--muted-foreground))', fontSize: 11, tickLine: false, axisLine: false };
 export const tooltipStyle = { background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 12 };

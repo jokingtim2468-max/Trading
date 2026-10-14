@@ -99,5 +99,9 @@ module.exports = {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    // calm: applies when Settings > Motion is "Reduced" (src/lib/motionPref.js), not when Windows turns animations off
+    ({ addVariant }) => addVariant("calm", ".motion-reduced &"),
+  ],
 }

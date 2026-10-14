@@ -30,6 +30,10 @@ let server = null;
 let updateReady = false;
 const userData = () => app.getPath('userData');
 const dataDir = () => process.env.QUANTBOT_DATA || path.join(userData(), 'data');
+// Settings > Motion ("full" or "reduced"), saved by the app through hooks.setPrefs
+const prefsFile = () => path.join(userData(), 'prefs.json');
+const prefs = () => { try { return JSON.parse(fs.readFileSync(prefsFile(), 'utf8')); } catch { return {}; } };
+const calm = () => prefs().motion === 'reduced';
 const log = (msg) => { try { fs.appendFileSync(path.join(userData(), 'quantbot.log'), `${new Date().toISOString()} ${msg}\n`); } catch { /* best effort */ } };
 
 app.on('second-instance', () => {
@@ -49,7 +53,7 @@ function createSplash() {
     show: false, center: true, title: 'QuantBot', icon: path.join(here, 'build', 'icon.ico'), backgroundColor: '#00000000',
     webPreferences: { contextIsolation: true, sandbox: true },
   });
-  splash.loadFile(path.join(here, 'splash.html'), { query: { version: app.getVersion() } });
+  splash.loadFile(path.join(here, 'splash.html'), { query: { version: app.getVersion(), ...(calm() ? { motion: 'reduced' } : {}) } });
   splash.once('ready-to-show', () => splash.show());
   return new Promise((r) => splash.webContents.once('did-finish-load', r));
 }
@@ -100,6 +104,9 @@ function updateAtStart() {
 // What Settings > Updates and the server's /api/app routes call
 const hooks = {
   heartbeat() {},
+  setPrefs(next) {
+    try { fs.writeFileSync(prefsFile(), JSON.stringify({ ...prefs(), ...next })); } catch (e) { log(`prefs: ${e.message}`); }
+  },
   async info() {
     return { version: app.getVersion(), commit: null, date: null, behind: await hooks.updates() };
   },
@@ -162,14 +169,40 @@ function createMain(url) {
   return main;
 }
 
-// The main window fades in while the loading window shrinks away
+// The main window grows out of the loading window to its full size and fades in, like a pop-up opening from
+// where it was clicked (400 ms, the app's ease-out curve). A maximized window or Settings > Motion "Reduced" just
+// fades in.
+const easeOut = (t) => 1 - (1 - t) ** 3;
 async function reveal() {
+  const from = splash && !splash.isDestroyed() ? splash.getBounds() : null;
   if (splash && !splash.isDestroyed()) await splash.webContents.executeJavaScript('window.leave()').catch(() => {});
+  const grow = from && !calm() && !main.isMaximized();
+  const to = main.getBounds();
+  if (grow) {
+    // Start as the loading card (inset 14 px from its window) and grow from its center
+    main.setBounds({ x: from.x + 14, y: from.y + 14, width: from.width - 28, height: from.height - 28 });
+  }
   main.setOpacity(0);
   main.show();
-  for (let k = 1; k <= 12; k++) { main.setOpacity(k / 12); await wait(16); }
-  if (splash && !splash.isDestroyed()) splash.destroy();
+  const old = splash;
   splash = null;
+  setTimeout(() => { if (old && !old.isDestroyed()) old.destroy(); }, 420);
+  const start = main.getBounds();
+  const frames = calm() ? 8 : 24;
+  for (let k = 1; k <= frames; k++) {
+    const t = easeOut(k / frames);
+    if (grow) {
+      main.setBounds({
+        x: Math.round(start.x + (to.x - start.x) * t), y: Math.round(start.y + (to.y - start.y) * t),
+        width: Math.round(start.width + (to.width - start.width) * t), height: Math.round(start.height + (to.height - start.height) * t),
+      });
+    }
+    main.setOpacity(Math.min(1, t * 1.6));
+    await wait(16);
+  }
+  if (grow) main.setBounds(to);
+  main.setOpacity(1);
+  main.focus();
 }
 
 async function start() {

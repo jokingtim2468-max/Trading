@@ -1,3 +1,5 @@
+import { getMotion } from './motionPref';
+
 // One motion for everything that opens from a click: it grows out of the spot that was clicked and, when closed,
 // shrinks back into that same spot. Pages, dialogs, menus, selects, popovers, toasts and the mobile sidebar use it.
 // Timing: 400 ms (0.75x the first 300 ms version, so the growth is easy to follow), cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -31,8 +33,8 @@ export function originWithin(rect, maxAge = 60000) {
 }
 
 // Radix open/close animation classes with the same timing (menus and selects add their anchor origin)
-export const POP = 'motion-reduce:animate-none duration-pop ease-pop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-[0.05] data-[state=closed]:zoom-out-[0.05]';
-export const FADE = 'motion-reduce:animate-none duration-pop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0';
+export const POP = 'calm:animate-none duration-pop ease-pop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-[0.05] data-[state=closed]:zoom-out-[0.05]';
+export const FADE = 'calm:animate-none duration-pop data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0';
 // Centered dialogs keep their -50% centering shift during the animation so they grow exactly from the click
 export const CENTERED = `${POP} data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-1/2 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-1/2`;
 
@@ -49,6 +51,6 @@ export function originRef(forwarded, compute) {
   };
 }
 
-// True when the system asks for less motion (some people get motion sickness): count-ups and chart drawing skip
-// straight to the end, and the open/close motion turns off (motion-reduce classes)
-export const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// True when Settings > Motion is "Reduced" (for people who get motion sickness): count-ups and chart drawing skip
+// straight to the end, and the open/close motion turns off (calm: classes)
+export const reducedMotion = () => getMotion() === 'reduced';

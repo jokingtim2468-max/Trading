@@ -8,6 +8,7 @@ import LocalModelCard from '@/components/settings/LocalModelCard';
 import MarketDataCard from '@/components/settings/MarketDataCard';
 import BuiltInMarketsCard from '@/components/settings/BuiltInMarketsCard';
 import UpdatesCard from '@/components/settings/UpdatesCard';
+import MotionCard from '@/components/settings/MotionCard';
 
 export default function Settings() {
   const [status, setStatus] = useState(null);
@@ -42,6 +43,11 @@ export default function Settings() {
           <h2 className="font-heading text-lg font-semibold">Market data</h2>
           <BuiltInMarketsCard />
           <MarketDataCard />
+        </section>
+
+        <section className="mt-8 space-y-3">
+          <h2 className="font-heading text-lg font-semibold">Motion</h2>
+          <MotionCard />
         </section>
 
         <UpdatesCard />

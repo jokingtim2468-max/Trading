@@ -57,7 +57,9 @@
   .error.show { display: block; }
   .version { margin-top: 12px; font-size: 10.5px; color: #6f6c66; }
 
-  @media (prefers-reduced-motion: reduce) { .card, .card.leaving { animation: none; } .fill::after { animation: none; } }
+  /* Follows QuantBot's Settings > Motion, not Windows' "Animation effects" */
+  .reduced .card, .reduced .card.leaving { animation: none; }
+  .reduced .fill::after { animation: none; }
 </style>
 </head>
 <body>
@@ -87,9 +89,10 @@
 <script>
   // The number shown eases toward the real progress but never passes it and never goes back
   const $ = (id) => document.getElementById(id);
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let target = 0, shown = 0;
   const params = new URLSearchParams(location.search);
+  const reduced = params.get('motion') === 'reduced';
+  document.body.classList.toggle('reduced', reduced);
+  let target = 0, shown = 0;
   if (params.get('version')) $('version').textContent = `Version ${params.get('version')}`;
 
   function paint() {
@@ -109,12 +112,12 @@
     $('error').classList.toggle('show', !!error);
     $('error').textContent = error || '';
   };
-  // Resolves once the bar has visibly reached 100% and the card has shrunk away
+  // Resolves once the bar has visibly reached 100%, as the card starts fading away (the main window grows over it)
   window.leave = () => new Promise((resolve) => {
     target = 100;
     const wait = () => {
       if (shown < 100) return requestAnimationFrame(wait);
-      setTimeout(() => { $('card').classList.add('leaving'); setTimeout(resolve, reduced ? 0 : 380); }, 180);
+      setTimeout(() => { $('card').classList.add('leaving'); resolve(); }, 180);
     };
     wait();
   });
