@@ -1,4 +1,5 @@
 # Keep binaries byte-exact and Windows scripts with Windows line endings on every checkout
+*.bmp binary
 *.ico binary
 *.png binary
 *.woff2 binary

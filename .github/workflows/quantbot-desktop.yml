@@ -1,0 +1,46 @@
+# Builds the QuantBot Windows installer (QuantBot-Setup-x.y.z.exe) and publishes it as a GitHub release.
+# Installed copies of QuantBot check these releases when they open and update themselves.
+name: QuantBot desktop
+
+on:
+  push:
+    branches: [vibe-coded/clever-thompson-2f91fo, main]
+    paths: ['quantbot/**', '.github/workflows/quantbot-desktop.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: quantbot-desktop
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            quantbot/package-lock.json
+            quantbot/desktop/package-lock.json
+      - name: Install
+        working-directory: quantbot
+        run: npm ci
+      - name: Unit tests
+        working-directory: quantbot
+        run: npm test
+      - name: Install desktop tools
+        working-directory: quantbot/desktop
+        run: npm ci
+      - name: Version 1.0.${{ github.run_number }}
+        working-directory: quantbot/desktop
+        run: npm version 1.0.${{ github.run_number }} --no-git-tag-version --allow-same-version
+      - name: Build and publish the installer
+        working-directory: quantbot/desktop
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -105,7 +105,17 @@ Everything that opens from a click uses one motion.
 - Bar times are broker server time: UTC+2, or UTC+3 while New York is on daylight saving (like FTMO's MT5).
 - Timeframes: M1, M5, M15, M30, H1, H4, D1. M1 tests cover up to 370 days.
 
-## Desktop app: icon, loading screen, updates
+## Desktop app (Electron)
+
+- **Installer:** NSIS wizard (choose folder, Desktop and Start Menu shortcuts, run after finish) with a 164 x 314 side
+  image: dark `#34342F` to `#1F1F1D` gradient, faint grid, the blue price line with a glow (`desktop/make-sidebar.mjs`).
+- **Loading window:** frameless 440 x 460, a 22 px rounded card with a soft shadow and grain; grows in from 60% scale
+  (400 ms); same logo morph, wordmark, progress bar and percentage as below. At 100% it scales up slightly and fades
+  while the main window fades in (about 200 ms).
+- **Main window:** Windows dark title bar with the QuantBot icon, 1440 x 920 by default (remembers its size and
+  position), minimum 960 x 640, background `#272725` so it never flashes white.
+
+## Source-folder launcher: icon, loading screen, updates
 
 - **Icon:** a rounded square, gradient `#34342F` → `#1F1F1D`, with a blue price line (`#3E9FE0` → `#7CC8F7`)
   (`installer/quantbot.ico`), used by the

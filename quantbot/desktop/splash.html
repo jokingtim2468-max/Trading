@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; font-src 'self'" />
+<title>QuantBot</title>
+<style>
+  /* The desktop app's loading window. The main process drives it with window.setProgress({ percent, label })
+     and window.leave(); fonts ship with the app. */
+  @font-face { font-family: 'Source Serif 4'; font-weight: 600; src: url('fonts/source-serif-4-latin-600-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Source Serif 4'; font-weight: 300; src: url('fonts/source-serif-4-latin-300-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-weight: 100 900; src: url('fonts/inter-latin-wght-normal.woff2') format('woff2'); }
+
+  :root {
+    --bg: #272725; --card: #31312f; --text: #f6f5ee; --muted: #a8a59f; --border: #3d3c38;
+    --primary: #5fb7f2; --danger: #ef4343; --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
+  body { color: var(--text); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; -webkit-app-region: drag; }
+
+  .card {
+    position: absolute; inset: 14px; border-radius: 22px; padding: 38px 34px 26px;
+    background: radial-gradient(420px 260px at 50% 30%, #30312e 0%, var(--bg) 70%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 48px rgba(0, 0, 0, 0.55);
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    animation: grow 400ms var(--ease) both; transform-origin: 50% 50%;
+  }
+  .card.leaving { animation: shrink 400ms var(--ease) both; }
+  @keyframes grow { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+  @keyframes shrink { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1.06); } }
+  /* Grain, like the app */
+  .card::after {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .logo { width: 116px; height: 58px; display: block; margin: 6px auto 16px; filter: drop-shadow(0 6px 22px rgba(95, 183, 242, 0.3)); }
+  .wordmark { font-family: 'Source Serif 4', Georgia, serif; font-weight: 600; font-size: 40px; letter-spacing: -0.5px; line-height: 1; }
+  .tagline { font-family: 'Source Serif 4', Georgia, serif; font-weight: 300; font-size: 14px; color: var(--muted); margin-top: 8px; }
+
+  .progress { width: 100%; margin-top: auto; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+  .label { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .percent { font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; min-width: 4ch; text-align: right; }
+  .percent small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 1px; }
+  .track { height: 6px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); overflow: hidden; }
+  .fill { height: 100%; width: 0%; border-radius: inherit; position: relative; overflow: hidden;
+    background: linear-gradient(90deg, #3e9fe0, var(--primary)); box-shadow: 0 0 12px rgba(95, 183, 242, 0.45); }
+  .fill::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent); animation: sheen 1.6s ease-in-out infinite; }
+  @keyframes sheen { to { transform: translateX(100%); } }
+
+  .error { display: none; width: 100%; margin-top: 14px; padding: 10px 12px; border-radius: 10px; text-align: left; font-size: 12px; line-height: 1.45;
+    background: rgba(239, 67, 67, 0.1); border: 1px solid rgba(239, 67, 67, 0.4); -webkit-app-region: no-drag; }
+  .error.show { display: block; }
+  .version { margin-top: 12px; font-size: 10.5px; color: #6f6c66; }
+
+  @media (prefers-reduced-motion: reduce) { .card, .card.leaving { animation: none; } .fill::after { animation: none; } }
+</style>
+</head>
+<body>
+  <main class="card" id="card">
+    <svg class="logo" viewBox="0 0 64 36" aria-hidden="true">
+      <line x1="0" y1="35" x2="64" y2="35" stroke="#3d3c38" stroke-width="1" />
+      <path d="M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12" fill="none" stroke="#5fb7f2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <animate attributeName="d" dur="2.4s" repeatCount="indefinite" keyTimes="0;0.333;0.667;1" calcMode="spline"
+          keySplines="0.42 0 0.58 1;0.42 0 0.58 1;0.42 0 0.58 1"
+          values="M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12;M0 22 L8 28 L16 15 L24 21 L32 9 L40 17 L48 5 L56 14 L64 8;M0 26 L8 14 L16 20 L24 25 L32 11 L40 21 L48 12 L56 18 L64 4;M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12" />
+      </path>
+    </svg>
+    <div class="wordmark">QuantBot</div>
+    <div class="tagline">AI quant developer for MT5 &amp; Pine Script</div>
+
+    <div class="progress" role="progressbar" aria-label="Loading QuantBot" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar">
+      <div class="row">
+        <span class="label" id="label">Starting…</span>
+        <span class="percent" id="percent">0<small>%</small></span>
+      </div>
+      <div class="track"><div class="fill" id="fill"></div></div>
+    </div>
+    <div class="error" id="error" role="alert"></div>
+    <div class="version" id="version"></div>
+  </main>
+
+<script>
+  // The number shown eases toward the real progress but never passes it and never goes back
+  const $ = (id) => document.getElementById(id);
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let target = 0, shown = 0;
+  const params = new URLSearchParams(location.search);
+  if (params.get('version')) $('version').textContent = `Version ${params.get('version')}`;
+
+  function paint() {
+    shown = reduced ? target : shown + Math.max(0.35, (target - shown) * 0.16);
+    if (shown > target) shown = target;
+    const p = Math.floor(shown);
+    $('percent').firstChild.nodeValue = String(p);
+    $('fill').style.width = `${shown}%`;
+    $('bar').setAttribute('aria-valuenow', String(p));
+    requestAnimationFrame(paint);
+  }
+  requestAnimationFrame(paint);
+
+  window.setProgress = ({ percent, label, error }) => {
+    if (percent != null) target = Math.max(target, Math.min(100, percent));
+    if (label) $('label').textContent = label;
+    $('error').classList.toggle('show', !!error);
+    $('error').textContent = error || '';
+  };
+  // Resolves once the bar has visibly reached 100% and the card has shrunk away
+  window.leave = () => new Promise((resolve) => {
+    target = 100;
+    const wait = () => {
+      if (shown < 100) return requestAnimationFrame(wait);
+      setTimeout(() => { $('card').classList.add('leaving'); setTimeout(resolve, reduced ? 0 : 380); }, 180);
+    };
+    wait();
+  });
+  window.shownPercent = () => Math.floor(shown);
+</script>
+</body>
+</html>

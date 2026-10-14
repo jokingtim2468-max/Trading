@@ -1,0 +1,59 @@
+{
+  "name": "quantbot-desktop",
+  "productName": "QuantBot",
+  "version": "1.0.0",
+  "description": "QuantBot - AI quant developer for MT5 and Pine Script",
+  "author": "QuantBot",
+  "private": true,
+  "main": "main.mjs",
+  "scripts": {
+    "stage": "node stage.mjs",
+    "start": "node stage.mjs && electron .",
+    "dist": "node stage.mjs && electron-builder --win nsis --publish never",
+    "release": "node stage.mjs && electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "38.8.6",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.quantbot.desktop",
+    "productName": "QuantBot",
+    "copyright": "QuantBot",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["main.mjs", "splash.html", "fonts/**", "package.json"],
+    "extraResources": [
+      { "from": "../server", "to": "quantbot/server" },
+      { "from": "../dist", "to": "quantbot/dist" },
+      { "from": "../public/fonts", "to": "quantbot/public/fonts" },
+      { "from": "../src/lib/backtest/marketStats.js", "to": "quantbot/src/lib/backtest/marketStats.js" },
+      { "from": "../package.json", "to": "quantbot/package.json" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "QuantBot-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "QuantBot",
+      "uninstallDisplayName": "QuantBot",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [{ "provider": "github", "owner": "jokingtim2468-max", "repo": "Trading", "releaseType": "release" }]
+  }
+}

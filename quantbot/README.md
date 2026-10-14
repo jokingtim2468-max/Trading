@@ -19,22 +19,26 @@ Ollama (Settings → Local model).
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
-## Install on Windows (desktop shortcut, auto-update)
+## Install on Windows
 
-Paste this into PowerShell (no admin needed):
+Download **QuantBot-Setup-x.y.z.exe** from the [latest release](https://github.com/jokingtim2468-max/Trading/releases/latest),
+or paste this into PowerShell to fetch it and open the wizard:
 
 ```powershell
 irm https://raw.githubusercontent.com/jokingtim2468-max/Trading/vibe-coded/clever-thompson-2f91fo/quantbot/installer/install.ps1 | iex
 ```
 
-It installs Git and Node.js with winget if they're missing, downloads QuantBot to `%LOCALAPPDATA%\QuantBot`, installs
-its packages and builds it (with a progress bar), adds a **QuantBot** shortcut to the Desktop and the Start Menu, and
-opens it. Running it again repairs the install and keeps your data (`quantbot\data`).
+The setup wizard lets you pick the install folder and adds **QuantBot** to the Desktop and Start Menu. QuantBot is its
+own app (Electron, `desktop/`): a loading window with real progress, then the main window. Each time it opens it
+checks the GitHub releases and, when there's a newer version, downloads and installs it first (progress in the
+loading window). Settings > Updates shows the version and can install an update now. Your data lives in
+`%APPDATA%\QuantBot\data` and is kept through updates and uninstalls; data from the older PowerShell version is copied
+in the first time the app opens. Windows may warn about an unrecognised app the first time (the installer isn't
+code-signed): click **More info**, then **Run anyway**.
 
-The shortcut opens QuantBot in its own window with a loading screen: a real progress bar with a percentage while it
-checks GitHub for updates, downloads and installs them, reinstalls packages when they changed, rebuilds, and starts.
-Settings → Updates shows the installed version, checks for updates and has **Restart & update**. QuantBot stops by
-itself a few minutes after its window is closed. Log: `quantbot\data\launcher.log`.
+Releases are built by GitHub Actions (`.github/workflows/quantbot-desktop.yml`) on every push that changes `quantbot/`:
+unit tests, the UI build, then `electron-builder` makes the NSIS installer and publishes it as release v1.0.<run>.
+Build one yourself on Windows: `cd desktop && npm install && npm run dist` (output in `desktop/release/`).
 
 ## Run from source
 
@@ -56,7 +60,8 @@ The server only listens on 127.0.0.1 and refuses requests from other websites.
 ```bash
 npm test           # backend, market data, backtest engine, accuracy vs hand-written rules
 npm run test:e2e   # launches QuantBot with fake Claude / Ollama / Dukascopy and clicks through every feature
-npm run test:launcher  # installs from a local copy of the repo, opens via the launcher, publishes and installs an update
+npm run test:launcher  # the source-folder launcher: install, open, publish and install an update
+npm run test:desktop   # the Electron app: loading window progress, main window, data folder (Linux: xvfb-run)
 ```
 
 The end-to-end run uses Playwright's Chromium (`npx playwright install chromium`) or an installed Chrome / Edge via
