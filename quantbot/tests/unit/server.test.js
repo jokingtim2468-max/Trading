@@ -101,7 +101,8 @@ describe('API key storage', () => {
     assert.deepEqual(status.anthropic, { linked: true, last4: '1234' });
     assert.deepEqual(status.google, { linked: false });
     assert.ok(!fs.readFileSync(path.join(dir, 'keys.json'), 'utf8').includes('sk-ant-abcdef1234'), 'plain key never written');
-    assert.equal(fs.statSync(path.join(dir, 'secret.key')).mode & 0o077, 0, 'secret file is owner-only');
+    // Windows has no Unix permission bits (the file sits in the user's own AppData there)
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, 'secret.key')).mode & 0o077, 0, 'secret file is owner-only');
     assert.deepEqual(be.handle('function', 'apiKeys', { action: 'remove', provider: 'anthropic' }).anthropic, { linked: false });
   });
 });
