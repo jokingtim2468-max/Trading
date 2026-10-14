@@ -39,8 +39,16 @@ jobs:
       - name: Version 1.0.${{ github.run_number }}
         working-directory: quantbot/desktop
         run: npm version 1.0.${{ github.run_number }} --no-git-tag-version --allow-same-version
-      - name: Build and publish the installer
+      - name: Build the installer
         working-directory: quantbot/desktop
-        run: npm run release
+        run: npm run dist
+      - name: Publish release v1.0.${{ github.run_number }}
+        working-directory: quantbot/desktop/release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The installer, its block map and latest.yml (what installed copies read to find updates)
+        run: |
+          gh release create "v1.0.${{ github.run_number }}" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY" \
+            --title "QuantBot 1.0.${{ github.run_number }}" --notes "QuantBot for Windows. Run QuantBot-Setup-1.0.${{ github.run_number }}.exe to install; installed copies update themselves." \
+            QuantBot-Setup-*.exe QuantBot-Setup-*.exe.blockmap latest.yml

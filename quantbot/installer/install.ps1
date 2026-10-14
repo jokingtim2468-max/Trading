@@ -10,7 +10,12 @@
   $api = 'https://api.github.com/repos/jokingtim2468-max/Trading/releases/latest'
 
   Write-Host 'Finding the newest QuantBot...' -ForegroundColor Cyan
-  $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'QuantBot-installer' }
+  try {
+    $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'QuantBot-installer' }
+  } catch {
+    Write-Host 'The QuantBot installer is not published yet (GitHub is still building it). Try again in a few minutes.' -ForegroundColor Yellow
+    return
+  }
   $asset = $release.assets | Where-Object { $_.name -like 'QuantBot-Setup-*.exe' } | Select-Object -First 1
   if (-not $asset) { throw 'No QuantBot installer in the newest release yet. Try again in a few minutes.' }
 
