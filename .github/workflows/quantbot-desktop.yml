@@ -5,7 +5,8 @@ name: QuantBot desktop
 on:
   push:
     branches: [vibe-coded/clever-thompson-2f91fo, main]
-    paths: ['quantbot/**', '.github/workflows/quantbot-desktop.yml']
+    # The download script isn't part of the app, so changing it doesn't make a new release
+    paths: ['quantbot/**', '!quantbot/installer/install.ps1', '.github/workflows/quantbot-desktop.yml']
   workflow_dispatch:
 
 permissions:
