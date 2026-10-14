@@ -7,6 +7,7 @@ import DefaultModelsCard from '@/components/settings/DefaultModelsCard';
 import LocalModelCard from '@/components/settings/LocalModelCard';
 import MarketDataCard from '@/components/settings/MarketDataCard';
 import BuiltInMarketsCard from '@/components/settings/BuiltInMarketsCard';
+import UpdatesCard from '@/components/settings/UpdatesCard';
 
 export default function Settings() {
   const [status, setStatus] = useState(null);
@@ -42,6 +43,8 @@ export default function Settings() {
           <BuiltInMarketsCard />
           <MarketDataCard />
         </section>
+
+        <UpdatesCard />
 
       </div>
     </div>

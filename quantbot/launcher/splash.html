@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QuantBot</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 16'%3E%3Cpath d='M2 10 C6 2, 10 2, 14 8 S22 15, 26 8 S34 1, 42 7' fill='none' stroke='%235fb7f2' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  /* QuantBot's loading screen, shown by the launcher while it updates and starts the app.
+     Fonts are bundled (public/fonts) so the wordmark and numbers look the same as in the app. */
+  @font-face { font-family: 'Source Serif 4'; font-weight: 600; src: url('/fonts/source-serif-4-latin-600-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Source Serif 4'; font-weight: 300; src: url('/fonts/source-serif-4-latin-300-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Inter'; font-weight: 100 900; src: url('/fonts/inter-latin-wght-normal.woff2') format('woff2'); }
+
+  :root {
+    --bg: #272725; --card: #31312f; --text: #f6f5ee; --muted: #a8a59f; --border: #3d3c38;
+    --primary: #5fb7f2; --danger: #ef4343; --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 600px at 50% 38%, #2f302d 0%, var(--bg) 60%);
+    color: var(--text); font-family: 'Inter', system-ui, sans-serif; overflow: hidden;
+    display: grid; place-items: center; -webkit-font-smoothing: antialiased; user-select: none;
+  }
+  .stage { width: min(420px, calc(100vw - 32px)); text-align: center; animation: grow 400ms var(--ease) both; }
+  .stage.leaving { animation: shrink 400ms var(--ease) both; }
+  @keyframes grow { from { opacity: 0; transform: scale(0.05); } to { opacity: 1; transform: scale(1); } }
+  @keyframes shrink { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
+
+  .logo { width: 132px; height: 66px; display: block; margin: 0 auto 18px; filter: drop-shadow(0 6px 24px rgba(95, 183, 242, 0.25)); }
+  .wordmark { font-family: 'Source Serif 4', Georgia, serif; font-weight: 600; font-size: 46px; letter-spacing: -0.5px; line-height: 1; }
+  .tagline { font-family: 'Source Serif 4', Georgia, serif; font-weight: 300; font-size: 16px; color: var(--muted); margin-top: 10px; }
+
+  .progress { margin-top: 44px; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .label { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  .percent { font-weight: 600; font-size: 22px; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; min-width: 4ch; text-align: right; }
+  .percent small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 1px; }
+  .track { height: 6px; border-radius: 999px; background: var(--card); border: 1px solid var(--border); overflow: hidden; }
+  .fill {
+    height: 100%; width: 0%; border-radius: inherit; position: relative; overflow: hidden;
+    background: linear-gradient(90deg, #3e9fe0, var(--primary)); box-shadow: 0 0 12px rgba(95, 183, 242, 0.45);
+  }
+  .fill::after {
+    content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    animation: sheen 1.6s ease-in-out infinite;
+  }
+  @keyframes sheen { to { transform: translateX(100%); } }
+  .notes { margin-top: 14px; font-size: 12px; color: var(--muted); min-height: 16px; }
+
+  .error { display: none; margin-top: 22px; padding: 14px; border-radius: 12px; text-align: left;
+    background: rgba(239, 67, 67, 0.1); border: 1px solid rgba(239, 67, 67, 0.4); font-size: 13px; line-height: 1.45; }
+  .error.show { display: block; animation: grow 400ms var(--ease) both; }
+  .error pre { white-space: pre-wrap; font-size: 11px; color: var(--muted); max-height: 90px; overflow: auto; margin: 8px 0 0; }
+  .buttons { display: flex; gap: 8px; margin-top: 12px; }
+  button { font: inherit; font-size: 13px; font-weight: 500; border-radius: 8px; padding: 7px 14px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); }
+  button.primary { background: var(--primary); color: #0d1926; border-color: var(--primary); }
+  .version { position: fixed; left: 16px; bottom: 12px; font-size: 11px; color: #6f6c66; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stage, .stage.leaving, .error.show { animation: none; }
+    .fill::after { animation: none; }
+  }
+</style>
+</head>
+<body>
+  <main class="stage" id="stage">
+    <svg class="logo" viewBox="0 0 64 36" aria-hidden="true">
+      <line x1="0" y1="35" x2="64" y2="35" stroke="#3d3c38" stroke-width="1" />
+      <path d="M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12" fill="none" stroke="#5fb7f2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <animate attributeName="d" dur="2.4s" repeatCount="indefinite" keyTimes="0;0.333;0.667;1" calcMode="spline"
+          keySplines="0.42 0 0.58 1;0.42 0 0.58 1;0.42 0 0.58 1"
+          values="M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12;M0 22 L8 28 L16 15 L24 21 L32 9 L40 17 L48 5 L56 14 L64 8;M0 26 L8 14 L16 20 L24 25 L32 11 L40 21 L48 12 L56 18 L64 4;M0 30 L8 22 L16 26 L24 12 L32 18 L40 8 L48 15 L56 6 L64 12" />
+      </path>
+    </svg>
+    <div class="wordmark">QuantBot</div>
+    <div class="tagline">AI quant developer for MT5 &amp; Pine Script</div>
+
+    <div class="progress" role="progressbar" aria-label="Loading QuantBot" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar">
+      <div class="row">
+        <span class="label" id="label">Starting…</span>
+        <span class="percent" id="percent">0<small>%</small></span>
+      </div>
+      <div class="track"><div class="fill" id="fill"></div></div>
+    </div>
+    <div class="notes" id="notes"></div>
+
+    <div class="error" id="error" role="alert">
+      <strong>QuantBot couldn't finish starting.</strong>
+      <pre id="errorText"></pre>
+      <div class="buttons">
+        <button class="primary" id="retry">Try again</button>
+        <button id="openAnyway" hidden>Open the installed version</button>
+      </div>
+    </div>
+  </main>
+  <div class="version" id="version"></div>
+
+<script>
+  // Polls the launcher for real progress. The number shown eases toward the real value but never passes it.
+  const $ = (id) => document.getElementById(id);
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let target = 0, shown = 0, done = false, failures = 0;
+
+  function paint() {
+    shown = reduced ? target : shown + Math.max(0.4, (target - shown) * 0.18);
+    if (shown > target) shown = target;
+    const p = Math.floor(shown);
+    $('percent').firstChild.nodeValue = String(p);
+    $('fill').style.width = `${shown}%`;
+    $('bar').setAttribute('aria-valuenow', String(p));
+    if (done && p >= 100) return leave();
+    requestAnimationFrame(paint);
+  }
+
+  function leave() {
+    setTimeout(() => {
+      $('stage').classList.add('leaving');
+      setTimeout(() => location.replace('/'), reduced ? 0 : 380);
+    }, 250);
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch('/__launcher/status', { cache: 'no-store' });
+      const s = await res.json();
+      failures = 0;
+      target = Math.max(target, s.percent || 0);
+      $('label').textContent = s.label || '';
+      $('notes').textContent = (s.notes || []).join(' ');
+      if (s.version) $('version').textContent = s.version;
+      $('error').classList.toggle('show', !!s.error);
+      $('errorText').textContent = s.error || '';
+      $('openAnyway').hidden = !s.canOpen;
+      if (s.ready) { target = 100; done = true; return; }
+    } catch {
+      // The launcher hands its address over to QuantBot for a moment; keep asking
+      failures++;
+    }
+    setTimeout(poll, failures > 40 ? 1000 : 250);
+  }
+
+  const post = (path) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  $('retry').onclick = () => { $('error').classList.remove('show'); post('/__launcher/retry'); };
+  $('openAnyway').onclick = () => { $('error').classList.remove('show'); post('/__launcher/open-anyway'); };
+
+  requestAnimationFrame(paint);
+  poll();
+</script>
+</body>
+</html>

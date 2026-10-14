@@ -29,6 +29,8 @@ Drop this file into your Obsidian vault. It mirrors what the code does; the sour
 ## Type and shape
 
 - Headings: Source Serif 4. Body: Inter. Code: the system monospace font.
+- Both fonts ship with the app (`public/fonts/`, SIL Open Font License), so they look the same on every PC and
+  offline; nothing loads from Google Fonts.
 - Corner radius: 0.75 rem (12 px) on cards; buttons and inputs use the shadcn defaults (`rounded-md`).
 
 ## Motion: grow from the click, shrink back into it
@@ -72,3 +74,21 @@ Everything that opens from a click uses one motion.
 - The Converter converts a strategy once and tests that bot on every picked market (all three by default).
 - Bar times are broker server time: UTC+2, or UTC+3 while New York is on daylight saving (like FTMO's MT5).
 - Timeframes: M1, M5, M15, M30, H1, H4, D1. M1 tests cover up to 370 days.
+
+## Desktop app: icon, loading screen, updates
+
+- **Icon:** a rounded square, gradient `#34342F` → `#1F1F1D`, with a blue price line (`#3E9FE0` → `#7CC8F7`)
+  (`installer/quantbot.ico`), used by the
+  Desktop and Start Menu shortcuts.
+- **Window:** Microsoft Edge app mode (its own window and taskbar entry, no tabs or address bar), 1440 × 920.
+- **Loading screen** (`launcher/splash.html`): radial background `#2F302D` → `#272725`; the price line morphs
+  through three shapes every 2.4 s with a soft blue glow; "QuantBot" in Source Serif 4 SemiBold 46 px; tagline in
+  Source Serif 4 Light 16 px, muted `#A8A59F`.
+- **Progress bar:** 6 px track (`#31312F`, 1 px `#3D3C38` border), fill gradient `#3E9FE0` → `#5FB7F2` with a glow
+  and a sheen sweeping every 1.6 s. The percentage (Inter SemiBold 22 px, tabular numbers) and step label sit above
+  it. It shows real progress (git download %, packages installed of total, modules built of total), eases toward the
+  real value, never passes it and never goes backwards.
+- **Motion:** the loading screen grows in (400 ms, `cubic-bezier(0.2, 0.8, 0.2, 1)`) and shrinks away into the app
+  at 100 %. Reduced motion turns this and the sheen off.
+- **Errors:** a red panel with the reason, **Try again**, and **Open the installed version** when one exists.
+- **Version** bottom-left: `v1.0.0 · commit · date`, 11 px `#6F6C66`.

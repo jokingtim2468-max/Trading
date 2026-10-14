@@ -46,8 +46,24 @@ function trusted(req) {
   return !origin || origin === `http://${req.headers.host}`;
 }
 
-async function handleApi(req, res, { backend, market }, url) {
+async function handleApi(req, res, { backend, market, app }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
+  const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
+
+  // The desktop launcher (launcher/launch.js) passes `app`: updates, restart and the window heartbeat
+  if (url.pathname === '/api/app/ping') return send(res, 200, { app: 'quantbot', phase: 'ready', managed: !!app });
+  if (req.method === 'POST' && url.pathname === '/api/app/heartbeat') { app?.heartbeat(); return send(res, 200, { ok: true }); }
+  if (req.method === 'GET' && url.pathname === '/api/app/info') return send(res, 200, app ? { managed: true, ...(await app.info()) } : { managed: false });
+  if (req.method === 'POST' && url.pathname === '/api/app/check') {
+    if (!app || !json()) return send(res, 400, { error: 'Updates are handled by the desktop shortcut' });
+    return send(res, 200, { behind: await app.updates(true) });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/app/restart') {
+    if (!app || !json()) return send(res, 400, { error: 'Updates are handled by the desktop shortcut' });
+    send(res, 200, { ok: true });
+    setTimeout(() => app.restart(), 100);
+    return undefined;
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/invoke') {
     // A JSON content type forces a CORS preflight for cross-site requests, which this server never approves
@@ -101,7 +117,8 @@ function serveStatic(req, res, dist) {
   fs.createReadStream(file).pipe(res);
 }
 
-export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false } = {}) {
+// app: hooks from the desktop launcher ({ heartbeat, info, updates, restart }); absent with npm start
+export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false, app = null } = {}) {
   const cipher = createCipher(dataDir);
   const backend = createBackend({
     dataDir,
@@ -124,9 +141,11 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
 
   server.on('request', async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    // The launcher's loading screen asks this until QuantBot itself answers
+    if (url.pathname === '/__launcher/status') return send(res, 200, { percent: 100, label: 'Ready', ready: true });
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market }, url);
+        await handleApi(req, res, { backend, market, app }, url);
       } catch (e) {
         if (!res.headersSent) send(res, e.status || 500, { error: e.message || String(e) });
       }

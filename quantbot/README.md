@@ -16,7 +16,24 @@ Ollama (Settings → Local model).
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
-## Run
+## Install on Windows (desktop shortcut, auto-update)
+
+Paste this into PowerShell (no admin needed):
+
+```powershell
+irm https://raw.githubusercontent.com/jokingtim2468-max/Trading/vibe-coded/clever-thompson-2f91fo/quantbot/installer/install.ps1 | iex
+```
+
+It installs Git and Node.js with winget if they're missing, downloads QuantBot to `%LOCALAPPDATA%\QuantBot`, installs
+its packages and builds it (with a progress bar), adds a **QuantBot** shortcut to the Desktop and the Start Menu, and
+opens it. Running it again repairs the install and keeps your data (`quantbot\data`).
+
+The shortcut opens QuantBot in its own window with a loading screen: a real progress bar with a percentage while it
+checks GitHub for updates, downloads and installs them, reinstalls packages when they changed, rebuilds, and starts.
+Settings → Updates shows the installed version, checks for updates and has **Restart & update**. QuantBot stops by
+itself a few minutes after its window is closed. Log: `quantbot\data\launcher.log`.
+
+## Run from source
 
 ```bash
 npm install
@@ -36,6 +53,7 @@ The server only listens on 127.0.0.1 and refuses requests from other websites.
 ```bash
 npm test           # backend, market data, backtest engine, accuracy vs hand-written rules
 npm run test:e2e   # launches QuantBot with fake Claude / Ollama / Dukascopy and clicks through every feature
+npm run test:launcher  # installs from a local copy of the repo, opens via the launcher, publishes and installs an update
 ```
 
 The end-to-end run uses Playwright's Chromium (`npx playwright install chromium`) or an installed Chrome / Edge via

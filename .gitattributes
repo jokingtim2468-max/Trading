@@ -1,0 +1,7 @@
+# Keep binaries byte-exact and Windows scripts with Windows line endings on every checkout
+*.ico binary
+*.png binary
+*.woff2 binary
+*.ps1 text eol=crlf
+*.vbs text eol=crlf
+*.bat text eol=crlf
