@@ -116,7 +116,12 @@ Everything that opens from a click uses one motion.
   ease-out cubic) as the card fades away. A maximized window just fades in.
 - **Motion setting:** Settings > Motion, "Full animations" (default) or "Reduced". QuantBot follows this, not
   Windows' "Animation effects" switch (which used to turn every animation off on PCs where it's off).
-- **Main window:** Windows dark title bar with the QuantBot icon, 1440 x 920 by default (remembers its size and
+- **Title bar (QuantBot's own, no Windows frame):** 34 px, sidebar color `#201F1E`, 5% white bottom edge; the candle
+  logo, "QuantBot" in Source Serif 4 SemiBold 13 px and the current page in muted 12 px; minimize, maximize / restore
+  and close buttons 48 px wide with lucide icons, hover `#F6F5EE` at 10% (close: red `#EF4343`, white icon). Drag
+  to move, double-click to maximize.
+- **Closing** the window ends QuantBot completely (server and process); a downloaded update installs then.
+- **Main window:** 1440 x 920 by default (remembers its size and
   position), minimum 960 x 640, background `#272725` so it never flashes white.
 
 ## Source-folder launcher: icon, loading screen, updates

@@ -44,7 +44,7 @@ export default function StrategyTester() {
             />
             <p className="text-xs text-muted-foreground px-1">
               Tests the newest script in the chat on the chosen dates. XAUUSD, US100 and NQ history downloads from Dukascopy the first
-              time a range is used (broker time, UTC+2/+3); uploaded files keep their own timeframe. M1 tests cover up to 370 days. Settings are built into the tester:
+              time a range is used (broker time, UTC+2/+3). M1 tests cover up to 370 days. Settings are built into the tester:
               $10,000 balance, the script's own inputs, 1% risk if it sets none. Script read by {modelLabel} (change it in Settings).
             </p>
           </div>

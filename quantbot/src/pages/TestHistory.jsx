@@ -15,7 +15,7 @@ export default function TestHistory() {
           <FlaskConical className="w-4 h-4 text-primary" />New test
         </Link>
       </header>
-      <div className="flex-1 flex flex-col md:flex-row md:h-[calc(100vh-3.5rem)]">
+      <div className="flex-1 flex flex-col md:flex-row md:h-[calc(100vh-3.5rem-var(--titlebar,0px))]">
         <SessionList activeId={active?.id} onSelect={setActive} />
         <main className="flex-1 overflow-y-auto p-4 md:p-6">
           {active ? <SessionDetail key={active.id} session={active} /> : (

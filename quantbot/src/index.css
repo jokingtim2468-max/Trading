@@ -172,3 +172,14 @@ body::after {
   opacity: 0.035;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* Desktop app: QuantBot's own title bar sits above every page (src/components/TitleBar.jsx). Pages keep their layout;
+   full-height ones lose the bar's height and sticky page bars stop under it. */
+:root { --titlebar: 0px; }
+html.desktop-frame { --titlebar: 34px; }
+html.desktop-frame body { padding-top: var(--titlebar); }
+html.desktop-frame .h-screen { height: calc(100vh - var(--titlebar)); }
+html.desktop-frame .min-h-screen { min-height: calc(100vh - var(--titlebar)); }
+html.desktop-frame .sticky.top-0:not(thead) { top: var(--titlebar); }
+.app-drag { -webkit-app-region: drag; }
+.app-no-drag { -webkit-app-region: no-drag; }

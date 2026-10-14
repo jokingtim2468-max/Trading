@@ -70,20 +70,6 @@ const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0
 // The arrow back to the chat (Settings has a text link instead of a header)
 const back = () => page.getByRole('link', { name: 'Back to chat' }).or(page.locator('header a').first()).first().click();
 
-// A TradingView-style CSV for the "your own file" path: 60 days of H1 bars
-function writeCsv() {
-  const file = path.join(dataDir, 'GER40_H1.csv');
-  const rows = ['time,open,high,low,close,Volume'];
-  const t0 = Date.UTC(2026, 6, 1);
-  for (let k = 0; k < 60 * 24; k++) {
-    const t = t0 + k * 3600000;
-    const p = 18000 + 200 * Math.sin(k / 30), q = 18000 + 200 * Math.sin((k + 1) / 30);
-    rows.push(`${new Date(t).toISOString()},${p.toFixed(1)},${(Math.max(p, q) + 5).toFixed(1)},${(Math.min(p, q) - 5).toFixed(1)},${q.toFixed(1)},100`);
-  }
-  fs.writeFileSync(file, rows.join('\n'));
-  return file;
-}
-
 console.log(`QuantBot e2e on ${base()} (data in ${dataDir})`);
 
 await step('App launches on the chat page', async () => {
@@ -168,23 +154,6 @@ await step('Settings: built-in US100 hourly + daily history downloads with progr
   await snap('built-in-markets');
 });
 
-await step('Settings: own CSV upload in a dialog that grows from the click', async () => {
-  const add = page.getByRole('button', { name: 'Add file' });
-  await add.scrollIntoViewIfNeeded();
-  const box = await add.boundingBox();
-  await add.click();
-  const dialog = page.getByRole('dialog');
-  await dialog.waitFor();
-  const origin = await dialog.evaluate((el) => el.style.transformOrigin);
-  expect(near(centeredPoint(origin), box), `dialog grows from ${origin}, not the Add file button`);
-  await dialog.locator('input[type=file][accept]').setInputFiles(writeCsv());
-  await dialog.getByText('1,440 TradingView bars', { exact: false }).waitFor();
-  await dialog.getByPlaceholder('Timeframe, e.g. M15').fill('H1');
-  await snap('upload-dialog');
-  await dialog.getByRole('button', { name: /Save 1 file/ }).click();
-  await page.getByText('GER40 H1').waitFor();
-});
-
 await step('Chat: Claude writes an EA, chat is named after the script, queue works', async () => {
   await back();
   await page.getByRole('button', { name: 'New chat' }).click();
@@ -267,23 +236,24 @@ await step('Chat: delete confirmation grows from the trash icon, then deletes', 
   await item.waitFor({ state: 'detached' });
 });
 
-await step('Strategy Tester: 3 markets (XAUUSD, US100, own file) on M15 / last 120 days', async () => {
+await step('Strategy Tester: 3 built-in markets (XAUUSD, US100, NQ) on M15 / last 120 days', async () => {
   await sidebarLink('Strategy Tester').click();
   await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
   const chat = page.getByRole('combobox').first();
   await chat.filter({ hasText: /Gold Breakout|hello/ }).waitFor();
   await pick(chat, 'Gold Breakout v2');
-  await page.getByRole('button', { name: /Markets: XAUUSD, US100, NQ/ }).click();
-  await page.getByRole('dialog').getByText('GER40 H1').click();
+  // Only the built-in markets are offered (no uploaded files)
+  await page.getByRole('button', { name: /Markets: XAUUSD, US100, NQ$/ }).click();
+  expect((await page.getByRole('dialog').getByRole('checkbox').count()) === 3, 'market list should hold exactly XAUUSD, US100 and NQ');
   await page.keyboard.press('Escape');
   await page.getByLabel('From date').fill(daysAgo(120));
   await page.getByRole('button', { name: 'Run test' }).click();
   await text(/downloading M15 history|Reading the script|Simulating/).first().waitFor();
   await snap('tester-progress');
-  for (const h of ['XAUUSD M15', 'US100 M15', 'NQ M15', 'GER40 H1']) await page.getByRole('heading', { name: h }).waitFor({ timeout: 180000 });
+  for (const h of ['XAUUSD M15', 'US100 M15', 'NQ M15']) await page.getByRole('heading', { name: h }).waitFor({ timeout: 180000 });
   const board = page.getByRole('region', { name: /Leaderboard: every market in this test/ });
   await board.waitFor();
-  expect((await board.locator('tbody tr').count()) === 4, 'leaderboard should rank all 4 markets');
+  expect((await board.locator('tbody tr').count()) === 3, 'leaderboard should rank all 3 markets');
   await page.getByRole('tab', { name: /Trades \(/ }).first().click();
   await page.getByRole('tab', { name: 'Signals' }).first().click();
   await text('Signal test: BUY').first().waitFor();
@@ -299,10 +269,9 @@ await step('Strategy Tester: 3 markets (XAUUSD, US100, own file) on M15 / last 1
 });
 
 await step('Strategy Tester: 20+ years of XAUUSD on H4', async () => {
-  await page.getByRole('button', { name: /Markets: XAUUSD, US100, NQ, GER40/ }).click();
+  await page.getByRole('button', { name: /Markets: XAUUSD, US100, NQ/ }).click();
   await page.getByRole('dialog').getByText('US100', { exact: true }).click();
   await page.getByRole('dialog').getByText('NQ', { exact: true }).click();
-  await page.getByRole('dialog').getByText('GER40 H1').click();
   await page.keyboard.press('Escape');
   await pick(page.getByLabel('Timeframe'), 'H4');
   await page.getByLabel('From date').fill('2004-01-01');
@@ -402,7 +371,7 @@ await step('Same script, same week: Strategy Tester and Converter agree exactly'
   await page.goto(`${base()}/strategy-tester`);
   await pick(page.getByRole('combobox').first(), 'Gold Breakout v2');
   await page.getByRole('button', { name: /Markets: / }).click();
-  for (const d of ['US100', 'NQ', 'GER40 H1']) {
+  for (const d of ['US100', 'NQ']) {
     const box = page.getByRole('dialog').locator('label', { hasText: d }).getByRole('checkbox');
     if ((await box.getAttribute('data-state')) === 'checked') await box.click();
   }
@@ -536,7 +505,7 @@ await step('Everything is still there after restarting QuantBot', async () => {
   await page.locator('aside').getByText('Gold Breakout v2').waitFor();
   await page.goto(`${base()}/settings`);
   await text('Linked ···· 1234').waitFor();
-  await text('GER40 H1').waitFor();
+  await page.getByRole('radio', { name: /Full animations/ }).waitFor();
 });
 
 await step('No JavaScript errors in the page', async () => {

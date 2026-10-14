@@ -71,6 +71,37 @@ expect(await win.evaluate(() => document.fonts.check('16px Inter')), 'app fonts 
 await win.screenshot({ path: path.join(OUT, '02-app.png') });
 console.log(`  ✓ main window open on the chat page after ${((Date.now() - t0) / 1000).toFixed(1)} s, loading window gone`);
 
+// QuantBot's own title bar: no Windows frame, our buttons
+const frame = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMenuBarVisible());
+expect(!frame, 'menu bar visible');
+if (process.platform === 'win32') {
+  await win.getByRole('button', { name: 'Maximize' }).click();
+  await win.getByRole('button', { name: 'Restore' }).waitFor();
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMaximized()), 'Maximize did not maximize');
+  await win.getByRole('button', { name: 'Restore' }).click();
+  await win.getByRole('button', { name: 'Maximize' }).waitFor();
+} else {
+  // Xvfb has no window manager to maximize with: check the buttons reach the window instead
+  await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0];
+    globalThis.calls = [];
+    w.maximize = () => globalThis.calls.push('maximize');
+    w.minimize = () => globalThis.calls.push('minimize');
+  });
+  await win.getByRole('button', { name: 'Maximize' }).click();
+  await win.getByRole('button', { name: 'Minimize' }).click();
+  await wait(200);
+  const calls = await app.evaluate(() => globalThis.calls);
+  expect(calls.join() === 'maximize,minimize', `window buttons sent: ${calls}`);
+}
+const barTop = await win.evaluate(() => {
+  const bar = document.querySelector('.app-drag');
+  return { h: bar.getBoundingClientRect().height, region: getComputedStyle(bar).webkitAppRegion, page: document.querySelector('#root > *:not(.app-drag)')?.getBoundingClientRect().top ?? null };
+});
+expect(barTop.h === 34 && barTop.region === 'drag', `title bar ${JSON.stringify(barTop)}`);
+await win.screenshot({ path: path.join(OUT, '03-title-bar.png'), clip: { x: 0, y: 0, width: 1440, height: 120 } });
+console.log('  ✓ custom title bar: drag area, minimize and maximize reach the window');
+
 await win.getByRole('link', { name: 'Settings' }).click().catch(() => win.goto(`${new URL(win.url()).origin}/settings`));
 await win.getByRole('heading', { name: 'API Keys' }).waitFor();
 await win.emulateMedia({ reducedMotion: 'reduce' });
@@ -94,5 +125,14 @@ console.log('  ✓ Settings > Motion switches between full and reduced');
 expect(fs.existsSync(path.join(data, 'secret.key')), 'data was not written to QUANTBOT_DATA');
 console.log('  ✓ data saved in the app data folder');
 
-await app.close();
+// Close from the title bar: the whole app process must end, server included
+const proc = app.process();
+const port = 5297;
+await win.getByRole('button', { name: 'Close' }).click();
+let exited = false;
+for (let k = 0; k < 100 && !exited; k++) { await wait(100); exited = proc.exitCode !== null || proc.signalCode !== null; }
+expect(exited, 'QuantBot is still running after its window was closed');
+const stillServing = await fetch(`http://127.0.0.1:${port}/api/app/ping`).then(() => true, () => false);
+expect(!stillServing, 'the local server is still answering after close');
+console.log(`  ✓ Close ends QuantBot completely (exit code ${proc.exitCode})`);
 console.log(`\nDesktop test passed. Screenshots: ${OUT}`);

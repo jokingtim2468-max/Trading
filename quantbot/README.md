@@ -29,7 +29,8 @@ irm https://raw.githubusercontent.com/jokingtim2468-max/Trading/vibe-coded/cleve
 ```
 
 The setup wizard lets you pick the install folder and adds **QuantBot** to the Desktop and Start Menu. QuantBot is its
-own app (Electron, `desktop/`): a loading window with real progress, then the main window. Each time it opens it
+own app (Electron, `desktop/`) with its own title bar: a loading window with real progress, then the main window grows
+open. Closing the window ends QuantBot completely. The testers use the built-in XAUUSD, US100 and NQ data only. Each time it opens it
 checks the GitHub releases and, when there's a newer version, downloads and installs it first (progress in the
 loading window). Settings > Updates shows the version and can install an update now. Your data lives in
 `%APPDATA%\QuantBot\data` and is kept through updates and uninstalls; data from the older PowerShell version is copied

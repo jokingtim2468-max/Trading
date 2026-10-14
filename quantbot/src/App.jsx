@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
+import TitleBar from '@/components/TitleBar';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import QuantChat from '@/pages/QuantChat';
 import Settings from '@/pages/Settings';
@@ -36,6 +37,7 @@ function App() {
       <QueryClientProvider client={queryClientInstance}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <ScrollToTop />
+          <TitleBar />
           <AuthenticatedApp />
         </Router>
         <Toaster />

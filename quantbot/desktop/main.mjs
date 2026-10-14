@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { app, BrowserWindow, Menu, nativeTheme, shell, screen } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme, shell, screen, ipcMain } from 'electron';
 import updaterPkg from 'electron-updater';
 
 const { autoUpdater } = updaterPkg;
@@ -149,9 +149,16 @@ function createMain(url) {
   main = new BrowserWindow({
     x: s.x, y: s.y, width: s.width || 1440, height: s.height || 920, minWidth: 960, minHeight: 640,
     show: false, title: 'QuantBot', backgroundColor: '#272725', icon: path.join(here, 'build', 'icon.ico'),
-    autoHideMenuBar: true, webPreferences: { contextIsolation: true, sandbox: true, spellcheck: true },
+    // No Windows frame: QuantBot draws its own title bar and window buttons (src/components/TitleBar.jsx)
+    frame: false, autoHideMenuBar: true,
+    webPreferences: { contextIsolation: true, sandbox: true, spellcheck: true, preload: path.join(here, 'preload.cjs') },
   });
+  const sendMax = () => { if (!main.isDestroyed()) main.webContents.send('window:maximized', main.isMaximized()); };
+  main.on('maximize', sendMax);
+  main.on('unmaximize', sendMax);
   if (s.maximized) main.maximize();
+  // The taskbar always says QuantBot (the page's own title is longer)
+  main.on('page-title-updated', (e) => e.preventDefault());
   // Links to websites open in the browser, not inside QuantBot
   main.webContents.setWindowOpenHandler(({ url: target }) => {
     if (/^https?:\/\//.test(target) && !target.startsWith(url)) shell.openExternal(target);
@@ -168,6 +175,13 @@ function createMain(url) {
   main.on('closed', () => { main = null; });
   return main;
 }
+
+// Title bar buttons (only the main window's own page can send these)
+const fromMain = (e) => main && !main.isDestroyed() && e.sender === main.webContents;
+ipcMain.on('window:minimize', (e) => { if (fromMain(e)) main.minimize(); });
+ipcMain.on('window:toggle-maximize', (e) => { if (fromMain(e)) { if (main.isMaximized()) main.unmaximize(); else main.maximize(); } });
+ipcMain.on('window:close', (e) => { if (fromMain(e)) main.close(); });
+ipcMain.handle('window:is-maximized', (e) => (fromMain(e) ? main.isMaximized() : false));
 
 // The main window grows out of the loading window to its full size and fades in, like a pop-up opening from
 // where it was clicked (400 ms, the app's ease-out curve). A maximized window or Settings > Motion "Reduced" just
@@ -251,7 +265,19 @@ async function start() {
 if (!primary) app.quit();
 else app.whenReady().then(start);
 
-app.on('window-all-closed', async () => {
-  try { await server?.close(); } catch { /* closing anyway */ }
-  app.quit();
-});
+// Closing the window ends QuantBot completely: the local server stops (open connections included) and the
+// process exits, so nothing keeps running in the background or in Task Manager. A downloaded update installs now.
+let quitting = false;
+async function shutdown() {
+  if (quitting) return;
+  quitting = true;
+  setTimeout(() => app.exit(0), 3000); // never hang on the way out
+  try {
+    server?.server.closeAllConnections?.();
+    await server?.close();
+  } catch { /* exiting anyway */ }
+  if (updateReady) autoUpdater.quitAndInstall(true, false);
+  else app.exit(0);
+}
+app.on('window-all-closed', shutdown);
+app.on('before-quit', (e) => { if (!quitting && server) { e.preventDefault(); shutdown(); } });

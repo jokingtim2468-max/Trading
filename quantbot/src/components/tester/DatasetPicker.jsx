@@ -19,7 +19,7 @@ export default function DatasetPicker({ datasets, value, onChange, className = '
           <label key={d.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
             <Checkbox checked={value.includes(d.id)} onCheckedChange={() => toggle(d.id)} />
             <span className="flex-1">{d.symbol}{d.market ? '' : ` ${d.timeframe}`}</span>
-            <span className="text-xs text-muted-foreground">{d.market ? `Built in, from ${d.dayStart.slice(0, 4)}` : `Your file (${d.source})`}</span>
+            <span className="text-xs text-muted-foreground">Built in, from {d.dayStart.slice(0, 4)}</span>
           </label>
         ))}
       </PopoverContent>

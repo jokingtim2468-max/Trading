@@ -16,13 +16,14 @@ export async function loadMarketInfo() {
   return marketInfo;
 }
 
+// The markets the testers offer: only QuantBot's built-in XAUUSD, US100 and NQ (files uploaded by older versions
+// stay on disk but are no longer listed)
 export async function loadDatasets() {
-  const [info, page] = await Promise.all([loadMarketInfo(), client.entities.MarketData.filter({}, { sort: 'symbol', limit: 50 })]);
-  const markets = info.markets.map((m) => ({
+  const info = await loadMarketInfo();
+  return info.markets.map((m) => ({
     id: `market-${m.symbol}`, market: true, symbol: m.symbol, name: m.name, source: 'Dukascopy',
     contract_size: m.contract_size, point: m.point, minuteStart: m.minuteStart, hourStart: m.hourStart, dayStart: m.dayStart,
   }));
-  return [...markets, ...page.items];
 }
 
 // First day a dataset has bars for at a timeframe (uploaded files have one fixed timeframe)

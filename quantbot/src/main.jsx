@@ -10,4 +10,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 applyMotion()
+// The desktop app has no Windows frame: make room for QuantBot's own title bar
+if (window.quantbotDesktop) document.documentElement.classList.add('desktop-frame')
 startHeartbeat()
