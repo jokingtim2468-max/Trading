@@ -1,7 +1,7 @@
 import { Plus, X, FlaskConical, History, CalendarDays, ArrowLeftRight, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { pageOrigin } from '@/lib/clickOrigin';
+import { clickPoint } from '@/lib/clickOrigin';
 import GroupPills from './GroupPills';
 import ProfileFooter from './ProfileFooter';
 import SessionItem from './SessionItem';
@@ -12,7 +12,7 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setOrigin(pageOrigin());
+    if (open) setOrigin(clickPoint());
   }
   return (
     <>

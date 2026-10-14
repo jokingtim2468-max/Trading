@@ -63,7 +63,10 @@ Drop this file into your Obsidian vault. It mirrors what the code does; the sour
   "opens in / closes in"; MT5 server time; a note during the London / New York overlap) and **Last test** (bot, market,
   latest net, link to Test history; or how to start with the Converter).
 
-## Motion: grow from the click, shrink back into it
+## Motion: grow from the click (pop-ups) or the middle (pages)
+
+- **Pages** grow out of the middle of the window and shrink back into it.
+- **Dialogs, menus, pickers, popovers, toasts** grow out of the spot that was clicked and shrink back into it.
 
 Everything that opens from a click uses one motion.
 
@@ -112,8 +115,9 @@ Everything that opens from a click uses one motion.
 - **Loading window:** frameless 440 x 460, a 22 px rounded card with a soft shadow and grain; grows in from 60% scale
   (400 ms); same logo morph, wordmark, progress bar and percentage as below. At 100% it scales up slightly and fades
   while the main window fades in (about 200 ms).
-- **Opening:** the main window starts as the loading card and grows to its full size while fading in (400 ms,
-  ease-out cubic) as the card fades away. A maximized window just fades in.
+- **Opening:** the main window appears at its real size and fades in (160 ms) while the page zooms out of the middle
+  of the window, 94% to 100% and transparent to solid (420 ms, `cubic-bezier(0.2, 0.8, 0.2, 1)`), as the loading
+  card fades away. No window resizing (that stuttered).
 - **Motion setting:** Settings > Motion, "Full animations" (default) or "Reduced". QuantBot follows this, not
   Windows' "Animation effects" switch (which used to turn every animation off on PCs where it's off).
 - **Title bar (QuantBot's own, no Windows frame):** 34 px, sidebar color `#201F1E`, 5% white bottom edge; the candle

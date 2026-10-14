@@ -88,17 +88,17 @@ await step('Chat without a key explains what to do', async () => {
   await snap('no-key-toast');
 });
 
-await step('Settings: page grows from the clicked settings button', async () => {
+await step('Settings: page grows from the middle of the window', async () => {
   const btn = page.getByTitle('Settings');
-  const box = await btn.boundingBox();
   await btn.click();
-  // The chat page shrinks away first (300 ms), then Settings grows out of the clicked button
+  // The chat page shrinks away first, then Settings grows out of the middle of the window
   await page.waitForTimeout(420);
   await snap('page-transition-mid');
   const origin = await page.evaluate(() => [...document.querySelectorAll('div[style]')].map((d) => d.style.transformOrigin).find((o) => o && o.endsWith('px')));
   expect(origin, 'no page origin set');
   const [x, y] = origin.split(' ').map(parseFloat);
-  expect(Math.abs(x - (box.x + box.width / 2)) < 20 && Math.abs(y - (box.y + box.height / 2)) < 20, `page origin ${origin} not at the click`);
+  const mid = await page.evaluate(() => [window.innerWidth / 2, window.innerHeight / 2]);
+  expect(Math.abs(x - mid[0]) < 2 && Math.abs(y - mid[1]) < 2, `page origin ${origin} is not the middle of the window`);
   await page.getByRole('heading', { name: 'Settings' }).waitFor();
 });
 

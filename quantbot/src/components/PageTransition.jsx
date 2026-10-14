@@ -3,7 +3,7 @@ import { useLocation, useOutlet } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { pageOrigin, MOTION, reducedMotion } from '@/lib/clickOrigin';
 
-// One page: grows out of the clicked spot, and shrinks back into that same spot when leaving
+// One page: grows out of the middle of the window, and shrinks back into it when leaving
 function Page({ children }) {
   const [origin] = useState(() => pageOrigin());
   const [content] = useState(children); // freeze so the leaving page keeps its own content

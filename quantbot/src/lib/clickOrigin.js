@@ -1,7 +1,7 @@
 import { getMotion } from './motionPref';
 
-// One motion for everything that opens from a click: it grows out of the spot that was clicked and, when closed,
-// shrinks back into that same spot. Pages, dialogs, menus, selects, popovers, toasts and the mobile sidebar use it.
+// One motion for everything that opens: dialogs, menus, selects, popovers, toasts and the mobile sidebar grow out of
+// the spot that was clicked and shrink back into it; pages grow from the middle of the window and shrink back to it.
 // Timing: 400 ms (0.75x the first 300 ms version, so the growth is easy to follow), cubic-bezier(0.2, 0.8, 0.2, 1),
 // from 5% size and transparent to full size.
 let last = null;
@@ -20,10 +20,15 @@ export function centeredOrigin() {
   return `calc(50% + ${c.x - window.innerWidth / 2}px) calc(50% + ${c.y - window.innerHeight / 2}px)`;
 }
 
-// transform-origin for a full-page element
-export function pageOrigin() {
+// transform-origin at the latest click, in viewport pixels (the phone sidebar grows from the menu tap)
+export function clickPoint() {
   const c = recent(1500);
-  return c ? `${c.x}px ${c.y}px` : 'center top';
+  return c ? `${c.x}px ${c.y}px` : 'left top';
+}
+
+// transform-origin for a full-page element: the middle of the window (pages grow from the center, not the click)
+export function pageOrigin() {
+  return `${window.innerWidth / 2}px ${window.innerHeight / 2}px`;
 }
 
 // transform-origin for an element already on screen at `rect` (toasts: the click that led to them, up to a minute ago)

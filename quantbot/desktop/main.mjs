@@ -214,40 +214,20 @@ ipcMain.on('window:toggle-maximize', (e) => { if (fromMain(e)) { if (main.isMaxi
 ipcMain.on('window:close', (e) => { if (fromMain(e)) main.close(); });
 ipcMain.handle('window:is-maximized', (e) => (fromMain(e) ? main.isMaximized() : false));
 
-// The main window grows out of the loading window to its full size and fades in, like a pop-up opening from
-// where it was clicked (400 ms, the app's ease-out curve). A maximized window or Settings > Motion "Reduced" just
-// fades in.
-const easeOut = (t) => 1 - (1 - t) ** 3;
+// Opening: the main window appears at its real size (resizing a window every frame is what made it stutter) and fades
+// in while its content zooms out of the middle (CSS, on the graphics card: html.app-opening in src/index.css) and the
+// loading card fades away. Settings > Motion "Reduced" just fades.
 async function reveal() {
-  const from = splash && !splash.isDestroyed() ? splash.getBounds() : null;
   if (splash && !splash.isDestroyed()) await splash.webContents.executeJavaScript('window.leave()').catch(() => {});
-  const grow = from && !calm() && !main.isMaximized();
-  const to = main.getBounds();
-  if (grow) {
-    // Start as the loading card (inset 14 px from its window) and grow from its center
-    main.setBounds({ x: from.x + 14, y: from.y + 14, width: from.width - 28, height: from.height - 28 });
-  }
+  if (!calm()) await main.webContents.executeJavaScript("document.documentElement.classList.add('app-opening')").catch(() => {});
   main.setOpacity(0);
   main.show();
+  main.focus();
   const old = splash;
   splash = null;
   setTimeout(() => { if (old && !old.isDestroyed()) old.destroy(); }, 420);
-  const start = main.getBounds();
-  const frames = calm() ? 8 : 24;
-  for (let k = 1; k <= frames; k++) {
-    const t = easeOut(k / frames);
-    if (grow) {
-      main.setBounds({
-        x: Math.round(start.x + (to.x - start.x) * t), y: Math.round(start.y + (to.y - start.y) * t),
-        width: Math.round(start.width + (to.width - start.width) * t), height: Math.round(start.height + (to.height - start.height) * t),
-      });
-    }
-    main.setOpacity(Math.min(1, t * 1.6));
-    await wait(16);
-  }
-  if (grow) main.setBounds(to);
+  for (let k = 1; k <= 10; k++) { main.setOpacity(k / 10); await wait(16); }
   main.setOpacity(1);
-  main.focus();
 }
 
 async function start() {
