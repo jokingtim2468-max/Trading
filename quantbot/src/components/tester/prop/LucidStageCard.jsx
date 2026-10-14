@@ -22,7 +22,7 @@ export default function LucidStageCard({ kind, stage, plan, size }) {
     ['Trading days', stage.days],
     ['Balance', `${usd(stage.balance)} (${stage.balance >= size ? '+' : ''}${usd(stage.balance - size)})`],
     ['Max loss limit level', usd(stage.floor)],
-    kind === 'eval' ? ['Target progress', `${usd(stage.balance - size)} of ${usd(plan.target)}`] : ['Payouts', `${stage.payouts.length} · ${usd(paid)} to you`],
+    kind === 'eval' ? ['Target progress', `${usd(stage.balance - size)} of ${usd(plan.target)}`] : ['Payouts', `${stage.payouts.length} paid, ${usd(paid)} to you`],
     ['Daily loss limit stops', stage.dllHits],
     ['Trades over max size', stage.oversize, stage.oversize ? 'text-destructive' : ''],
   ];

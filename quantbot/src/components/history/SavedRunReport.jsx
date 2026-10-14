@@ -9,6 +9,7 @@ import RuleResults from '@/components/tester/RuleResults';
 import CodeOutput from '@/components/tester/CodeOutput';
 import ChartLoader from '@/components/quant/ChartLoader';
 import SavedFixPrompt from './SavedFixPrompt';
+import MetaRow from '@/components/MetaRow';
 import { loadRunTrades, equityFromTrades, parseLog } from '@/lib/history';
 
 export default function SavedRunReport({ run, balance }) {
@@ -19,9 +20,11 @@ export default function SavedRunReport({ run, balance }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">
-        v{run.version} · {run.window_label}: {run.start?.slice(0, 10)} to {run.end?.slice(0, 10)} · {run.symbol} · saved {run.created_date?.slice(0, 16).replace('T', ' ')}
-      </p>
+      <MetaRow items={[
+        ['Version', `v${run.version}`], ['Market', run.symbol],
+        ['Tested on', `${run.window_label ? `${run.window_label}: ` : ''}${run.start?.slice(0, 10)} to ${run.end?.slice(0, 10)}`],
+        ['Saved', run.created_date?.slice(0, 16).replace('T', ' ')],
+      ]} />
       <MetricsGrid m={run.metrics} />
       <Tabs defaultValue="overview">
         <TabsList>

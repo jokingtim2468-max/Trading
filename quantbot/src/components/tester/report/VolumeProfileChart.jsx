@@ -1,3 +1,4 @@
+import MetaRow from '@/components/MetaRow';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import ChartCard, { axisProps, tooltipStyle, CHART_ANIM } from './ChartCard';
 
@@ -28,7 +29,7 @@ const FILL = { poc: 'hsl(var(--primary))', va: 'hsl(var(--chart-3))', out: 'hsl(
 export default function VolumeProfileChart({ price }) {
   const p = profile(price);
   return (
-    <ChartCard title="Volume profile" right={`POC ${p.poc.toFixed(2)} · VAH ${p.vah.toFixed(2)} · VAL ${p.val.toFixed(2)}`}>
+    <ChartCard title="Volume profile" right={<MetaRow items={[['POC', p.poc.toFixed(2)], ['VAH', p.vah.toFixed(2)], ['VAL', p.val.toFixed(2)]]} />}>
       <ResponsiveContainer width="100%" height={360}>
         <BarChart data={p.rows} layout="vertical" margin={{ left: 10 }}>
           <XAxis type="number" hide />

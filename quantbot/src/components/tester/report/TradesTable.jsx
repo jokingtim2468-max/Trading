@@ -1,7 +1,7 @@
 const dt = (t) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 
 export default function TradesTable({ trades }) {
-  if (!trades.length) return <p className="text-sm text-muted-foreground p-4">No trades in this window.</p>;
+  if (!trades.length) return <p className="text-sm text-muted-foreground p-4">The strategy took no trades in this window. Its entry conditions may be too strict for this market, or the window too short. The log shows what it saw on each bar.</p>;
   return (
     <div className="bg-card border border-border rounded-xl overflow-auto max-h-[520px]">
       <table className="w-full text-xs">

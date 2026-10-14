@@ -37,7 +37,7 @@ export default function MarketDataCard() {
           {datasets.map((d) => (
             <div key={d.id} className="flex items-center gap-3 py-2 text-sm">
               <span className="font-medium">{d.symbol} {d.timeframe}</span>
-              <span className="text-xs text-muted-foreground">{d.source} · {Number(d.bars || 0).toLocaleString()} bars · {day(d.start)} to {day(d.end)}</span>
+              <span className="text-xs text-muted-foreground">{Number(d.bars || 0).toLocaleString()} {d.source} bars, {day(d.start)} to {day(d.end)}</span>
               <button onClick={() => remove(d)} title="Remove" className="ml-auto p-1.5 rounded hover:bg-accent text-muted-foreground"><Trash2 className="w-4 h-4" /></button>
             </div>
           ))}

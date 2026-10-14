@@ -41,6 +41,28 @@ function reply(system) {
   return `Here is the EA.\n\n\`\`\`mql5\n${EA}\n\`\`\`\n\nBacktest it before going live.`;
 }
 
+// Chat with data tools: "check my tests" makes the fake call list_tests and market_stats, then answer from the results
+function chatWithTools(b) {
+  const last = b.messages[b.messages.length - 1];
+  if (typeof last.content === 'string' && /check my tests/i.test(last.content)) {
+    return {
+      content: [
+        { type: 'text', text: 'Reading your tests and gold volatility.' },
+        { type: 'tool_use', id: 'tu_1', name: 'list_tests', input: { bot_name: 'E2E Bot' } },
+        { type: 'tool_use', id: 'tu_2', name: 'market_stats', input: { symbol: 'XAUUSD', timeframe: 'M15', from: '2024-03-04', to: '2024-03-08' } },
+      ],
+      stop_reason: 'tool_use',
+    };
+  }
+  if (Array.isArray(last.content) && last.content.some((c) => c.type === 'tool_result')) {
+    const [tests, stats] = last.content.map((c) => JSON.parse(c.content));
+    const runs = tests.tests.flatMap((t) => t.runs);
+    const text = `I read ${runs.length} tests of E2E Bot (best net ${Math.max(...runs.map((r) => r.net)).toFixed(2)}). XAUUSD M15 median ATR(14) that week: ${stats.atr14.median}.\n\n\`\`\`mql5\n${EA}\n\`\`\``;
+    return { content: [{ type: 'text', text }], stop_reason: 'end_turn' };
+  }
+  return null;
+}
+
 const json = (res, body) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };
 
 export async function startFakeModels({ delayMs = 800 } = {}) {
@@ -57,8 +79,9 @@ export async function startFakeModels({ delayMs = 800 } = {}) {
         return setTimeout(() => json(res, { message: { role: 'assistant', content: `(local) ${reply(system)}` } }), delayMs);
       }
       if (req.url === '/v1/messages') {
-        calls.push({ kind: 'claude', model: b.model, fallbacks: b.fallbacks, headers: req.headers });
-        return setTimeout(() => json(res, { content: [{ type: 'text', text: reply(b.system) }], stop_reason: 'end_turn' }), delayMs);
+        calls.push({ kind: 'claude', model: b.model, fallbacks: b.fallbacks, headers: req.headers, system: b.system, tools: (b.tools || []).map((t) => t.name), messages: b.messages });
+        const answer = (b.tools && chatWithTools(b)) || { content: [{ type: 'text', text: reply(b.system) }], stop_reason: 'end_turn' };
+        return setTimeout(() => json(res, answer), delayMs);
       }
       res.statusCode = 404;
       res.end();

@@ -17,7 +17,7 @@ export default function Composer({ onSend, disabled, style, onStyleChange, model
 
   return (
     <div className="px-4 md:px-6 pb-5">
-      <div className="max-w-3xl mx-auto bg-card border border-border rounded-2xl shadow-lg shadow-black/30 focus-within:border-muted-foreground/40 transition-colors">
+      <div className="max-w-3xl mx-auto bg-card border border-border rounded-2xl shadow-float focus-within:border-muted-foreground/40 transition-colors">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}

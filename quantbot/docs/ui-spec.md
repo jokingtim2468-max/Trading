@@ -33,6 +33,36 @@ Drop this file into your Obsidian vault. It mirrors what the code does; the sour
   offline; nothing loads from Google Fonts.
 - Corner radius: 0.75 rem (12 px) on cards; buttons and inputs use the shadcn defaults (`rounded-md`).
 
+## Depth: four levels
+
+| Level | What | Look |
+|---|---|---|
+| 1 Page | App background | `#272725` with a faint noise grain over everything (3.5% opacity) |
+| 2 Content | Cards, report tiles | Solid `#31312F`, 1 px border, a 4% white lip on top, short shadow `0 1px 2px rgb(0 0 0 / .28)` |
+| 3 Chrome | Sticky page bars (Tester, Converter, PnL, Accounts) | Frosted glass: background at 72%, 14 px blur, 6% white bottom edge, shadow `0 6px 24px rgb(0 0 0 / .18)` |
+| 4 Overlays | Menus, pickers, popovers, toasts (80%, 18 px blur) and dialogs (88%, 24 px blur, 16 px corners) | Glass with a 10-12% white edge and a deep shadow (`0 16px 40px` / `0 24px 64px`) |
+
+- Glass only on surfaces with little text; chat, reports and tables stay solid for contrast.
+- Without backdrop blur support every glass surface falls back to its solid color.
+- Dialog backdrops dim the page to 55% black with a 3 px blur, so the glass has something to show.
+- The chat composer floats at level 3 depth but stays solid.
+
+## Report layout
+
+- **Headline numbers** (4 large tiles, Source Serif 4, 24 px): Net P&L (with a green / red bar on its left edge and the
+  return under it), Profit factor (with a verdict: healthy edge 1.5+, thin edge 1-1.5, losing under 1), Win rate (with
+  the trade count), Max drawdown (red above 10%, with the dollar amount).
+- **Detail ledger** underneath: every other metric as label / value rows in one bordered panel, 3 columns on desktop.
+- **Facts** about a run (version, market, dates, model) are label / value pairs (muted label, bright value), never a
+  dot-joined string.
+- Version pills: `v1 XAUUSD -$212 22 trades MC F` (MC = Monte Carlo grade, its score in the tooltip).
+
+## Home screen
+
+- Greeting, then two cards: **Sessions** (Tokyo, London, New York with a live dot, a progress bar while open, and
+  "opens in / closes in"; MT5 server time; a note during the London / New York overlap) and **Last test** (bot, market,
+  latest net, link to Test history; or how to start with the Converter).
+
 ## Motion: grow from the click, shrink back into it
 
 Everything that opens from a click uses one motion.

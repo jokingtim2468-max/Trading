@@ -10,12 +10,13 @@ import RunLog from './RunLog';
 import RuleResults from '../RuleResults';
 import CodeOutput from '../CodeOutput';
 import MonteCarloCard from './MonteCarloCard';
+import MetaRow from '@/components/MetaRow';
 import LucidPanel from '../prop/LucidPanel';
 
 export default function RunReport({ run }) {
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">v{run.version} · {run.windowText}</p>
+      <MetaRow items={[['Version', `v${run.version}`], ['Tested on', run.windowText]]} />
       <MetricsGrid m={run.metrics} />
       <Tabs defaultValue="overview">
         <TabsList className="flex-wrap h-auto">

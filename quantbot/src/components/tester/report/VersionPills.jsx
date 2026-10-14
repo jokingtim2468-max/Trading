@@ -16,10 +16,10 @@ export default function VersionPills({ runs, activeIdx, onSelect }) {
           <span className="font-semibold">v{r.version}</span>
           {(r.ds?.symbol || r.symbol) && <span className="ml-1.5 text-muted-foreground">{r.ds?.symbol || r.symbol}</span>}
           <span className={`ml-2 ${r.metrics.net >= 0 ? 'text-chart-2' : 'text-destructive'}`}>
-            {r.metrics.net >= 0 ? '+' : ''}{r.metrics.net.toFixed(0)}$
+            {r.metrics.net >= 0 ? '+' : '-'}${Math.abs(r.metrics.net).toFixed(0)}
           </span>
           <span className="ml-2 text-muted-foreground">{r.metrics.trades} trades</span>
-          {r.mc && <span className={`ml-2 font-semibold ${GRADE_TONE[r.mc.grade]}`}>{r.mc.grade} {r.mc.score}</span>}
+          {r.mc && <span title={`Monte Carlo robustness ${r.mc.score}/100`} className={`ml-2 font-semibold ${GRADE_TONE[r.mc.grade]}`}>MC {r.mc.grade}</span>}
         </button>
       ))}
     </div>

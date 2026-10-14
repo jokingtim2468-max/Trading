@@ -24,7 +24,7 @@ export default function AccountCard({ account, index, status, hasSecret, bridge,
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate">{account.label}</p>
-              <p className="text-xs text-muted-foreground truncate">{account.login}{where ? ` · ${where}` : ''}</p>
+              <p className="text-xs text-muted-foreground truncate">{account.login}{where ? ` on ${where}` : ''}</p>
             </div>
             <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
           </div>

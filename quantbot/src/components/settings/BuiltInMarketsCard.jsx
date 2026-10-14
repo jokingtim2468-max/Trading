@@ -45,10 +45,10 @@ function MarketRow({ market, onDone }) {
     <div className="py-3 space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{market.symbol}</span>
-        <span className="text-xs text-muted-foreground">{market.name} · daily from {market.dayStart.slice(0, 4)}, intraday from {market.minuteStart.slice(0, 4)}</span>
+        <span className="text-xs text-muted-foreground">{market.name}, daily from {market.dayStart.slice(0, 4)}, intraday from {market.minuteStart.slice(0, 4)}</span>
       </div>
       <p className="text-xs text-muted-foreground">
-        Saved: minute {stored(market.stored.minute)} · hourly {stored(market.stored.hour)} · daily {stored(market.stored.day)}
+        Saved on this PC: minute {stored(market.stored.minute)}, hourly {stored(market.stored.hour)}, daily {stored(market.stored.day)}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={plan} onValueChange={setPlan}>

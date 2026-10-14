@@ -1,6 +1,6 @@
 export const PLATFORMS = [
   { id: 'MT5', title: 'MetaTrader 5', subtitle: 'Logs in through MT5 terminals on this PC' },
-  { id: 'Tradovate', title: 'TradingView · Tradovate', subtitle: 'The futures accounts TradingView trades through' },
+  { id: 'Tradovate', title: 'TradingView + Tradovate', subtitle: 'The futures accounts TradingView trades through' },
 ];
 
 // Suggestions only; any server name your broker gives you works

@@ -39,7 +39,7 @@ export default function PnlCalendar() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="h-14 border-b border-border flex items-center gap-3 px-4">
+      <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-3 px-4">
         <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
         <h1 className="font-heading text-lg font-semibold">PnL calendar</h1>
         <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">Closed trades from your saved strategy tests (UTC days)</span>

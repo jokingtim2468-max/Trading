@@ -10,7 +10,7 @@ export default function ChartCard({ title, right, children }) {
       <div className="flex items-center justify-between mb-3 gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
         <div className="flex items-center gap-3 min-w-0">
-          {right && <div className="text-xs text-muted-foreground truncate">{right}</div>}
+          {right && <div className="text-xs text-muted-foreground min-w-0">{right}</div>}
           <button type="button" onClick={() => setRun((n) => n + 1)} title="Replay the chart" aria-label={`Replay ${title}`}
             className="shrink-0 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent">
             <RotateCcw className="w-3.5 h-3.5" />Replay

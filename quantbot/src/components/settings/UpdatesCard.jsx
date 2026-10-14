@@ -45,14 +45,14 @@ export default function UpdatesCard() {
     }
   };
 
-  const version = [info.version && `v${info.version}`, info.commit, info.date].filter(Boolean).join(' · ');
+  const version = info.version ? `v${info.version}${info.commit ? ` (${[info.commit, info.date].filter(Boolean).join(', ')})` : ''}` : '';
   const status = info.behind == null ? "Couldn't reach GitHub to check for updates."
     : info.behind === 0 ? 'You have the newest version.'
       : `${info.behind} update${info.behind === 1 ? '' : 's'} ready to install.`;
 
   return (
     <section className="mt-8 space-y-3">
-      <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Updates</h2>
+      <h2 className="font-heading text-lg font-semibold">Updates</h2>
       <div className="bg-card border border-border rounded-2xl p-5 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>

@@ -43,7 +43,7 @@ async function step(name, fn) {
     console.log(`  ✓ ${name} (${Date.now() - t0} ms)`);
   } catch (e) {
     results.push({ name, ok: false, error: e.message.split('\n')[0] });
-    console.log(`  ✗ ${name}\n      ${e.message.split('\n').slice(0, 4).join('\n      ')}`);
+    console.log(`  ✗ ${name}\n      ${e.message.split('\n').slice(0, process.env.E2E_LOG_LINES ? Number(process.env.E2E_LOG_LINES) : 4).join('\n      ')}`);
     await snap(`FAILED-${name.replace(/\W+/g, '-')}`).catch(() => {});
     // Close anything left open so one failure doesn't block the next steps
     await page.keyboard.press('Escape').catch(() => {});
@@ -53,6 +53,10 @@ async function step(name, fn) {
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 const text = (t, opts) => page.getByText(t, opts);
 const sidebarLink = (name) => page.locator('aside').getByRole('link', { name });
+// A fact in a MetaRow ("Version", "Tested on", "Dates"...)
+const meta = (label, value) => page.locator(`[data-meta="${label}"]`).filter({ hasText: value });
+// The "Tested on" fact of a report version ("v1")
+const testedOn = (version) => page.locator('dl', { has: page.locator('[data-meta="Version"]', { hasText: new RegExp(`^${version}$`) }) }).locator('[data-meta="Tested on"]');
 const pick = async (combo, option) => { await combo.click(); await page.getByRole('option', { name: option, exact: true }).click(); };
 // Where a centered dialog grows from, in page coordinates ("calc(50% ± Xpx) calc(50% ± Ypx)")
 function centeredPoint(origin) {
@@ -153,7 +157,7 @@ await step('Settings: local model (Ollama) connects and saves', async () => {
   await card.getByRole('button', { name: 'Test connection' }).click();
   await card.getByText('Connected. Installed: qwen2.5-coder:7b').waitFor();
   await card.getByRole('button', { name: 'Save' }).click();
-  await card.getByText('On · qwen2.5-coder:7b').waitFor();
+  await card.getByText('Using qwen2.5-coder:7b').waitFor();
 });
 
 await step('Settings: built-in US100 hourly + daily history downloads with progress', async () => {
@@ -174,7 +178,7 @@ await step('Settings: own CSV upload in a dialog that grows from the click', asy
   const origin = await dialog.evaluate((el) => el.style.transformOrigin);
   expect(near(centeredPoint(origin), box), `dialog grows from ${origin}, not the Add file button`);
   await dialog.locator('input[type=file][accept]').setInputFiles(writeCsv());
-  await dialog.getByText('TradingView · 1,440 bars').waitFor();
+  await dialog.getByText('1,440 TradingView bars', { exact: false }).waitFor();
   await dialog.getByPlaceholder('Timeframe, e.g. M15').fill('H1');
   await snap('upload-dialog');
   await dialog.getByRole('button', { name: /Save 1 file/ }).click();
@@ -305,7 +309,8 @@ await step('Strategy Tester: 20+ years of XAUUSD on H4', async () => {
   await page.getByRole('button', { name: 'Run test' }).click();
   await page.getByRole('heading', { name: 'XAUUSD H4' }).waitFor({ timeout: 300000 });
   // The first 300 bars warm the indicators up, so trading starts a few weeks into 2004
-  await text(/XAUUSD H4 · 2004-\d\d-\d\d to 20\d\d-\d\d-\d\d/).first().waitFor();
+  await meta('Market', 'XAUUSD H4').first().waitFor();
+  await meta('Dates', /^2004-\d\d-\d\d to 20\d\d-\d\d-\d\d$/).first().waitFor();
   await snap('tester-20-years');
 });
 
@@ -331,7 +336,7 @@ await step('Strategy Converter: converts, tests on unseen M15 week, all report t
   expect(models.calls.length - callsBefore === 1, `${models.calls.length - callsBefore} AI calls for one conversion`);
   await snap('converter-leaderboard');
   await board.getByText('XAUUSD M15').click();
-  await text(/^v1 · 1 week unseen/).waitFor();
+  await testedOn('v1').filter({ hasText: /^1 week unseen/ }).waitFor();
   for (const tab of ['Liquidity', /Monte Carlo/, 'Lucid Pro', /Trades \(/, /Log \(/, 'Code', 'Overview']) {
     await page.getByRole('tab', { name: tab }).click();
     await page.waitForTimeout(150);
@@ -341,11 +346,34 @@ await step('Strategy Converter: converts, tests on unseen M15 week, all report t
 });
 
 await step('Strategy Converter: fix & retest uses a different unseen week', async () => {
-  const v1 = await text(/^v1 · 1 week unseen/).textContent();
+  const v1 = await testedOn('v1').textContent();
   await page.getByRole('button', { name: 'Fix & retest' }).click();
-  await text(/^v4 · 1 week unseen/).waitFor({ timeout: 180000 });
-  const v2 = await text(/^v4 · 1 week unseen/).textContent();
-  expect(v1.replace('v1', '') !== v2.replace('v4', ''), 'the fix reused the v1 window');
+  await testedOn('v4').filter({ hasText: /^1 week unseen/ }).waitFor({ timeout: 180000 });
+  const v2 = await testedOn('v4').textContent();
+  expect(v1 !== v2, 'the fix reused the v1 window');
+});
+
+await step('Converter opens a chat to fine-tune; the AI reads the tests and market data', async () => {
+  // In a second window, so the Converter keeps its state for the next steps
+  const href = await page.getByRole('link', { name: 'Fine-tune in chat' }).getAttribute('href');
+  const chatPage = await context.newPage();
+  try {
+    await chatPage.goto(`${base()}${href}`);
+    await chatPage.locator('header').getByText('E2E Bot', { exact: true }).waitFor();
+    await chatPage.getByText(/Converted E2E Bot to MT5 and tested it on XAUUSD, US100, NQ/).waitFor();
+    await chatPage.getByText(/Fixed and retested: E2E Bot v4/).waitFor();
+    const before = models.calls.length;
+    await chatPage.getByPlaceholder('Reply to QuantBot...').fill('Check my tests and the gold volatility');
+    await chatPage.keyboard.press('Enter');
+    await chatPage.getByText(/I read 4 tests of E2E Bot \(best net -?\d+\.\d\d\)\. XAUUSD M15 median ATR\(14\) that week: \d/).waitFor({ timeout: 60000 });
+    const chat = models.calls.slice(before);
+    expect(chat.length === 2, `${chat.length} model calls for one tool round`);
+    expect(chat[0].tools.includes('get_bars') && chat[0].tools.includes('get_trades'), `tools offered: ${chat[0].tools}`);
+    expect(chat[0].system.includes('LINKED BOT: "E2E Bot"') && /get_test_run/.test(chat[0].system), 'system prompt lacks the linked bot or the tool guide');
+    await chatPage.screenshot({ path: path.join(OUT, `${String(++shot).padStart(2, '0')}-fine-tune-chat.png`) });
+  } finally {
+    await chatPage.close();
+  }
 });
 
 await step('Strategy Converter: custom range back in 2008', async () => {
@@ -358,7 +386,7 @@ await step('Strategy Converter: custom range back in 2008', async () => {
   await page.getByRole('dialog').getByText('NQ', { exact: true }).click();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Convert & test' }).click();
-  await text(/^v5 · Custom range: 2008-01-0\d to 2008-03-31/).waitFor({ timeout: 180000 });
+  await testedOn('v5').filter({ hasText: /^Custom range: 2008-01-0\d to 2008-03-31/ }).waitFor({ timeout: 180000 });
   await snap('converter-2008');
 });
 
@@ -366,7 +394,7 @@ await step('Strategy Converter: custom range back in 2008', async () => {
 // (numbers count up for 0.6 s when a report opens, so wait for them to settle)
 const metric = async (label) => {
   await page.waitForTimeout(800);
-  return page.locator('div.bg-card', { has: page.getByText(label, { exact: true }) }).first().locator('div').nth(1).textContent();
+  return page.locator(`[data-metric="${label}"]`).first().textContent();
 };
 
 await step('Same script, same week: Strategy Tester and Converter agree exactly', async () => {
@@ -383,7 +411,8 @@ await step('Same script, same week: Strategy Tester and Converter agree exactly'
   await page.getByLabel('To date').fill(week.to);
   await page.getByRole('button', { name: 'Run test' }).click();
   await page.getByRole('heading', { name: 'XAUUSD M15' }).waitFor({ timeout: 120000 });
-  await text(/XAUUSD M15 · 2024-03-04 to 2024-03-08/).waitFor();
+  await meta('Market', 'XAUUSD M15').first().waitFor();
+  await meta('Dates', '2024-03-04 to 2024-03-08').first().waitFor();
   const tester = { net: await metric('Net P&L'), trades: await metric('Trades') };
 
   await page.goto(`${base()}/strategy-converter`);
@@ -397,7 +426,7 @@ await step('Same script, same week: Strategy Tester and Converter agree exactly'
   await page.getByLabel('From date').fill(week.from);
   await page.getByLabel('To date').fill(week.to);
   await page.getByRole('button', { name: 'Convert & test' }).click();
-  await text(/^v1 · Custom range: 2024-03-04 to 2024-03-08/).waitFor({ timeout: 120000 });
+  await testedOn('v1').filter({ hasText: /^Custom range: 2024-03-04 to 2024-03-08/ }).waitFor({ timeout: 120000 });
   const converter = { net: await metric('Net P&L'), trades: await metric('Trades') };
   console.log(`      Tester ${tester.trades} trades, net ${tester.net} | Converter ${converter.trades} trades, net ${converter.net}`);
   expect(tester.net === converter.net && tester.trades === converter.trades, `tester ${JSON.stringify(tester)} vs converter ${JSON.stringify(converter)}`);
@@ -413,7 +442,7 @@ await step('Test history: search, open a bot, switch versions and tabs', async (
   await page.getByRole('button', { name: /E2E Bot.*2 versions/ }).click();
   await page.getByRole('heading', { name: 'E2E Bot' }).waitFor();
   await page.getByRole('button', { name: /^v1/ }).click();
-  await text(/^v1 · 1 week unseen/).waitFor();
+  await testedOn('v1').filter({ hasText: /^1 week unseen/ }).waitFor();
   await page.getByRole('region', { name: /Leaderboard: every version/ }).locator('tbody tr').nth(1).waitFor();
   await page.getByRole('tab', { name: /Trades/ }).click();
   await snap('history');
@@ -444,7 +473,7 @@ await step('Accounts: MT5 + Tradovate accounts, copy group rename / pause / dele
   await page.getByPlaceholder('e.g. FTMO-Demo').fill('FTMO-Demo');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await mt5.getByText('FTMO 100K').waitFor();
-  const tv = page.locator('section', { hasText: 'TradingView · Tradovate' });
+  const tv = page.locator('section', { hasText: 'TradingView + Tradovate' });
   await tv.getByRole('button', { name: 'Add account' }).click();
   await page.getByPlaceholder('e.g. Lucid 50K #1').fill('Lucid 50K #1');
   await page.getByRole('dialog').locator('input').nth(1).fill('tim_lucid');

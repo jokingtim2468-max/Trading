@@ -16,7 +16,7 @@ export default function PlatformSection({ platform, accounts, groups, copier, dr
   const counts = accounts.reduce((c, a) => ({ ...c, [groupOf(a)]: (c[groupOf(a)] || 0) + 1 }), {});
   const toggle = async (g) => { await client.entities.CopyGroup.update(g.id, { enabled: g.enabled === false }); onChanged(); };
   const empty = active !== 'none' ? 'Drag accounts onto this tab to copy trades between them.'
-    : accounts.length ? 'Every account is in a copy group.' : 'No accounts yet.';
+    : accounts.length ? 'Every account is in a copy group.' : 'No accounts linked. Add one to copy trades between them.';
 
   return (
     <section className="bg-card border border-border rounded-2xl p-4 md:p-5 space-y-4">

@@ -1,12 +1,13 @@
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import MetaRow from '@/components/MetaRow';
 import DatasetPicker from '@/components/tester/DatasetPicker';
 import { TIMEFRAMES, firstDate, lastDate, today } from '@/lib/backtest/data';
 
 export default function TestSettings({ cfg, set, datasets }) {
   const sel = datasets.filter((d) => cfg.datasetIds.includes(d.id));
   const min = sel.map((d) => firstDate(d, cfg.timeframe)).filter(Boolean).sort().at(-1);
-  const span = (d) => (d.market ? `${d.symbol} ${cfg.timeframe} ${firstDate(d, cfg.timeframe)} to today` : `${d.symbol} ${d.timeframe} ${firstDate(d)} to ${lastDate(d)}`);
+  const span = (d) => [`${d.symbol} ${d.market ? cfg.timeframe : d.timeframe}`, d.market ? `${firstDate(d, cfg.timeframe)} to today` : `${firstDate(d)} to ${lastDate(d)}`];
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -39,7 +40,12 @@ export default function TestSettings({ cfg, set, datasets }) {
           <Input type="date" aria-label="To date" min={cfg.customFrom} max={today()} value={cfg.customTo} onChange={(e) => set('customTo', e.target.value)} className="w-44 bg-card" />
         </div>
       )}
-      {sel.length > 0 && <p className="text-xs text-muted-foreground">Each market is tested separately: {sel.map(span).join(' · ')}. Built-in history downloads from Dukascopy the first time it's used; M1 windows cover up to 370 days.</p>}
+      {sel.length > 0 && (
+        <div className="space-y-1">
+          <MetaRow items={sel.map(span)} />
+          <p className="text-xs text-muted-foreground">Each market is tested on its own. Built-in history downloads from Dukascopy the first time a range is used; M1 tests cover up to 370 days.</p>
+        </div>
+      )}
     </div>
   );
 }

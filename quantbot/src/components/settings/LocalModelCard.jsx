@@ -49,7 +49,7 @@ export default function LocalModelCard() {
             Install from ollama.com, then run <code>ollama pull {DEFAULT_MODEL}</code>.
           </p>
         </div>
-        {form?.saved && <span className="text-xs text-primary bg-primary/10 border border-primary/30 rounded-full px-2.5 py-1 shrink-0">On · {form.saved}</span>}
+        {form?.saved && <span className="text-xs text-primary bg-primary/10 border border-primary/30 rounded-full px-2.5 py-1 shrink-0">Using {form.saved}</span>}
       </div>
       {!form ? <ChartLoader className="w-10 h-6" /> : (
         <>

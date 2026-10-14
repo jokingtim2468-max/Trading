@@ -9,8 +9,11 @@ Dukascopy the first time a range is used and saved in `data/market/`, in broker 
 Pick any timeframe from M1 to D1 and any dates; M1 tests cover up to 370 days. NQ uses the Nasdaq-100 index prices on
 NQ's contract terms (Dukascopy has no CME futures data), so absolute prices sit slightly below the futures.
 
-The Converter converts a strategy once and tests that same bot on XAUUSD, US100 and NQ, then ranks every market and
-version in a leaderboard. AI: your own Claude (Opus / Sonnet / Haiku 5.5) or Gemini key, or a free local model through
+The Converter converts a strategy once and tests that same bot on XAUUSD, US100 and NQ, ranks every market and
+version in a leaderboard, then opens a chat linked to that bot ("Fine-tune in chat") with the results and code. In
+any chat the AI can read your saved tests, their trades and the built-in market data through read-only tools
+(`server/lib/chatTools.js`): list_tests, get_test_run, get_trades, get_bars, market_stats, list_markets. Its system
+prompt (`server/lib/chatPrompt.js`) explains the backtester, the markets, broker time and how to use the tools. AI: your own Claude (Opus / Sonnet / Haiku 5.5) or Gemini key, or a free local model through
 Ollama (Settings → Local model).
 
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in

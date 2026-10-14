@@ -15,12 +15,12 @@ export default function SessionCard({ session, active, onSelect }) {
         <Badge variant="outline" className="shrink-0">{s.target === 'MT5' ? 'MQL5' : 'Pine'}</Badge>
       </div>
       <div className="text-xs text-muted-foreground mt-1">
-        {s.symbol} {s.timeframe} · {s.versions || 0} version{s.versions === 1 ? '' : 's'} · rules {s.latest_rules || 'n/a'}
+        {s.symbol} {s.timeframe}, {s.versions || 0} version{s.versions === 1 ? '' : 's'}, rules passed {s.latest_rules || 'n/a'}
       </div>
       <div className="flex items-center justify-between text-xs mt-1.5">
         <span>
-          Latest <span className={s.latest_net >= 0 ? 'text-chart-2' : 'text-destructive'}>{s.latest_net == null ? 'n/a' : <CountUp value={s.latest_net} format={money} />}</span>
-          <span className="text-muted-foreground"> · best </span>
+          <span className="text-muted-foreground">Latest </span><span className={s.latest_net >= 0 ? 'text-chart-2' : 'text-destructive'}>{s.latest_net == null ? 'n/a' : <CountUp value={s.latest_net} format={money} />}</span>
+          <span className="text-muted-foreground ml-3">Best </span>
           <span className={s.best_net >= 0 ? 'text-chart-2' : 'text-destructive'}>{s.best_net == null ? 'n/a' : <CountUp value={s.best_net} format={money} />}</span>
         </span>
         <span className="text-muted-foreground">{s.last_run_at?.slice(0, 10)}</span>

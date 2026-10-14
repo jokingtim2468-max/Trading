@@ -23,7 +23,7 @@ export default function Settings() {
         <h1 className="font-heading text-3xl mt-6">Settings</h1>
 
         <section className="mt-8 space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">API Keys</h2>
+          <h2 className="font-heading text-lg font-semibold">API Keys</h2>
           <ProviderKeyCard provider="anthropic" status={status} onChange={setStatus} />
           <ProviderKeyCard provider="google" status={status} onChange={setStatus} />
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -33,13 +33,13 @@ export default function Settings() {
         </section>
 
         <section className="mt-8 space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Models</h2>
+          <h2 className="font-heading text-lg font-semibold">Models</h2>
           <DefaultModelsCard />
           <LocalModelCard />
         </section>
 
         <section className="mt-8 space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Market data</h2>
+          <h2 className="font-heading text-lg font-semibold">Market data</h2>
           <BuiltInMarketsCard />
           <MarketDataCard />
         </section>

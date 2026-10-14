@@ -23,7 +23,7 @@ export default function StrategyTester() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="h-14 border-b border-border flex items-center gap-1 px-4">
+      <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-1 px-4">
         <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
         <h1 className="font-heading text-lg font-semibold ml-2">Strategy Tester</h1>
         <Link to="/strategy-converter" className="ml-auto flex items-center gap-2 text-sm px-3 py-1.5 rounded-md hover:bg-accent">
