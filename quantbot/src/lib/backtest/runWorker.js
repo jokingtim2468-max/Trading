@@ -1,7 +1,9 @@
 // Runs the simulation off the main thread so a stuck strategy can't freeze the app.
-export function runInWorker(payload, timeoutMs = 30000) {
+// signal: an AbortSignal that stops the simulation at once (the Converter's Stop button)
+export function runInWorker(payload, timeoutMs = 30000, signal = null) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./backtest.worker.js', import.meta.url), { type: 'module' });
+    signal?.addEventListener('abort', () => { clearTimeout(timer); worker.terminate(); reject(new DOMException('Stopped', 'AbortError')); }, { once: true });
     const timer = setTimeout(() => {
       worker.terminate();
       reject(new Error(`Simulation took longer than ${timeoutMs / 1000}s and was stopped (possible infinite loop).`));

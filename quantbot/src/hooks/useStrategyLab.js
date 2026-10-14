@@ -23,11 +23,17 @@ export default function useStrategyLab(config) {
   const [phase, setPhase] = useState('');
   const [error, setError] = useState('');
   const [chatId, setChatId] = useState(null);
-  const stopRef = useRef(false);
+  const stopRef = useRef(null); // AbortController of the run in progress
   const runsRef = useRef([]);
   const sessionsRef = useRef({});
 
   useEffect(() => { loadDatasets().then(setDatasets); }, []);
+
+  // Waits for p, but gives up the moment this run's Stop is pressed (whatever p was doing is ignored)
+  const guard = (p, signal) => {
+    if (signal.aborted) return Promise.reject(new DOMException('Stopped', 'AbortError'));
+    return Promise.race([p, new Promise((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('Stopped', 'AbortError')), { once: true }))]);
+  };
 
   // Picks the test dates from the calendar (every day the data covers), so 20 years of history never has to load
   // just to find a window. -> { start, end } in ms, label, reused
@@ -51,23 +57,27 @@ export default function useStrategyLab(config) {
   }
 
   // Bars for the window plus warm-up bars before it (the same loader the Strategy Tester uses)
-  async function windowBars(ds, dates) {
+  async function windowBars(ds, dates, say = setPhase) {
     const { bars, start } = await loadTestBars(ds, {
       tf: ds.timeframe, from: fmtDate(dates.start), to: fmtDate(dates.end),
-      onProgress: (done, total) => total && setPhase(`${ds.symbol}: downloading ${ds.timeframe} history (${done} of ${total} files)...`),
+      onProgress: (done, total) => total && say(`${ds.symbol}: downloading ${ds.timeframe} history (${done} of ${total} files)...`),
     });
     return { bars, w: { from: start, to: bars.time.length - 1 } };
   }
 
   // reuse: a conversion from an earlier market of the same run, so every market tests the same bot (one AI call)
-  async function runOnce(previous, session, ds, reuse = null) {
+  // signal: this run's stop signal; everything slow gives up the moment it fires
+  async function runOnce(previous, session, ds, reuse, signal) {
+    const until = (p) => guard(p, signal);
+    // Progress text only while this run is live (a stopped run's leftovers stay quiet)
+    const say = (text) => { if (!signal.aborted) setPhase(text); };
     if (!config.botName.trim()) throw new Error('Give the bot a name so its unseen data can be tracked.');
-    setPhase(`${ds.symbol}: loading market data...`);
+    say(`${ds.symbol}: loading market data...`);
     const log = [];
     const add = (level, msg) => log.push({ level, msg, t: Date.now() });
 
-    const dates = await pickDates(ds);
-    const { bars, w: span } = await windowBars(ds, dates);
+    const dates = await until(pickDates(ds));
+    const { bars, w: span } = await until(windowBars(ds, dates, say));
     const w = { ...span, label: dates.label, reused: dates.reused };
     const windowText = `${w.label}: ${fmtDate(bars.time[w.from])} to ${fmtDate(bars.time[w.to])} (${w.to - w.from + 1} bars, ${ds.symbol} ${ds.timeframe})`;
     add('info', `Test window ${windowText}`);
@@ -78,25 +88,25 @@ export default function useStrategyLab(config) {
     if (conv) {
       add('info', `Same conversion as ${reuse.firstSymbol}, tested on ${ds.symbol}`);
     } else {
-      setPhase(previous ? `Fixing v${previous.version} with ${modelLabel}...` : `Converting to ${config.target} with ${modelLabel}...`);
+      say(previous ? `Fixing v${previous.version} with ${modelLabel}...` : `Converting to ${config.target} with ${modelLabel}...`);
       const t0 = Date.now();
       const market = { symbol: ds.symbol, timeframe: ds.timeframe, contract_size: ds.contract_size, point: ds.point, balance: config.balance, stats: marketStats(bars) };
-      const res = await client.functions.invoke('strategyTester', {
+      const res = await until(client.functions.invoke('strategyTester', {
         strategy: config.strategy, rules: config.rules, target: config.target, model: config.model, market,
         previous: previous && { code: previous.code, sim_code: previous.sim_code, fix_prompt: previous.fixPrompt },
-      });
+      }));
       conv = { ...res.data, firstSymbol: ds.symbol };
       add('info', `${previous ? `Fixed v${previous.version}` : 'Converted'} with ${modelLabel} in ${Math.round((Date.now() - t0) / 1000)}s`);
     }
     const failed = conv.results.filter((r) => r.status !== 'pass').length;
     add(failed ? 'warn' : 'info', `Rule test: ${conv.results.length - failed}/${conv.results.length} passed`);
 
-    setPhase('Simulating trades...');
+    say('Simulating trades...');
     const from = Math.max(0, w.from - WARMUP);
     const sim = await runInWorker({
       bars: sliceBars(bars, from, w.to), startIndex: w.from - from, simCode: conv.sim_code,
       balance: config.balance, contractSize: ds.contract_size || 100, point: ds.point || 0.01,
-    });
+    }, 30000, signal);
     sim.log.forEach((e) => log.push(e));
     const metrics = computeMetrics(sim.trades, sim.equity, config.balance, ds.contract_size || 100);
     add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);
@@ -105,13 +115,14 @@ export default function useStrategyLab(config) {
     const sigFailed = signals.results.filter((r) => r.status !== 'pass').length;
     add(sigFailed ? 'warn' : 'info', `Signal test: ${Object.entries(signals.counts).map(([k, v]) => `${k} ${v}`).join(', ')}`);
 
-    setPhase('Running Monte Carlo robustness test...');
+    say('Running Monte Carlo robustness test...');
     const mc = runMonteCarlo(sim.trades, config.balance);
     add(mc && mc.score >= 50 ? 'info' : 'warn', mc
       ? `Monte Carlo (${mc.iterations} runs): score ${mc.score}/100 (${mc.grade}), ${(mc.probProfit * 100).toFixed(0)}% profitable, 95th pct drawdown ${mc.dd95.toFixed(1)}%`
       : 'Monte Carlo skipped: fewer than 5 trades.');
 
-    setPhase('Saving run...');
+    if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+    say('Saving run...');
     const version = (await StrategyRun.count({ bot_name: config.botName })) + 1;
     const fixPrompt = buildFixPrompt({ version, windowText, metrics, results, log, mc });
     const logText = log.map((e) => `[${e.level.toUpperCase()}] ${e.t ? new Date(e.t).toISOString().slice(0, 16) : ''} ${e.msg}`).join('\n').slice(0, 20000);
@@ -137,9 +148,12 @@ export default function useStrategyLab(config) {
 
   async function execute(previous, iterations = 1) {
     setError('');
-    stopRef.current = false;
+    const controller = new AbortController();
+    stopRef.current = controller;
+    const stopped = () => controller.signal.aborted;
     if (!previous) setChatId(null);
     const push = (run) => {
+      if (stopped()) return;
       runsRef.current = [...runsRef.current, run];
       setRuns(runsRef.current);
       setActiveIdx(runsRef.current.length - 1);
@@ -153,32 +167,33 @@ export default function useStrategyLab(config) {
         const tested = [];
         try {
           for (const ds of picked) {
-            if (stopRef.current) break;
-            const run = await runOnce(null, null, ds, conv);
+            if (stopped()) break;
+            const run = await runOnce(null, null, ds, conv, controller.signal);
             conv = conv || { code: run.code, sim_code: run.sim_code, summary: run.summary, results: run.convResults, firstSymbol: ds.symbol };
             tested.push(run);
             push(run);
           }
         } finally {
           // Then a chat linked to this bot opens with the results and code, ready for fine-tuning
-          if (tested.length) {
+          if (tested.length && !stopped()) {
             setPhase('Opening a chat to fine-tune it...');
             setChatId(await openConverterChat(config, tested));
           }
         }
       } else {
         let prev = previous;
-        for (let k = 0; k < iterations && !stopRef.current; k++) {
-          const run = await runOnce(prev, sessionsRef.current[prev.sessionId], prev.ds);
+        for (let k = 0; k < iterations && !stopped(); k++) {
+          const run = await runOnce(prev, sessionsRef.current[prev.sessionId], prev.ds, null, controller.signal);
           push(run);
-          if (chatId) await addVersionToChat(chatId, config, run);
+          if (chatId && !stopped()) await addVersionToChat(chatId, config, run);
           prev = run;
         }
       }
     } catch (e) {
-      setError(e.response?.data?.error || e.message);
+      if (!stopped()) setError(e.response?.data?.error || e.message);
     }
-    setPhase('');
+    // A stopped run already went back to idle; a newer run may have started since
+    if (stopRef.current === controller) { stopRef.current = null; setPhase(''); }
   }
 
   const updateFixPrompt = (idx, text) => {
@@ -189,6 +204,7 @@ export default function useStrategyLab(config) {
   return {
     datasets, runs, activeIdx, setActiveIdx, phase, error, running: !!phase, chatId,
     run: () => execute(null), fix: (run, iterations) => execute(run, iterations),
-    stop: () => { stopRef.current = true; }, updateFixPrompt,
+    // Stops at once: downloads, the AI call and the simulation in progress are dropped and the page is ready again
+    stop: () => { stopRef.current?.abort(); setPhase(''); }, updateFixPrompt,
   };
 }

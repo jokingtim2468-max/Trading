@@ -359,6 +359,23 @@ await step('Strategy Converter: custom range back in 2008', async () => {
   await snap('converter-2008');
 });
 
+await step('Strategy Converter: Stop cancels at once', async () => {
+  const pills = page.locator('button', { hasText: /^v\d+/ });
+  const before = await pills.count();
+  await page.getByRole('button', { name: 'Convert & test' }).click();
+  await page.getByRole('button', { name: 'Stop' }).waitFor();
+  await page.waitForTimeout(200);
+  const t0 = Date.now();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Convert & test' }).waitFor({ timeout: 1000 });
+  const ms = Date.now() - t0;
+  // The cancelled run's AI answer arrives later and must not add a version or bring the progress back
+  await page.waitForTimeout(2500);
+  expect((await pills.count()) === before, 'a stopped run still added a version');
+  expect(await page.getByRole('button', { name: 'Convert & test' }).isVisible(), 'progress came back after Stop');
+  console.log(`      stopped in ${ms} ms`);
+});
+
 // Value of a metric tile ("Net P&L", "Trades") in the first report on the page
 // (numbers count up for 0.6 s when a report opens, so wait for them to settle)
 const metric = async (label) => {

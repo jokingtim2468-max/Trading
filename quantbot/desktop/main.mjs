@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { app, BrowserWindow, Menu, nativeTheme, shell, screen, ipcMain } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme, shell, screen, ipcMain, session } from 'electron';
 import updaterPkg from 'electron-updater';
 
 const { autoUpdater } = updaterPkg;
@@ -19,6 +19,9 @@ const UPDATES = app.isPackaged && !process.env.QUANTBOT_NO_UPDATE;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.setAppUserModelId('com.quantbot.desktop');
+// A standard Chrome identity: Dukascopy's bot filter blocks browsers whose user agent carries extra app names
+// ("QuantBot/1.0 ... Electron/38"), which is what Electron sends by default
+app.userAgentFallback = app.userAgentFallback.replace(/ QuantBot\/\S+/i, '').replace(/ Electron\/\S+/, '').replace(/ quantbot-desktop\/\S+/i, '');
 nativeTheme.themeSource = 'dark';
 Menu.setApplicationMenu(null);
 
@@ -101,6 +104,33 @@ function updateAtStart() {
   });
 }
 
+// Dukascopy only serves browsers now (Amazon's bot check). Market downloads go through Chromium's network stack,
+// and when the check comes up, a hidden window opens the same address so Chromium runs it and keeps its cookie.
+async function useBrowserForMarketData() {
+  const { useBrowser } = await import(pathToFileURL(path.join(appRoot, 'server', 'market', 'dukascopy.js')).href);
+  const ses = session.defaultSession;
+  useBrowser({
+    fetch: (url, init) => ses.fetch(url, { signal: init?.signal }),
+    log,
+    solve: async (url) => {
+      const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+      try {
+        // The check page runs its script, then reloads the address, which now answers 200 with data
+        let last = null;
+        const ok = await new Promise((resolve) => {
+          w.webContents.on('did-navigate', (_e, _u, code) => { last = code; if (code === 200) resolve(true); else if (code !== 202) resolve(false); });
+          setTimeout(() => resolve(false), 20000);
+          w.loadURL(url).catch(() => {});
+        });
+        log(`market data: Dukascopy bot check ${ok ? 'passed' : `failed (${last ?? 'no answer'})`}`);
+        return ok;
+      } finally {
+        if (!w.isDestroyed()) w.destroy();
+      }
+    },
+  });
+}
+
 // What Settings > Updates and the server's /api/app routes call
 const hooks = {
   heartbeat() {},
@@ -172,7 +202,8 @@ function createMain(url) {
     try { fs.writeFileSync(path.join(userData(), 'window.json'), JSON.stringify({ ...main.getNormalBounds(), maximized: main.isMaximized() })); } catch { /* best effort */ }
   };
   main.on('close', save);
-  main.on('closed', () => { main = null; });
+  // Closing the main window ends QuantBot even if a hidden helper window (Dukascopy's bot check) is still open
+  main.on('closed', () => { main = null; shutdown(); });
   return main;
 }
 
@@ -227,6 +258,7 @@ async function start() {
     progress({ percent: 8, label: 'Starting QuantBot…' });
     migrateOldData();
     const { startServer } = await import(pathToFileURL(path.join(appRoot, 'server', 'index.js')).href);
+    await useBrowserForMarketData();
     progress({ percent: 30, label: 'Loading your chats and tests…' });
     try {
       server = await startServer({ port: PORT, dataDir: dataDir(), prod: true, quiet: true, app: hooks });

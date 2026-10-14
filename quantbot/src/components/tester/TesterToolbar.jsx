@@ -30,7 +30,7 @@ export default function TesterToolbar({ cfg, set, onRun, onStop, running, disabl
         </SelectContent>
       </Select>
       {running ? (
-        <Button variant="outline" onClick={onStop} className="ml-auto bg-transparent"><Square className="w-4 h-4" />Stop after this step</Button>
+        <Button variant="outline" onClick={onStop} className="ml-auto bg-transparent"><Square className="w-4 h-4" />Stop</Button>
       ) : (
         <Button onClick={onRun} disabled={disabled} className="ml-auto"><Play className="w-4 h-4" />Convert & test</Button>
       )}

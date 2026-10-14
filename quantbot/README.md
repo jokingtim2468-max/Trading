@@ -5,7 +5,8 @@ that backtests the newest script in a chat, a Strategy Converter that converts a
 on data the bot has never seen, test history, a PnL calendar and trading-account / copy-group management.
 
 Built-in market data: XAUUSD (from 2003), US100 and NQ (from 2011 intraday, 1990 daily), downloaded free from
-Dukascopy the first time a range is used and saved in `data/market/`, in broker time (UTC+2 / UTC+3 like MT5).
+Dukascopy by the desktop app the first time a range is used (Dukascopy now only serves real browsers behind Amazon's bot
+check, so downloads go through the app's built-in Chromium, one request at a time) and saved in `data/market/`, in broker time (UTC+2 / UTC+3 like MT5).
 Pick any timeframe from M1 to D1 and any dates; M1 tests cover up to 370 days. NQ uses the Nasdaq-100 index prices on
 NQ's contract terms (Dukascopy has no CME futures data), so absolute prices sit slightly below the futures.
 
