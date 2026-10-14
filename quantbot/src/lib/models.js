@@ -4,29 +4,35 @@ export const PROVIDERS = {
 };
 
 export const MODELS = [
-  // No hosted model: "builtin" runs your default model with your own key
+  // "Auto" runs your default model: Claude if an Anthropic key is linked, then Gemini, then your local model
   { id: 'builtin', label: 'Auto (your default model)', provider: null },
-  { id: 'claude-opus-5', label: 'Claude Opus 5', provider: 'anthropic' },
-  { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', provider: 'anthropic' },
-  { id: 'claude-opus-4-1', label: 'Claude Opus 4.1', provider: 'anthropic' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', provider: 'anthropic' },
+  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic' },
+  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', provider: 'anthropic' },
+  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', provider: 'anthropic' },
   { id: 'gemini-4-argon', label: 'Gemini 4 Argon', provider: 'google' },
   { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', provider: 'google' },
   { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', provider: 'google' },
+  { id: 'local', label: 'Local model (Ollama)', provider: 'local' },
 ];
 
-// Provider whose key the chosen model needs but isn't linked yet (null when ready or still loading)
+// Provider whose key the chosen model needs but isn't linked yet (null when ready or still loading).
+// The local model has no key; it is set up in Settings and the server says so if it isn't.
 export function missingKey(modelId, status) {
   const provider = MODELS.find((m) => m.id === modelId)?.provider;
-  return provider && status && !status[provider]?.linked ? provider : null;
+  return provider && provider !== 'local' && status && !status[provider]?.linked ? provider : null;
 }
 
-export const DEFAULT_MODELS = { anthropic: 'claude-opus-5', google: 'gemini-3.8-flash' };
+export const DEFAULT_MODELS = { anthropic: 'claude-opus-5-5', google: 'gemini-3.8-flash' };
 
-// Tester default: your Claude model when an Anthropic key is linked, your Gemini model when only Google is linked
+// A saved model id that is no longer offered falls back to the default
+export const knownModel = (id, fallback) => (MODELS.some((m) => m.id === id) ? id : fallback);
+
+// Tester default: your Claude model when an Anthropic key is linked, your Gemini model when only Google is linked,
+// your local model when neither is
 export function defaultModel(status, user) {
-  if (!status?.anthropic?.linked && status?.google?.linked) return user?.default_gemini_model || DEFAULT_MODELS.google;
-  return user?.default_claude_model || DEFAULT_MODELS.anthropic;
+  if (!status?.anthropic?.linked && status?.google?.linked) return knownModel(user?.default_gemini_model, DEFAULT_MODELS.google);
+  if (!status?.anthropic?.linked && user?.ollama_model) return 'local';
+  return knownModel(user?.default_claude_model, DEFAULT_MODELS.anthropic);
 }
 
 export const GROUPS = [

@@ -1,7 +1,7 @@
 import { Input } from '@/components/ui/input';
 import Field from './Field';
 
-// Passwords and API secrets go straight to the desktop app, which encrypts them on this PC
+// Passwords and API secrets go straight to the copy-trading engine (when installed), which encrypts them on this PC
 export default function SecretFields({ platform, secret, setSecret, saved, disabled }) {
   const input = (key, label, type = 'password') => (
     <Field key={key} label={label}>
@@ -9,7 +9,7 @@ export default function SecretFields({ platform, secret, setSecret, saved, disab
     </Field>
   );
   const hint = disabled
-    ? 'Entered in the QuantBot desktop app and never leaves that PC.'
+    ? 'Entered once the copy-trading engine is added; it will stay on this PC.'
     : saved ? 'Saved encrypted on this PC. Type to replace.' : 'Saved encrypted on this PC only.';
   return (
     <div className="space-y-3 rounded-lg border border-border p-3">

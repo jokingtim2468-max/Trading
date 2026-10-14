@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { client } from '@/api/client';
 import { MODELS } from '@/lib/models';
-import { loadDatasets, loadBars, sliceBars } from '@/lib/backtest/data';
-import { WINDOWS, findUnseenWindow, customWindow, overlapsSeen, fmtDate } from '@/lib/backtest/windows';
+import { loadDatasets, loadTestBars, sliceBars, asTested, firstDate, lastDate, WARMUP_BARS } from '@/lib/backtest/data';
+import { WINDOWS, findUnseenWindow, customWindow, fmtDate } from '@/lib/backtest/windows';
 import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics, downsample } from '@/lib/backtest/metrics';
 import { buildFixPrompt } from '@/lib/backtest/fixPrompt';
@@ -11,7 +11,8 @@ import { testSignals } from '@/lib/backtest/signals';
 import { runMonteCarlo } from '@/lib/backtest/monteCarlo';
 import { marketStats } from '@/lib/backtest/marketStats';
 
-const WARMUP = 500;
+const WARMUP = WARMUP_BARS;
+const DAY = 86400000;
 const { StrategyRun, DataUsage } = client.entities;
 
 export default function useStrategyLab(config) {
@@ -26,39 +27,65 @@ export default function useStrategyLab(config) {
 
   useEffect(() => { loadDatasets().then(setDatasets); }, []);
 
-  async function pickWindow(ds, bars) {
+  // Picks the test dates from the calendar (every day the data covers), so 20 years of history never has to load
+  // just to find a window. -> { start, end } in ms, label, reused
+  async function pickDates(ds) {
     const page = await DataUsage.filter({ bot_name: config.botName, symbol: ds.symbol }, { limit: 500 });
     const used = page.items.map((u) => ({ start: Date.parse(u.start), end: Date.parse(u.end) }));
     const def = WINDOWS.find((w) => w.id === config.windowId);
-    const w = def.id === 'custom'
-      ? customWindow(bars.time, config.customFrom, config.customTo)
-      : findUnseenWindow(bars.time, used, def.ms);
-    if (!w) throw new Error(def.id === 'custom' ? 'No bars in that date range.' : `No ${def.label} window left for "${config.botName}" on ${ds.symbol} (data runs ${fmtDate(bars.time[0])} to ${fmtDate(bars.time[bars.time.length - 1])}).`);
-    return { ...w, label: def.label, reused: def.id === 'custom' && overlapsSeen(bars.time, w, used) };
+    const first = Date.parse(`${firstDate(ds, config.timeframe)}T00:00:00Z`);
+    const last = Date.parse(`${lastDate(ds)}T00:00:00Z`);
+    const days = [];
+    for (let t = first; t <= last; t += DAY) days.push(t);
+    if (def.id === 'custom') {
+      const w = customWindow(days, config.customFrom, config.customTo);
+      if (!w) throw new Error(`No ${ds.symbol} data between ${config.customFrom} and ${config.customTo} (it starts ${fmtDate(first)}).`);
+      const start = days[w.from], end = days[w.to] + DAY - 1;
+      return { start, end, label: def.label, reused: used.some((u) => start <= u.end && end >= u.start) };
+    }
+    const w = findUnseenWindow(days, used, def.ms);
+    if (!w) throw new Error(`No ${def.label} window left for "${config.botName}" on ${ds.symbol} (data runs ${fmtDate(first)} to ${fmtDate(last)}).`);
+    return { start: days[w.from], end: days[w.to] + DAY - 1, label: def.label, reused: false };
   }
 
-  async function runOnce(previous, session, ds) {
+  // Bars for the window plus warm-up bars before it (the same loader the Strategy Tester uses)
+  async function windowBars(ds, dates) {
+    const { bars, start } = await loadTestBars(ds, {
+      tf: ds.timeframe, from: fmtDate(dates.start), to: fmtDate(dates.end),
+      onProgress: (done, total) => total && setPhase(`${ds.symbol}: downloading ${ds.timeframe} history (${done} of ${total} files)...`),
+    });
+    return { bars, w: { from: start, to: bars.time.length - 1 } };
+  }
+
+  // reuse: a conversion from an earlier market of the same run, so every market tests the same bot (one AI call)
+  async function runOnce(previous, session, ds, reuse = null) {
     if (!config.botName.trim()) throw new Error('Give the bot a name so its unseen data can be tracked.');
     setPhase(`${ds.symbol}: loading market data...`);
     const log = [];
     const add = (level, msg) => log.push({ level, msg, t: Date.now() });
 
-    const bars = await loadBars(ds);
-    const w = await pickWindow(ds, bars);
+    const dates = await pickDates(ds);
+    const { bars, w: span } = await windowBars(ds, dates);
+    const w = { ...span, label: dates.label, reused: dates.reused };
     const windowText = `${w.label}: ${fmtDate(bars.time[w.from])} to ${fmtDate(bars.time[w.to])} (${w.to - w.from + 1} bars, ${ds.symbol} ${ds.timeframe})`;
     add('info', `Test window ${windowText}`);
     if (w.reused) add('warn', 'Part of this custom range was already seen by this bot.');
 
     const modelLabel = MODELS.find((m) => m.id === config.model)?.label;
-    setPhase(previous ? `Fixing v${previous.version} with ${modelLabel}...` : `Converting to ${config.target} with ${modelLabel}...`);
-    const t0 = Date.now();
-    const market = { symbol: ds.symbol, timeframe: ds.timeframe, contract_size: ds.contract_size, point: ds.point, balance: config.balance, stats: marketStats(bars) };
-    const res = await client.functions.invoke('strategyTester', {
-      strategy: config.strategy, rules: config.rules, target: config.target, model: config.model, market,
-      previous: previous && { code: previous.code, sim_code: previous.sim_code, fix_prompt: previous.fixPrompt },
-    });
-    const conv = res.data;
-    add('info', `${previous ? `Fixed v${previous.version}` : 'Converted'} with ${modelLabel} in ${Math.round((Date.now() - t0) / 1000)}s`);
+    let conv = reuse;
+    if (conv) {
+      add('info', `Same conversion as ${reuse.firstSymbol}, tested on ${ds.symbol}`);
+    } else {
+      setPhase(previous ? `Fixing v${previous.version} with ${modelLabel}...` : `Converting to ${config.target} with ${modelLabel}...`);
+      const t0 = Date.now();
+      const market = { symbol: ds.symbol, timeframe: ds.timeframe, contract_size: ds.contract_size, point: ds.point, balance: config.balance, stats: marketStats(bars) };
+      const res = await client.functions.invoke('strategyTester', {
+        strategy: config.strategy, rules: config.rules, target: config.target, model: config.model, market,
+        previous: previous && { code: previous.code, sim_code: previous.sim_code, fix_prompt: previous.fixPrompt },
+      });
+      conv = { ...res.data, firstSymbol: ds.symbol };
+      add('info', `${previous ? `Fixed v${previous.version}` : 'Converted'} with ${modelLabel} in ${Math.round((Date.now() - t0) / 1000)}s`);
+    }
     const failed = conv.results.filter((r) => r.status !== 'pass').length;
     add(failed ? 'warn' : 'info', `Rule test: ${conv.results.length - failed}/${conv.results.length} passed`);
 
@@ -100,7 +127,7 @@ export default function useStrategyLab(config) {
       return { t: bars.time[j], open: bars.open[j], close: bars.close[j], high: bars.high[j], low: bars.low[j], volume: bars.volume[j] };
     });
     return {
-      id: saved.id, sessionId: nextSession.id, version, target: config.target, windowText, ...conv, results, metrics, log, fixPrompt,
+      id: saved.id, sessionId: nextSession.id, version, target: config.target, windowText, ...conv, convResults: conv.results, results, metrics, log, fixPrompt,
       trades: sim.trades, equity: downsample(sim.equity), price: priceBars, balance: config.balance,
       mc, contractSize: ds.contract_size || 100, ds,
     };
@@ -116,11 +143,15 @@ export default function useStrategyLab(config) {
     };
     try {
       if (!previous) {
-        const picked = datasets.filter((d) => config.datasetIds.includes(d.id));
+        const picked = datasets.filter((d) => config.datasetIds.includes(d.id)).map((d) => asTested(d, config.timeframe));
         if (!picked.length) throw new Error('Pick at least one market.');
+        // Convert once, then test that same bot on every picked market
+        let conv = null;
         for (const ds of picked) {
           if (stopRef.current) break;
-          push(await runOnce(null, null, ds));
+          const run = await runOnce(null, null, ds, conv);
+          conv = conv || { code: run.code, sim_code: run.sim_code, summary: run.summary, results: run.convResults, firstSymbol: ds.symbol };
+          push(run);
         }
       } else {
         let prev = previous;

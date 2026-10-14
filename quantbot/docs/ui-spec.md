@@ -1,0 +1,74 @@
+---
+tags: [quantbot, ui-spec]
+---
+
+# QuantBot UI spec
+
+Drop this file into your Obsidian vault. It mirrors what the code does; the source of truth is
+`src/index.css` (colors, fonts), `tailwind.config.js` (easing) and `src/lib/clickOrigin.js` (motion).
+
+## Colors (dark theme)
+
+| Role | Token | Hex |
+|---|---|---|
+| Background | `hsl(60 3% 15%)` | `#272725` |
+| Card / popover | `hsl(60 2% 19%)` | `#31312F` |
+| Sidebar | `hsl(30 3% 12%)` | `#201F1E` |
+| Text | `hsl(51 30% 95%)` | `#F6F5EE` |
+| Muted text | `hsl(42 5% 64%)` | `#A8A59F` |
+| Primary (accent blue) | `hsl(204 85% 66%)` | `#5FB7F2` |
+| Text on primary | `hsl(210 50% 10%)` | `#0D1926` |
+| Border / input | `hsl(48 4% 23%)` | `#3D3C38` |
+| Hover (accent) | `hsl(43 4% 16%)` | `#2A2A27` |
+| Destructive / loss (red) | `hsl(0 84% 60%)` | `#EF4343` |
+| Profit (green, chart-2) | `hsl(142 71% 45%)` | `#21C45D` |
+| Chart 3 | `hsl(199 89% 60%)` | `#3EBAF4` |
+| Chart 4 | `hsl(43 74% 66%)` | `#E8C468` |
+| Chart 5 | `hsl(27 87% 67%)` | `#F4A462` |
+
+## Type and shape
+
+- Headings: Source Serif 4. Body: Inter. Code: the system monospace font.
+- Corner radius: 0.75 rem (12 px) on cards; buttons and inputs use the shadcn defaults (`rounded-md`).
+
+## Motion: grow from the click, shrink back into it
+
+Everything that opens from a click uses one motion.
+
+- **Open:** grows from 5% size and fully transparent to full size, starting at the spot that was clicked.
+- **Close:** shrinks back to 5% and fades out, into the same spot it came from. That is the spot clicked to open it,
+  not the close button.
+- **Timing:** 400 ms (slowed to 0.75x from 300 ms so the growth is easy to follow and doesn't feel abrupt), easing
+  `cubic-bezier(0.2, 0.8, 0.2, 1)` (Tailwind `duration-pop` and `ease-pop`).
+- **Backdrops** behind dialogs fade in and out over the same 400 ms.
+
+| Element | Grows from |
+|---|---|
+| Pages (sidebar links, back arrows) | the exact click point |
+| Dialogs (add account, add market data, groups) | the exact click point |
+| Delete-chat confirmation | the exact click point |
+| Toasts (e.g. "Message failed") | the click that led to them (up to a minute before) |
+| Mobile sidebar | the menu button tap |
+| Dropdown menus, selects, market picker | the button that opened them (Radix anchor origin) |
+| Tooltips | not animated this way (they open on hover, not a click) |
+| Date fields | the browser's own date picker, which can't be animated |
+
+## Numbers and charts
+
+- **Numbers** on reports (result tiles, Monte Carlo stats, PnL summary, history cards, leaderboards) count up from 0
+  to their value in 0.6 s, easing out.
+- **Charts** draw themselves in over 1 s. Every chart has a **Replay** button (top right) that draws it again.
+- **Reduced motion:** when the computer's "reduce motion" setting is on, numbers and charts show at once and the
+  open/close motion is off (for people who get motion sickness).
+- **Leaderboard** at the bottom of every Strategy Tester run, Converter run and saved session: every market and
+  version ranked by net P&L, with return, win rate, profit factor, max drawdown, trades and the Monte Carlo grade.
+  Click a row to open that run.
+
+## Market data
+
+- Built-in markets: XAUUSD (1-minute bars from May 2003, daily from 1999), US100 (1-minute bars from Sept 2011,
+  daily from Nov 1990) and NQ (the same Nasdaq-100 prices on NQ's contract: 0.25 tick, $20 per point, 1-tick spread),
+  downloaded free from Dukascopy and saved on the PC.
+- The Converter converts a strategy once and tests that bot on every picked market (all three by default).
+- Bar times are broker server time: UTC+2, or UTC+3 while New York is on daylight saving (like FTMO's MT5).
+- Timeframes: M1, M5, M15, M30, H1, H4, D1. M1 tests cover up to 370 days.

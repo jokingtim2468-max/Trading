@@ -19,7 +19,7 @@ export default function TradesTable({ trades }) {
               <td className="px-3 py-1.5">{t.entry.toFixed(2)}</td>
               <td className="px-3 py-1.5">{dt(t.exitTime)}</td>
               <td className="px-3 py-1.5">{t.exit.toFixed(2)}</td>
-              <td className="px-3 py-1.5">{t.lots}</td>
+              <td className="px-3 py-1.5">{Number(t.lots).toFixed(2)}</td>
               <td className="px-3 py-1.5">{t.mae.toFixed(2)}</td>
               <td className="px-3 py-1.5">{t.mfe.toFixed(2)}</td>
               <td className="px-3 py-1.5 uppercase">{t.reason}</td>

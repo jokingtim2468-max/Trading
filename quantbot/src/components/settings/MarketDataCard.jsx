@@ -7,11 +7,11 @@ import MarketDataDialog from './MarketDataDialog';
 
 const day = (v) => (v ? String(v).slice(0, 10) : '?');
 
-// The candle files the Strategy Tester and Converter run on
+// Uploaded candle files the Strategy Tester and Converter can run on, next to the built-in markets
 export default function MarketDataCard() {
   const [datasets, setDatasets] = useState(null);
   const [adding, setAdding] = useState(false);
-  const reload = () => loadDatasets().then(setDatasets);
+  const reload = () => loadDatasets().then((all) => setDatasets(all.filter((d) => !d.market)));
 
   useEffect(() => { reload(); }, []);
 
@@ -25,13 +25,13 @@ export default function MarketDataCard() {
     <div className="bg-card border border-border rounded-2xl p-5 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="font-medium">Candle data</h3>
-          <p className="text-xs text-muted-foreground">MT5 or TradingView exports the testers run on.</p>
+          <h3 className="font-medium">Your own candle files</h3>
+          <p className="text-xs text-muted-foreground">Optional: MT5 or TradingView exports for other symbols or your broker's own prices.</p>
         </div>
         <Button size="sm" onClick={() => setAdding(true)}><Plus className="w-4 h-4 mr-1" />Add file</Button>
       </div>
       {!datasets ? <p className="text-sm text-muted-foreground">Loading…</p> : !datasets.length ? (
-        <p className="text-sm text-muted-foreground">No candle files yet.</p>
+        <p className="text-sm text-muted-foreground">No files added.</p>
       ) : (
         <div className="divide-y divide-border">
           {datasets.map((d) => (

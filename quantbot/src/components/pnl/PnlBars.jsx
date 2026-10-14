@@ -1,6 +1,8 @@
 import { ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle } from '@/components/tester/report/ChartCard';
+import ChartCard, { axisProps, tooltipStyle, CHART_ANIM } from '@/components/tester/report/ChartCard';
 import { shortLabel } from '@/lib/pnl';
+
+const money = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 
 export default function PnlBars({ rows, view }) {
   let cum = 0;
@@ -14,13 +16,14 @@ export default function PnlBars({ rows, view }) {
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={data}>
           <XAxis dataKey="label" {...axisProps} />
-          <YAxis width={60} tickFormatter={(v) => `$${v}`} {...axisProps} />
-          <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [`$${v}`, n]} />
-          <ReferenceLine y={0} stroke="hsl(var(--border))" />
-          <Bar dataKey="pnl" name="P&L">
+          <YAxis width={70} tickFormatter={money} {...axisProps} />
+          <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [money(v), n]} />
+          {/* Stretches the axis to $0 so bars show even when every period is a loss (or every one a win) */}
+          <ReferenceLine y={0} stroke="hsl(var(--border))" ifOverflow="extendDomain" />
+          <Bar {...CHART_ANIM} dataKey="pnl" name="P&L" maxBarSize={48}>
             {data.map((d, k) => <Cell key={k} fill={d.pnl >= 0 ? 'hsl(var(--chart-2))' : 'hsl(var(--destructive))'} />)}
           </Bar>
-          <Line dataKey="cum" name="Running total" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+          <Line {...CHART_ANIM} dataKey="cum" name="Running total" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>

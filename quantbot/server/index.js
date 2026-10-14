@@ -9,6 +9,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBackend, entityDefaults } from './backend.js';
 import { createCipher } from './crypto.js';
+import { createMarketStore } from './market/store.js';
+import { TIMEFRAMES, MAX_RANGE_DAYS } from './market/instruments.js';
+import { encodeBars } from './market/resample.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -43,7 +46,7 @@ function trusted(req) {
   return !origin || origin === `http://${req.headers.host}`;
 }
 
-async function handleApi(req, res, backend, url) {
+async function handleApi(req, res, { backend, market }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
 
   if (req.method === 'POST' && url.pathname === '/api/invoke') {
@@ -59,6 +62,24 @@ async function handleApi(req, res, backend, url) {
     if (req.headers['x-quantbot-upload'] !== '1') return send(res, 400, { error: 'Missing upload header' });
     const bytes = await readBody(req, MAX_UPLOAD);
     return send(res, 200, backend.handle('file', url.searchParams.get('name') || 'file', bytes));
+  }
+
+  // Built-in market data (XAUUSD, US100), downloaded from Dukascopy on first use
+  if (req.method === 'GET' && url.pathname === '/api/market/info') {
+    return send(res, 200, { markets: market.info(), timeframes: Object.keys(TIMEFRAMES), maxRangeDays: MAX_RANGE_DAYS });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/market/prepare') {
+    if (!String(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'JSON required' });
+    const { symbol, tf, from, to } = JSON.parse((await readBody(req, 10000)).toString('utf8') || '{}');
+    return send(res, 200, market.prepare(symbol, tf, from, to));
+  }
+  const job = url.pathname.match(/^\/api\/market\/jobs\/(\d+)$/);
+  if (req.method === 'GET' && job) return send(res, 200, market.job(job[1]));
+  if (req.method === 'GET' && url.pathname === '/api/market/bars') {
+    const q = url.searchParams;
+    const bars = await market.bars(q.get('symbol'), q.get('tf'), q.get('from'), q.get('to'));
+    res.writeHead(200, { 'content-type': 'application/octet-stream' });
+    return res.end(encodeBars(bars));
   }
 
   const m = url.pathname.match(/^\/api\/files\/([^/]+)$/);
@@ -80,7 +101,7 @@ function serveStatic(req, res, dist) {
   fs.createReadStream(file).pipe(res);
 }
 
-export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName } = {}) {
+export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false } = {}) {
   const cipher = createCipher(dataDir);
   const backend = createBackend({
     dataDir,
@@ -90,6 +111,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     defaults: entityDefaults(path.join(root, 'server', 'entities')),
   });
 
+  const market = createMarketStore(dataDir);
   const server = http.createServer();
   let vite = null;
   const dist = path.join(root, 'dist');
@@ -97,14 +119,14 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('No build found: run npm run build first');
   } else {
     const { createServer } = await import('vite');
-    vite = await createServer({ root, server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
+    vite = await createServer({ root, server: { middlewareMode: true, hmr: { server } }, appType: 'spa', logLevel: quiet ? 'error' : 'info' });
   }
 
   server.on('request', async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, backend, url);
+        await handleApi(req, res, { backend, market }, url);
       } catch (e) {
         if (!res.headersSent) send(res, e.status || 500, { error: e.message || String(e) });
       }
@@ -124,7 +146,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     if (vite) await vite.close();
     await new Promise((r) => server.close(r));
   };
-  return { server, port: server.address().port, close, backend };
+  return { server, port: server.address().port, close, backend, market };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

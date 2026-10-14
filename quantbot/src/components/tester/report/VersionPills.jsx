@@ -14,6 +14,7 @@ export default function VersionPills({ runs, activeIdx, onSelect }) {
         >
           {k === best && <Trophy className="w-3.5 h-3.5 mr-1.5 text-primary" />}
           <span className="font-semibold">v{r.version}</span>
+          {(r.ds?.symbol || r.symbol) && <span className="ml-1.5 text-muted-foreground">{r.ds?.symbol || r.symbol}</span>}
           <span className={`ml-2 ${r.metrics.net >= 0 ? 'text-chart-2' : 'text-destructive'}`}>
             {r.metrics.net >= 0 ? '+' : ''}{r.metrics.net.toFixed(0)}$
           </span>

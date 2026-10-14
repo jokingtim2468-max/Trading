@@ -96,6 +96,12 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
     }
   }
 
-  if (pos) marketExit(Math.min(i, n - 1), 'end');
+  // A trade still open at the end closes at the last bar's close (like MT5's tester), so the final balance and
+  // the final equity agree
+  if (pos) {
+    const k = Math.min(i, n - 1);
+    exitAt(k, pos.side === 'long' ? bars.close[k] : ask(k, bars.close[k]), 'end');
+    if (equity.length) equity[equity.length - 1] = { ...equity[equity.length - 1], equity: cash, balance: cash };
+  }
   return { trades, equity, log, errors };
 }

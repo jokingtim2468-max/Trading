@@ -3,17 +3,22 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, History, ArrowLeftRight } from 'lucide-react';
 import { MODELS } from '@/lib/models';
 import useScriptTester from '@/hooks/useScriptTester';
-import { DEFAULT_DATASET_IDS } from '@/lib/backtest/builtinData';
+import { daysAgo, today, firstDate } from '@/lib/backtest/data';
 import TesterControls from '@/components/scripttester/TesterControls';
 import ScriptCard from '@/components/scripttester/ScriptCard';
 import ScriptResults from '@/components/scripttester/ScriptResults';
 import ChartLoader from '@/components/quant/ChartLoader';
+import Leaderboard from '@/components/tester/report/Leaderboard';
 
 export default function StrategyTester() {
   const t = useScriptTester();
   const [chatId, setChatId] = useState('');
-  const [datasetIds, setDatasetIds] = useState(DEFAULT_DATASET_IDS);
+  const [datasetIds, setDatasetIds] = useState(['market-XAUUSD', 'market-US100', 'market-NQ']);
+  const [range, setRange] = useState({ tf: 'M15', from: daysAgo(365), to: today() });
   useEffect(() => { if (!chatId && t.chats[0]) setChatId(t.chats[0].id); }, [t.chats]);
+  // Dates can go back to the latest start among the picked built-in markets
+  const picked = t.datasets.filter((d) => d.market && datasetIds.includes(d.id));
+  const min = picked.map((d) => firstDate(d, range.tf)).sort().at(-1);
   const modelLabel = MODELS.find((m) => m.id === t.model)?.label;
 
   return (
@@ -33,10 +38,13 @@ export default function StrategyTester() {
           <div className="space-y-2">
             <TesterControls
               chats={t.chats} datasets={t.datasets} chatId={chatId} datasetIds={datasetIds}
-              onChat={setChatId} onDatasets={setDatasetIds} onRun={() => t.run(chatId, datasetIds)} running={t.running}
+              onChat={setChatId} onDatasets={setDatasetIds} running={t.running}
+              range={range} rangeLimits={{ min, max: today() }} onRange={(p) => setRange((r) => ({ ...r, ...p }))}
+              onRun={() => t.run(chatId, datasetIds, range)}
             />
             <p className="text-xs text-muted-foreground px-1">
-              Tests the newest script in the chat on the full history of the timeframe. Settings are built into the tester:
+              Tests the newest script in the chat on the chosen dates. XAUUSD, US100 and NQ history downloads from Dukascopy the first
+              time a range is used (broker time, UTC+2/+3); uploaded files keep their own timeframe. M1 tests cover up to 370 days. Settings are built into the tester:
               $10,000 balance, the script's own inputs, 1% risk if it sets none. Script read by {modelLabel} (change it in Settings).
             </p>
           </div>
@@ -48,12 +56,19 @@ export default function StrategyTester() {
         )}
         {t.error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{t.error}</div>}
         {t.results.map((r) => (
-          <div key={r.ds.id} className="space-y-5">
+          <div key={r.ds.id} id={`result-${r.ds.id}`} className="space-y-5 scroll-mt-4">
             <h2 className="font-heading text-base font-semibold">{r.ds.symbol} {r.ds.timeframe}</h2>
             <ScriptCard result={r} />
             <ScriptResults result={r} />
           </div>
         ))}
+        {t.results.length > 0 && !t.running && (
+          <Leaderboard
+            title="Leaderboard: every market in this test"
+            rows={t.results.map((r) => ({ id: r.ds.id, name: `${r.ds.symbol} ${r.ds.timeframe}`, metrics: r.metrics, mc: r.mc }))}
+            onSelect={(id) => document.getElementById(`result-${id}`)?.scrollIntoView({ behavior: 'smooth' })}
+          />
+        )}
       </div>
     </div>
   );

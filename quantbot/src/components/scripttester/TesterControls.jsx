@@ -2,8 +2,9 @@ import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import DatasetPicker from '@/components/tester/DatasetPicker';
+import RangeFields from '@/components/tester/RangeFields';
 
-export default function TesterControls({ chats, datasets, chatId, datasetIds, onChat, onDatasets, onRun, running }) {
+export default function TesterControls({ chats, datasets, chatId, datasetIds, onChat, onDatasets, range, rangeLimits, onRange, onRun, running }) {
   return (
     <div className="bg-card border border-border rounded-xl p-4 flex flex-wrap items-end gap-3">
       <label className="space-y-1 flex-1 min-w-[220px]">
@@ -19,7 +20,8 @@ export default function TesterControls({ chats, datasets, chatId, datasetIds, on
         <span className="text-xs text-muted-foreground">Markets</span>
         <DatasetPicker datasets={datasets} value={datasetIds} onChange={onDatasets} />
       </label>
-      <Button onClick={onRun} disabled={running || !chatId || !datasetIds.length} className="h-10">
+      <RangeFields {...range} {...rangeLimits} onChange={onRange} />
+      <Button onClick={onRun} disabled={running || !chatId || !datasetIds.length || !range.from || !range.to} className="h-10">
         <Play className="w-4 h-4 mr-2" />Run test
       </Button>
     </div>

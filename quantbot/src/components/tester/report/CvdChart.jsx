@@ -1,5 +1,5 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle, dateTick, dateTimeLabel } from './ChartCard';
+import ChartCard, { axisProps, tooltipStyle, dateTick, dateTimeLabel, CHART_ANIM } from './ChartCard';
 import { downsample } from '@/lib/backtest/metrics';
 
 // Cumulative volume delta proxy: tick volume signed by candle direction
@@ -17,7 +17,7 @@ export default function CvdChart({ price }) {
           <YAxis width={60} tickFormatter={(v) => `${Math.round(v / 1000)}k`} {...axisProps} />
           <Tooltip contentStyle={tooltipStyle} labelFormatter={dateTimeLabel} formatter={(v) => [Math.round(v).toLocaleString(), 'CVD']} />
           <ReferenceLine y={0} stroke="hsl(var(--border))" />
-          <Area dataKey="cvd" stroke="hsl(var(--chart-5))" fill="hsl(var(--chart-5))" fillOpacity={0.2} dot={false} />
+          <Area {...CHART_ANIM} dataKey="cvd" stroke="hsl(var(--chart-5))" fill="hsl(var(--chart-5))" fillOpacity={0.2} dot={false} />
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>

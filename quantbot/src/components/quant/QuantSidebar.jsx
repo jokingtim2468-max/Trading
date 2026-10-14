@@ -1,14 +1,26 @@
 import { Plus, X, FlaskConical, History, CalendarDays, ArrowLeftRight, Wallet } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { pageOrigin } from '@/lib/clickOrigin';
 import GroupPills from './GroupPills';
 import ProfileFooter from './ProfileFooter';
 import SessionItem from './SessionItem';
 
+// On phones the sidebar grows out of the menu button tap and shrinks back into it; on desktop it is always shown
 export default function QuantSidebar({ user, sessions, activeId, activeGroup, onSelect, onNew, onGroup, onRename, onMove, onDelete, open, onClose }) {
+  const [origin, setOrigin] = useState('left top');
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setOrigin(pageOrigin());
+  }
   return (
     <>
-      {open && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={onClose} />}
-      <aside className={`fixed md:static z-40 inset-y-0 left-0 w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-transform ${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+      <div className={`fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity duration-pop ${open ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={onClose} />
+      <aside
+        style={{ transformOrigin: origin }}
+        className={`fixed md:static z-40 inset-y-0 left-0 w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border flex flex-col transition-[transform,opacity] motion-reduce:transition-none duration-pop ease-pop ${open ? 'scale-100 opacity-100' : 'scale-[0.05] opacity-0 pointer-events-none'} md:scale-100 md:opacity-100 md:pointer-events-auto`}
+      >
         <div className="h-14 flex items-center justify-between px-4">
           <span className="font-heading text-lg font-semibold">QuantBot</span>
           <button onClick={onClose} className="md:hidden p-1 rounded hover:bg-sidebar-accent"><X className="w-4 h-4" /></button>

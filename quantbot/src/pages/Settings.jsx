@@ -4,7 +4,9 @@ import { ArrowLeft, Lock } from 'lucide-react';
 import { getKeyStatus } from '@/lib/quantApi';
 import ProviderKeyCard from '@/components/quant/ProviderKeyCard';
 import DefaultModelsCard from '@/components/settings/DefaultModelsCard';
+import LocalModelCard from '@/components/settings/LocalModelCard';
 import MarketDataCard from '@/components/settings/MarketDataCard';
+import BuiltInMarketsCard from '@/components/settings/BuiltInMarketsCard';
 
 export default function Settings() {
   const [status, setStatus] = useState(null);
@@ -32,10 +34,12 @@ export default function Settings() {
         <section className="mt-8 space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Models</h2>
           <DefaultModelsCard />
+          <LocalModelCard />
         </section>
 
         <section className="mt-8 space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Market data</h2>
+          <BuiltInMarketsCard />
           <MarketDataCard />
         </section>
 

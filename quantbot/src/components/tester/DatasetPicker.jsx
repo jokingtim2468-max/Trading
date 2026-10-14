@@ -9,7 +9,7 @@ export default function DatasetPicker({ datasets, value, onChange, className = '
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={`flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 text-sm ${className}`}>
+        <button type="button" aria-label={`Markets: ${label || 'none picked'}`} className={`flex h-10 w-full items-center justify-between rounded-md border border-input bg-card px-3 text-sm ${className}`}>
           <span className="truncate">{label || 'Pick markets'}</span>
           <ChevronDown className="w-4 h-4 opacity-50 shrink-0" />
         </button>
@@ -18,8 +18,8 @@ export default function DatasetPicker({ datasets, value, onChange, className = '
         {datasets.map((d) => (
           <label key={d.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent cursor-pointer">
             <Checkbox checked={value.includes(d.id)} onCheckedChange={() => toggle(d.id)} />
-            <span className="flex-1">{d.symbol} {d.timeframe}</span>
-            <span className="text-xs text-muted-foreground">{d.builtin ? 'Built-in' : d.source}</span>
+            <span className="flex-1">{d.symbol}{d.market ? '' : ` ${d.timeframe}`}</span>
+            <span className="text-xs text-muted-foreground">{d.market ? `Built-in · from ${d.dayStart.slice(0, 4)}` : `Your file · ${d.source}`}</span>
           </label>
         ))}
       </PopoverContent>

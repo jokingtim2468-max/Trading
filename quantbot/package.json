@@ -8,6 +8,7 @@
     "build": "vite build",
     "serve": "node server/index.js --prod",
     "test": "node --test tests/unit/*.test.js",
+    "test:e2e": "node tests/e2e/run.js",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json"

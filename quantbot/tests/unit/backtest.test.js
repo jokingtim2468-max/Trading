@@ -6,7 +6,7 @@ import { createServer } from 'vite';
 
 let vite;
 const load = (p) => vite.ssrLoadModule(p);
-before(async () => { vite = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom', logLevel: 'error' }); });
+before(async () => { vite = await createServer({ server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom', logLevel: 'error' }); });
 after(() => vite.close());
 
 const H = 3600000;

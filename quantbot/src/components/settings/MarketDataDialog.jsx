@@ -55,7 +55,7 @@ export default function MarketDataDialog({ onClose, onSaved }) {
         <DialogHeader><DialogTitle>Add candle data</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="outline" asChild><label className="cursor-pointer"><FolderOpen /> Pick folder<input type="file" webkitdirectory="" directory="" multiple hidden onChange={pick} /></label></Button>
+            <Button variant="outline" asChild><label className="cursor-pointer"><FolderOpen /> Pick folder<input type="file" webkitdirectory="" multiple hidden onChange={pick} /></label></Button>
             <Button variant="outline" asChild><label className="cursor-pointer"><FileUp /> Pick files<input type="file" accept=".csv,.txt" multiple hidden onChange={pick} /></label></Button>
           </div>
           {items.length > 0 && (

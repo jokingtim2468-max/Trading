@@ -13,7 +13,7 @@ export async function saveScriptTest(t, trades) {
   const version = (await StrategyRun.count({ bot_name: t.name })) + 1;
   const { saved } = await saveRun(session, {
     bot_name: t.name, version, target: t.script.language, model: t.model, symbol: t.ds.symbol,
-    window_label: `Full history ${t.ds.timeframe}`, start: t.start, end: t.end, rules,
+    window_label: `${t.ds.timeframe} ${t.start.slice(0, 10)} to ${t.end.slice(0, 10)}`, start: t.start, end: t.end, rules,
     code: t.script.code, sim_code: t.simCode, summary: t.summary, results: t.results, log: t.logText,
     metrics: { ...t.metrics, profitFactor: Number.isFinite(t.metrics.profitFactor) ? t.metrics.profitFactor : null },
   }, trades);

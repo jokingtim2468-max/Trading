@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLocation, useOutlet } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { pageOrigin } from '@/lib/clickOrigin';
+import { pageOrigin, MOTION, reducedMotion } from '@/lib/clickOrigin';
 
 // One page: grows out of the clicked spot, and shrinks back into that same spot when leaving
 function Page({ children }) {
@@ -9,10 +9,10 @@ function Page({ children }) {
   const [content] = useState(children); // freeze so the leaving page keeps its own content
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.6 }}
+      initial={{ opacity: 0, scale: MOTION.from }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.05 }}
-      transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
+      exit={{ opacity: 0, scale: MOTION.from }}
+      transition={{ duration: reducedMotion() ? 0 : MOTION.duration, ease: MOTION.ease }}
       style={{ transformOrigin: origin }}
     >
       {content}

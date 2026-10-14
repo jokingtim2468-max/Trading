@@ -4,6 +4,7 @@ import VersionPills from '@/components/tester/report/VersionPills';
 import ChartLoader from '@/components/quant/ChartLoader';
 import SessionHeader from './SessionHeader';
 import SavedRunReport from './SavedRunReport';
+import Leaderboard from '@/components/tester/report/Leaderboard';
 
 export default function SessionDetail({ session }) {
   const [runs, setRuns] = useState(null);
@@ -26,6 +27,12 @@ export default function SessionDetail({ session }) {
         <>
           <VersionPills runs={runs} activeIdx={idx} onSelect={setIdx} />
           <SavedRunReport key={run.id} run={run} balance={session.balance} />
+          <Leaderboard
+            title="Leaderboard: every version in this session"
+            rows={runs.map((r) => ({ id: r.id, name: r.symbol, version: `v${r.version}`, metrics: r.metrics, mc: r.metrics.mc }))}
+            activeId={run.id}
+            onSelect={(id) => setIdx(runs.findIndex((r) => r.id === id))}
+          />
         </>
       )}
     </div>

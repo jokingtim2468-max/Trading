@@ -5,20 +5,21 @@ import * as api from '@/lib/quantApi';
 import { client } from '@/api/client';
 import { missingKey, defaultModel } from '@/lib/models';
 import useStrategyLab from '@/hooks/useStrategyLab';
-import { DEFAULT_DATASET_IDS } from '@/lib/backtest/builtinData';
+import { daysAgo, today } from '@/lib/backtest/data';
 import TesterToolbar from '@/components/tester/TesterToolbar';
 import TestSettings from '@/components/tester/TestSettings';
 import StrategyForm from '@/components/tester/StrategyForm';
 import VersionPills from '@/components/tester/report/VersionPills';
 import RunReport from '@/components/tester/report/RunReport';
 import FixPanel from '@/components/tester/report/FixPanel';
+import Leaderboard from '@/components/tester/report/Leaderboard';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
 import ChartLoader from '@/components/quant/ChartLoader';
 
 export default function StrategyConverter() {
   const [cfg, setCfg] = useState({
-    strategy: '', rules: '', target: 'MT5', model: 'claude-opus-5', windowId: '1w',
-    customFrom: '2026-01-01', customTo: '2026-03-31', botName: '', datasetIds: DEFAULT_DATASET_IDS, balance: 10000,
+    strategy: '', rules: '', target: 'MT5', model: 'claude-opus-5-5', windowId: '1w', timeframe: 'M15',
+    customFrom: daysAgo(90), customTo: today(), botName: '', datasetIds: ['market-XAUUSD', 'market-US100', 'market-NQ'], balance: 10000,
   });
   const set = (key, value) => setCfg((c) => ({ ...c, [key]: value }));
   const [keyStatus, setKeyStatus] = useState(null);
@@ -69,6 +70,12 @@ export default function StrategyConverter() {
             />
           </>
         )}
+        <Leaderboard
+          title="Leaderboard: every market and version"
+          rows={lab.runs.map((r) => ({ id: r.id, name: `${r.ds.symbol} ${r.ds.timeframe}`, version: `v${r.version}`, metrics: r.metrics, mc: r.mc }))}
+          activeId={active?.id}
+          onSelect={(id) => lab.setActiveIdx(lab.runs.findIndex((r) => r.id === id))}
+        />
       </div>
     </div>
   );

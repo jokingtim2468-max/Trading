@@ -1,5 +1,5 @@
 import { ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle } from '../report/ChartCard';
+import ChartCard, { axisProps, tooltipStyle, CHART_ANIM } from '../report/ChartCard';
 
 const money = (v) => `$${Math.round(v).toLocaleString()}`;
 
@@ -19,8 +19,8 @@ export default function LucidChart({ sim }) {
           {fundPts.length > 0 && (
             <ReferenceLine x={fundPts[0].n} stroke="hsl(var(--chart-2))" strokeDasharray="4 4" label={{ value: 'Funded', fill: 'hsl(var(--chart-2))', fontSize: 11, position: 'insideTopLeft' }} />
           )}
-          <Line dataKey="balance" name="Balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
-          <Line dataKey="floor" name="Max loss limit" stroke="hsl(var(--destructive))" strokeDasharray="4 4" dot={false} />
+          <Line {...CHART_ANIM} dataKey="balance" name="Balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+          <Line {...CHART_ANIM} dataKey="floor" name="Max loss limit" stroke="hsl(var(--destructive))" strokeDasharray="4 4" dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </ChartCard>

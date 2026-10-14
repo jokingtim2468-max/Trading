@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
-import { missingKey } from '@/lib/models';
+import { missingKey, knownModel } from '@/lib/models';
 import { useToast } from '@/components/ui/use-toast';
 import QuantSidebar from '@/components/quant/QuantSidebar';
 import ChatHeader from '@/components/quant/ChatHeader';
@@ -21,7 +21,7 @@ export default function QuantChat() {
   const [thinking, setThinking] = useState(false);
   const [style, setStyle] = useState('Concise');
   const [queue, setQueue] = useState([]);
-  const [model, setModel] = useState(() => localStorage.getItem('quant_model') || 'builtin');
+  const [model, setModel] = useState(() => knownModel(localStorage.getItem('quant_model'), 'builtin'));
   const [keyStatus, setKeyStatus] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 

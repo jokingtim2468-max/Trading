@@ -1,5 +1,5 @@
 import { ComposedChart, Area, Line, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle, dateTick, dateTimeLabel } from './ChartCard';
+import ChartCard, { axisProps, tooltipStyle, dateTick, dateTimeLabel, CHART_ANIM } from './ChartCard';
 import { downsample } from '@/lib/backtest/metrics';
 import { tradeSignals } from '@/lib/backtest/signals';
 
@@ -24,10 +24,10 @@ export default function PriceLiquidityChart({ price, trades }) {
           <YAxis yAxisId="p" domain={['auto', 'auto']} width={60} {...axisProps} />
           <YAxis yAxisId="v" orientation="right" domain={[0, maxVol * 4]} hide />
           <Tooltip contentStyle={tooltipStyle} labelFormatter={dateTimeLabel} />
-          <Area yAxisId="v" dataKey="volume" name="Tick volume" stroke="hsl(var(--chart-3))" fill="hsl(var(--chart-3))" fillOpacity={0.25} dot={false} />
-          <Line yAxisId="p" dataKey="close" name="Close" stroke="hsl(var(--foreground))" strokeWidth={1.2} dot={false} />
+          <Area {...CHART_ANIM} yAxisId="v" dataKey="volume" name="Tick volume" stroke="hsl(var(--chart-3))" fill="hsl(var(--chart-3))" fillOpacity={0.25} dot={false} />
+          <Line {...CHART_ANIM} yAxisId="p" dataKey="close" name="Close" stroke="hsl(var(--foreground))" strokeWidth={1.2} dot={false} />
           {MARKERS.map((m) => (
-            <Scatter
+            <Scatter {...CHART_ANIM}
               key={m.type} yAxisId="p" name={m.type} dataKey="close" shape={m.shape} fill={m.fill}
               data={signals.filter((s) => s.type === m.type).map((s) => ({ t: s.t, close: s.price }))}
             />

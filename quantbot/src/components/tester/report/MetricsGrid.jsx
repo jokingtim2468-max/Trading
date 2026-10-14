@@ -1,28 +1,35 @@
-const usd = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+import CountUp from '@/components/CountUp';
+
+const usd = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const pct = (v) => `${v.toFixed(2)}%`;
+const pct0 = (v) => `${v.toFixed(0)}%`;
 const num = (v, d = 2) => (v == null || !Number.isFinite(v) ? '∞' : v.toFixed(d));
+const int = (v) => String(Math.round(v));
 const hold = (m) => (m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)}m`);
 const tone = (v) => (v > 0 ? 'text-chart-2' : v < 0 ? 'text-destructive' : '');
 
+// Every number counts up from 0 when a report opens
+const N = ({ v, f }) => <CountUp value={v} format={f} />;
+
 export default function MetricsGrid({ m }) {
   const items = [
-    ['Net P&L', usd(m.net), tone(m.net)],
-    ['Return', pct(m.returnPct), tone(m.returnPct)],
-    ['Final balance', usd(m.finalBalance)],
-    ['Trades', m.trades],
-    ['Win rate', pct(m.winRate)],
-    ['Profit factor', num(m.profitFactor), m.profitFactor >= 1 ? 'text-chart-2' : 'text-destructive'],
-    ['Max drawdown', `${usd(m.maxDD)} (${pct(m.maxDDPct)})`, 'text-destructive'],
-    ['Sharpe (ann.)', num(m.sharpe)],
-    ['Expectancy / trade', usd(m.expectancy), tone(m.expectancy)],
-    ['Avg R', m.avgR == null ? 'n/a' : `${num(m.avgR)}R`, tone(m.avgR ?? 0)],
-    ['Avg win / loss', `${usd(m.avgWin)} / ${usd(m.avgLoss)}`],
-    ['Largest win / loss', `${usd(m.largestWin)} / ${usd(m.largestLoss)}`],
-    ['Long / Short', `${m.longs} / ${m.shorts}`],
-    ['Long / Short win rate', `${m.longWinRate.toFixed(0)}% / ${m.shortWinRate.toFixed(0)}%`],
-    ['SL / TP hits', `${m.slHits} / ${m.tpHits}`],
-    ['Max loss streak', m.maxLossStreak],
-    ['Avg hold time', hold(m.avgHoldMins)],
+    ['Net P&L', <N v={m.net} f={usd} />, tone(m.net)],
+    ['Return', <N v={m.returnPct} f={pct} />, tone(m.returnPct)],
+    ['Final balance', <N v={m.finalBalance} f={usd} />],
+    ['Trades', <N v={m.trades} f={int} />],
+    ['Win rate', <N v={m.winRate} f={pct} />],
+    ['Profit factor', <N v={m.profitFactor ?? Infinity} f={num} />, (m.profitFactor ?? Infinity) >= 1 ? 'text-chart-2' : 'text-destructive'],
+    ['Max drawdown', <><N v={m.maxDD} f={usd} /> (<N v={m.maxDDPct} f={pct} />)</>, 'text-destructive'],
+    ['Sharpe (ann.)', <N v={m.sharpe} f={num} />],
+    ['Expectancy / trade', <N v={m.expectancy} f={usd} />, tone(m.expectancy)],
+    ['Avg R', m.avgR == null ? 'n/a' : <><N v={m.avgR} f={num} />R</>, tone(m.avgR ?? 0)],
+    ['Avg win / loss', <><N v={m.avgWin} f={usd} /> / <N v={m.avgLoss} f={usd} /></>],
+    ['Largest win / loss', <><N v={m.largestWin} f={usd} /> / <N v={m.largestLoss} f={usd} /></>],
+    ['Long / Short', <><N v={m.longs} f={int} /> / <N v={m.shorts} f={int} /></>],
+    ['Long / Short win rate', <><N v={m.longWinRate} f={pct0} /> / <N v={m.shortWinRate} f={pct0} /></>],
+    ['SL / TP hits', <><N v={m.slHits} f={int} /> / <N v={m.tpHits} f={int} /></>],
+    ['Max loss streak', <N v={m.maxLossStreak} f={int} />],
+    ['Avg hold time', <N v={m.avgHoldMins} f={hold} />],
   ];
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">

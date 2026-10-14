@@ -1,5 +1,4 @@
 const DAY = 86400000;
-export const MIN_DATE = Date.UTC(2024, 0, 1);
 
 export const WINDOWS = [
   { id: '1d', label: '1 day unseen', ms: DAY },
@@ -9,13 +8,13 @@ export const WINDOWS = [
   { id: 'custom', label: 'Custom range' },
 ];
 
-// Latest stretch of bars (from 2024 on) this bot has never been tested on, spanning `ms`
+// Latest stretch of bars this bot has never been tested on, spanning `ms`
 export function findUnseenWindow(time, used, ms) {
   const barMs = time.length > 1 ? time[1] - time[0] : 0;
   const seen = (t) => used.some((u) => t >= u.start && t <= u.end);
   let runEnd = -1;
   for (let i = time.length - 1; i >= 0; i--) {
-    if (time[i] < MIN_DATE || seen(time[i])) { runEnd = -1; continue; }
+    if (seen(time[i])) { runEnd = -1; continue; }
     if (runEnd < 0) runEnd = i;
     if (time[runEnd] - time[i] >= ms - barMs) return { from: i, to: runEnd };
   }
@@ -23,7 +22,7 @@ export function findUnseenWindow(time, used, ms) {
 }
 
 export function customWindow(time, fromDate, toDate) {
-  const start = Math.max(Date.parse(`${fromDate}T00:00:00Z`), MIN_DATE);
+  const start = Date.parse(`${fromDate}T00:00:00Z`);
   const end = Date.parse(`${toDate}T23:59:59Z`);
   let from = -1, to = -1;
   for (let i = 0; i < time.length; i++) {

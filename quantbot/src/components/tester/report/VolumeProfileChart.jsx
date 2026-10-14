@@ -1,5 +1,5 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle } from './ChartCard';
+import ChartCard, { axisProps, tooltipStyle, CHART_ANIM } from './ChartCard';
 
 const BINS = 30;
 
@@ -34,7 +34,7 @@ export default function VolumeProfileChart({ price }) {
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="price" width={70} interval={2} {...axisProps} />
           <Tooltip contentStyle={tooltipStyle} formatter={(v) => [v.toLocaleString(), 'Tick volume']} />
-          <Bar dataKey="volume" radius={[0, 3, 3, 0]}>
+          <Bar {...CHART_ANIM} dataKey="volume" radius={[0, 3, 3, 0]}>
             {p.rows.map((r, k) => <Cell key={k} fill={FILL[r.kind]} fillOpacity={r.kind === 'out' ? 0.35 : 0.85} />)}
           </Bar>
         </BarChart>

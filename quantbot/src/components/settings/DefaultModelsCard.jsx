@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { client } from '@/api/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MODELS, DEFAULT_MODELS, PROVIDERS } from '@/lib/models';
+import { MODELS, DEFAULT_MODELS, PROVIDERS, knownModel } from '@/lib/models';
 import ChartLoader from '@/components/quant/ChartLoader';
 
 const FIELDS = [
@@ -34,7 +34,7 @@ export default function DefaultModelsCard() {
             {PROVIDERS[provider].family} model
             {saved === field && <span className="text-xs text-primary ml-2">Saved</span>}
           </span>
-          <Select value={user[field] || DEFAULT_MODELS[provider]} onValueChange={(v) => change(field, v)}>
+          <Select value={knownModel(user[field], DEFAULT_MODELS[provider])} onValueChange={(v) => change(field, v)}>
             <SelectTrigger className="w-52 h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
               {MODELS.filter((m) => m.provider === provider).map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}

@@ -1,5 +1,5 @@
 import { ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
-import ChartCard, { axisProps, tooltipStyle } from './ChartCard';
+import ChartCard, { axisProps, tooltipStyle, CHART_ANIM } from './ChartCard';
 import MonteCarloStats from './MonteCarloStats';
 
 const money = (v) => `$${Math.round(v).toLocaleString()}`;
@@ -22,8 +22,8 @@ export default function MonteCarloCard({ mc, balance }) {
             formatter={(v, n) => [Array.isArray(v) ? `${money(v[0])} to ${money(v[1])}` : money(v), n]}
           />
           <ReferenceLine y={balance} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />
-          <Area dataKey="band" name="5th-95th pct" stroke="none" fill="hsl(var(--primary))" fillOpacity={0.18} />
-          <Line dataKey="p50" name="Median" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
+          <Area {...CHART_ANIM} dataKey="band" name="5th-95th pct" stroke="none" fill="hsl(var(--primary))" fillOpacity={0.18} />
+          <Line {...CHART_ANIM} dataKey="p50" name="Median" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
       <p className="text-xs text-muted-foreground mt-2">

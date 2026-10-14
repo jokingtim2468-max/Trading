@@ -5,6 +5,7 @@ import { CONVERTER_SYSTEM, converterInputError, converterTask, converterResult }
 import { TESTER_SYSTEM, testerInputError, testerTask, testerResult } from './lib/testerPrompt.js';
 import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
+import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
 
 const fail = (message) => { throw new Error(message); };
 
@@ -15,14 +16,23 @@ export function createFunctions({ db, user, keys }) {
     const me = user.me();
     if (keys.get('anthropic')) return me.default_claude_model || DEFAULT_MODELS.anthropic;
     if (keys.get('google')) return me.default_gemini_model || DEFAULT_MODELS.google;
-    return fail('Add a Claude or Gemini API key in Settings to use QuantBot.');
+    if (me.ollama_model) return 'local';
+    return fail('Add a Claude or Gemini API key, or set up a local model, in Settings to use QuantBot.');
+  }
+
+  function credentials(provider) {
+    if (provider === 'local') {
+      const me = user.me();
+      if (!me.ollama_model) fail('Set up your local model in Settings first.');
+      return { url: me.ollama_url || DEFAULT_OLLAMA_URL, model: me.ollama_model };
+    }
+    return keys.get(provider) || fail(`No ${PROVIDER_NAMES[provider]} API key linked. Add one in Settings.`);
   }
 
   async function ask(model, system, messages, maxTokens) {
     const id = pickModel(model);
     const provider = providerOf(id) || fail('Unknown model');
-    const apiKey = keys.get(provider) || fail(`No ${PROVIDER_NAMES[provider]} API key linked. Add one in Settings.`);
-    return callModel(provider, apiKey, id, system, messages, maxTokens);
+    return callModel(provider, credentials(provider), id, system, messages, maxTokens);
   }
 
   return {
@@ -38,6 +48,16 @@ export function createFunctions({ db, user, keys }) {
       if (action === 'remove') {
         keys.remove(provider);
         return keys.status();
+      }
+      return fail('Unknown action');
+    },
+
+    // Local model settings: test the Ollama address (lists installed models) or save address and model
+    async localModel({ action, url, model }) {
+      if (action === 'test') return { models: await listOllamaModels(url) };
+      if (action === 'save') {
+        const name = String(model || '').trim();
+        return user.update({ ollama_url: ollamaBase(url), ollama_model: name });
       }
       return fail('Unknown action');
     },
