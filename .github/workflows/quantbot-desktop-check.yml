@@ -1,0 +1,40 @@
+# Runs the QuantBot desktop app on Windows: the window / title bar / close test, then the real-data check
+# (downloads XAUUSD, US100 and NQ from Dukascopy and runs the Strategy Converter on all three).
+name: QuantBot desktop check
+
+on:
+  push:
+    branches: [vibe-coded/clever-thompson-2f91fo, main]
+    paths: ['quantbot/**', '!quantbot/installer/install.ps1', '.github/workflows/quantbot-desktop-check.yml']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: quantbot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            quantbot/package-lock.json
+            quantbot/desktop/package-lock.json
+      - run: npm ci
+      - name: Desktop tools and UI build
+        working-directory: quantbot/desktop
+        run: npm ci && npm run stage
+      - name: Window, title bar, motion and close
+        run: npm run test:desktop
+      - name: Real Dukascopy data and the Converter on XAUUSD, US100, NQ
+        run: npm run test:live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-check
+          path: |
+            quantbot/test-results/desktop
+            quantbot/test-results/desktop-live

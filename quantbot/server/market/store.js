@@ -113,7 +113,7 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-export function createMarketStore(dataDir) {
+export function createMarketStore(dataDir, { log = () => {} } = {}) {
   const dir = path.join(dataDir, 'market');
   const inflight = new Map();
   const jobs = new Map();
@@ -228,7 +228,7 @@ export function createMarketStore(dataDir) {
       jobs.set(id, job);
       ensure(p.inst, p.sources, p.fromMs, p.toMs, (done, total) => Object.assign(job, { done, total }))
         .then(() => { job.state = 'done'; })
-        .catch((e) => Object.assign(job, { state: 'error', error: e.message }));
+        .catch((e) => { log(`market download ${symbol} ${tf} ${from}..${to}: ${e.stack || e}`); Object.assign(job, { state: 'error', error: e.message }); });
       return { ...job };
     },
 

@@ -5,6 +5,11 @@
 //   3. QuantBot's local server starts inside the app and the main window fades in as the loading window shrinks away
 // Data (chats, tests, keys, market data) lives in %APPDATA%\QuantBot\data and survives updates and uninstalls.
 import fs from 'node:fs';
+// Load Node's networking (and the performance timers it needs) up front, in a fixed order. Importing node:http for the
+// first time later, from the server, occasionally failed inside Electron ("reading 'markResourceTiming'"), which
+// stopped QuantBot from starting.
+import 'node:perf_hooks';
+import 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, Menu, nativeTheme, shell, screen, ipcMain, session } from 'electron';
@@ -134,6 +139,7 @@ async function useBrowserForMarketData() {
 // What Settings > Updates and the server's /api/app routes call
 const hooks = {
   heartbeat() {},
+  log,
   setPrefs(next) {
     try { fs.writeFileSync(prefsFile(), JSON.stringify({ ...prefs(), ...next })); } catch (e) { log(`prefs: ${e.message}`); }
   },

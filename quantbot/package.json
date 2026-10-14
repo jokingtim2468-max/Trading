@@ -13,7 +13,8 @@
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
-    "test:desktop": "node tests/e2e/desktop.js"
+    "test:desktop": "node tests/e2e/desktop.js",
+    "test:live": "node tests/e2e/desktop-live.js"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^17.0.0",

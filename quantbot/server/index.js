@@ -127,7 +127,7 @@ function serveStatic(req, res, dist) {
 // app: hooks from the desktop launcher ({ heartbeat, info, updates, restart }); absent with npm start
 export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false, app = null } = {}) {
   const cipher = createCipher(dataDir);
-  const market = createMarketStore(dataDir);
+  const market = createMarketStore(dataDir, { log: app?.log });
   const backend = createBackend({
     market,
     dataDir,
@@ -155,6 +155,8 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
       try {
         await handleApi(req, res, { backend, market, app }, url);
       } catch (e) {
+        // The desktop app writes the full error to %APPDATA%\QuantBot\quantbot.log for troubleshooting
+        app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
         if (!res.headersSent) send(res, e.status || 500, { error: e.message || String(e) });
       }
       return;
