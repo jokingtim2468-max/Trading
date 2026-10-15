@@ -6,7 +6,8 @@
       "type": "string",
       "enum": [
         "MT5",
-        "Tradovate"
+        "Tradovate",
+        "TradingView"
       ]
     },
     "label": {
@@ -15,7 +16,7 @@
     },
     "login": {
       "type": "string",
-      "description": "MT5 account number or Tradovate username"
+      "description": "MT5 account number, or the Tradovate account name (e.g. LTT04821)"
     },
     "server": {
       "type": "string",
@@ -37,7 +38,7 @@
         "live"
       ],
       "default": "demo",
-      "description": "Tradovate server"
+      "description": "Tradovate server (prop accounts usually Demo)"
     },
     "account_spec": {
       "type": "string",
@@ -46,6 +47,15 @@
     "group_id": {
       "type": "string",
       "description": "CopyGroup id; empty means not copying"
+    },
+    "firm": {
+      "type": "string",
+      "description": "Prop firm or broker, e.g. Lucid Trading"
+    },
+    "copy_qty": {
+      "type": "number",
+      "default": 1,
+      "description": "Contracts / lots this account takes per group trade (Tradovate Group Trade order quantity)"
     }
   },
   "required": [

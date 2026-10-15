@@ -463,44 +463,64 @@ await step('PnL calendar: days, weeks, months, bot filter, day drill-down', asyn
   await snap('pnl');
 });
 
-await step('Accounts: MT5 + Tradovate accounts, copy group rename / pause / delete, remove', async () => {
+await step('Accounts: platform detected from the account, TradingView by hand, filters, groups, remove', async () => {
   await page.goto(`${base()}/accounts`);
-  await text(/copy-trading engine .* isn't part of this app yet/).waitFor();
-  const mt5 = page.locator('section', { hasText: 'MetaTrader 5' });
-  await mt5.getByRole('button', { name: 'Add account' }).click();
-  await page.getByPlaceholder('e.g. FTMO 100K').fill('FTMO 100K');
-  await page.getByPlaceholder('12345678').fill('5100123');
-  await page.getByPlaceholder('e.g. FTMO-Demo').fill('FTMO-Demo');
+  await text(/No accounts yet/).waitFor();
+  const add = async ({ name, login, server, pick }) => {
+    await page.getByRole('button', { name: 'Add account' }).click();
+    const d = page.getByRole('dialog');
+    await d.getByPlaceholder('e.g. Lucid 50K #1').fill(name);
+    await d.getByPlaceholder('e.g. LTT04821 or 5100123').fill(login);
+    const hint = await d.getByTestId('platform-hint').textContent();
+    if (pick) await d.getByRole('radio', { name: pick }).click();
+    if (server) await d.getByPlaceholder('e.g. FTMO-Demo').fill(server);
+    await d.getByRole('button', { name: 'Save' }).click();
+    await d.waitFor({ state: 'detached' });
+    return hint;
+  };
+  const h1 = await add({ name: 'FTMO 100K', login: '5100123', server: 'FTMO-Demo' });
+  expect(/Detected MetaTrader 5/.test(h1), `MT5 not detected: ${h1}`);
+  const h2 = await add({ name: 'Lucid 50K #1', login: 'LTT04821' });
+  expect(/Detected Tradovate.*Lucid Trading/.test(h2), `Tradovate / Lucid not detected: ${h2}`);
+  await add({ name: 'Lucid 50K #2', login: 'LTT04822', pick: 'TradingView' });
+  const card = (n) => page.locator(`[data-account="${n}"]`);
+  await card('Lucid 50K #1').getByText('Tradovate', { exact: true }).waitFor();
+  await card('Lucid 50K #1').getByText(/LTT04821 on Demo, Lucid Trading/).waitFor();
+  await card('Lucid 50K #2').getByText('TradingView', { exact: true }).waitFor();
+  await card('FTMO 100K').getByText('MetaTrader 5', { exact: true }).waitFor();
+  // Platform filter
+  await page.getByRole('tab', { name: /^TradingView 1/ }).click();
+  expect((await page.locator('[data-account]').count()) === 1, 'TradingView filter should show one account');
+  await page.getByRole('tab', { name: /^All platforms 3/ }).click();
+  expect((await page.locator('[data-account]').count()) === 3, 'All platforms should show three accounts');
+  // Groups: a futures group with its Group Trade guide, rename, pause, delete
+  await page.getByRole('button', { name: 'New group' }).click();
+  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid group');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await mt5.getByText('FTMO 100K').waitFor();
-  const tv = page.locator('section', { hasText: 'TradingView + Tradovate' });
-  await tv.getByRole('button', { name: 'Add account' }).click();
-  await page.getByPlaceholder('e.g. Lucid 50K #1').fill('Lucid 50K #1');
-  await page.getByRole('dialog').locator('input').nth(1).fill('tim_lucid');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await tv.getByText('Lucid 50K #1').waitFor();
-  await mt5.getByRole('button', { name: 'New group' }).click();
-  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Group A');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await mt5.getByRole('button', { name: /Group A/ }).waitFor();
-  await mt5.locator('button[aria-haspopup=menu]').click();
+  await page.getByTestId('group-panel').getByText(/Drag accounts onto this group/).waitFor();
+  await page.getByTestId('group-panel').getByText('Switch copying on in Tradovate (Group Trade)').waitFor();
+  const menu = () => page.locator('button[aria-haspopup=menu]').first().click();
+  await menu();
   await page.getByRole('menuitem', { name: 'Rename' }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
-  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Group B');
+  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid copies');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await mt5.getByRole('button', { name: /Group B/ }).waitFor();
-  await mt5.locator('button[aria-haspopup=menu]').click();
+  await page.getByRole('button', { name: /Lucid copies/ }).waitFor();
+  await menu();
   await page.getByRole('menuitem', { name: 'Pause copying' }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
-  await mt5.locator('button[aria-haspopup=menu]').click();
+  await menu();
   await page.getByRole('menuitem', { name: 'Resume copying' }).waitFor();
   await page.getByRole('menuitem', { name: 'Delete group' }).click();
-  await mt5.getByRole('button', { name: /Group B/ }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: /Lucid copies/ }).waitFor({ state: 'detached' });
   await snap('accounts');
-  await mt5.getByRole('button', { name: 'Not copying 1' }).click();
-  await mt5.locator('.rounded-xl', { hasText: 'FTMO 100K' }).getByRole('button').last().click();
+  // Sorting by platform puts MT5 first
+  await page.getByRole('combobox', { name: 'Sort accounts' }).click();
+  await page.getByRole('option', { name: 'Sort: Platform' }).click();
+  expect((await page.locator('[data-account]').first().getAttribute('data-account')) === 'FTMO 100K', 'platform sort');
+  await card('FTMO 100K').getByRole('button', { name: 'Edit FTMO 100K' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
-  await mt5.getByText('FTMO 100K').waitFor({ state: 'detached' });
+  await card('FTMO 100K').waitFor({ state: 'detached' });
 });
 
 await step('Unknown page shows 404', async () => {

@@ -9,13 +9,18 @@
       "type": "string",
       "enum": [
         "MT5",
-        "Tradovate"
-      ]
+        "Futures"
+      ],
+      "description": "MT5 accounts, or futures accounts (Tradovate / TradingView, which trade through Tradovate)"
     },
     "enabled": {
       "type": "boolean",
       "default": true,
       "description": "When off, trades in this group are not copied"
+    },
+    "lead_account_id": {
+      "type": "string",
+      "description": "Account whose trades are copied to the others (Tradovate Group Trade: the first account added)"
     }
   },
   "required": [

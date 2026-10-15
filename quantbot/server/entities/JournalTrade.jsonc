@@ -1,0 +1,101 @@
+{
+  "name": "JournalTrade",
+  "type": "object",
+  "properties": {
+    "account_id": {
+      "type": "string",
+      "description": "TradingAccount the trade was on"
+    },
+    "account_label": {
+      "type": "string"
+    },
+    "platform": {
+      "type": "string",
+      "enum": [
+        "MT5",
+        "Tradovate",
+        "TradingView"
+      ]
+    },
+    "group_id": {
+      "type": "string",
+      "description": "Copy group the account was in when imported"
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short"
+      ]
+    },
+    "qty": {
+      "type": "number"
+    },
+    "entry": {
+      "type": "number"
+    },
+    "exit": {
+      "type": "number"
+    },
+    "entry_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "pnl": {
+      "type": "number",
+      "description": "Net P&L in account currency (after fees when the file has them)"
+    },
+    "fees": {
+      "type": "number",
+      "default": 0
+    },
+    "exit_day": {
+      "type": "string"
+    },
+    "exit_week": {
+      "type": "string"
+    },
+    "exit_month": {
+      "type": "string"
+    },
+    "copy_key": {
+      "type": "string",
+      "description": "Same key on every account's copy of one group trade"
+    },
+    "copied_to": {
+      "type": "number",
+      "default": 0,
+      "description": "How many other accounts took the same trade"
+    },
+    "is_lead": {
+      "type": "boolean",
+      "default": false
+    },
+    "note": {
+      "type": "string",
+      "default": ""
+    },
+    "source": {
+      "type": "string",
+      "description": "File it was imported from"
+    },
+    "dedupe": {
+      "type": "string",
+      "description": "Stops the same trade being imported twice"
+    }
+  },
+  "required": [
+    "account_id",
+    "symbol",
+    "side",
+    "exit_time",
+    "pnl"
+  ]
+}
