@@ -2,6 +2,7 @@
 // They answer the three QuantBot jobs: chat (an EA in a code block), the converter and the script tester (JSON).
 import http from 'node:http';
 import { ICT_PINE, ICT_SIM_CODE } from './ictSim.js';
+import { BASIC_PINE, BASIC_SIM_CODE } from './basicPine.js';
 
 // A strategy the simulator can run that fires BUY, SELL, CLOSE, TP and SL
 export const SIM_CODE = `
@@ -50,6 +51,9 @@ void OnTick() { /* breakout logic */ }`;
 
 function reply(system, last = '') {
   if (/long ea/i.test(last)) return longReply();
+  if (/basic pine/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
+    return `Here is a basic EMA cross strategy.\n\n\`\`\`pine\n${BASIC_PINE}\n\`\`\``;
+  }
   if (/live ict/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
     return `Here is the ICT strategy.\n\n\`\`\`pine\n${ICT_PINE}\n\`\`\``;
   }
@@ -69,6 +73,9 @@ function reply(system, last = '') {
     });
   }
   if (system.startsWith("You are QuantBot's strategy tester")) {
+    if (last.includes('Script: Basic EMA Cross')) {
+      return JSON.stringify({ sim_code: BASIC_SIM_CODE, summary: 'EMA 9/21 cross with a 1.5 ATR stop and 2R target, closed on the opposite cross.', rules: ['Long on EMA 9 crossing above EMA 21, short on the cross below, only when flat', 'Stop 1.5 x ATR(14), target 2 x the stop', 'Opposite cross closes the trade', 'Risk 1% of balance per trade'] });
+    }
     if (last.includes('Script: Live ICT')) {
       return JSON.stringify({ sim_code: ICT_SIM_CODE, summary: 'ICT sweep + FVG in the New York killzone.', rules: ['13 rules as in the script'] });
     }
