@@ -262,3 +262,25 @@ describe('page helpers', () => {
     assert.equal(scriptFromMessage('no code'), null);
   });
 });
+
+describe('signals page', () => {
+  test('positions follow buy, stop moves, limits, cancels and closes', async () => {
+    const { positionsFrom, signalText } = await load('/src/lib/signals.js');
+    let t = 0;
+    const s = (event, extra) => ({ event, symbol: 'MNQ1!', strategy: 'DOL', created_date: new Date(Date.UTC(2026, 0, 1, 0, 0, t++)).toISOString(), ...extra });
+    const list = [
+      s('buy', { price: 100, sl: 90, tp: 120, qty: 2, trade_id: 'a' }),
+      s('set_sl', { sl: 100, trade_id: 'a' }),
+      s('sell_limit', { symbol: 'MGC1!', price: 2000, sl: 2010, tp: 1980, qty: 1, trade_id: 'b' }),
+    ];
+    let open = positionsFrom(list);
+    assert.equal(open.length, 2);
+    assert.deepEqual(open.find((p) => p.symbol === 'MNQ1!'), { ...open.find((p) => p.symbol === 'MNQ1!'), side: 'long', status: 'open', entry: 100, sl: 100, tp: 120 });
+    assert.equal(open.find((p) => p.symbol === 'MGC1!').status, 'pending');
+    list.push(s('close', { price: 120, reason: 'tp', trade_id: 'a' }), s('cancel', { symbol: 'MGC1!', trade_id: 'b' }));
+    open = positionsFrom(list);
+    assert.equal(open.length, 0);
+    assert.equal(signalText(list[0]), 'BUY 2 MNQ1! @ 100 SL 90 TP 120');
+    assert.equal(signalText(list[3]), 'CLOSE MNQ1! @ 120 (tp)');
+  });
+});

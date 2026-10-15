@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { app, BrowserWindow, Menu, nativeTheme, shell, screen, ipcMain, session } from 'electron';
 import updaterPkg from 'electron-updater';
+import { createTunnel } from './tunnel.mjs';
 
 const { autoUpdater } = updaterPkg;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -169,10 +170,23 @@ async function useBrowserForMarketData() {
   });
 }
 
-// What Settings > Updates and the server's /api/app routes call
+// Signals page > public link for TradingView alerts; remembered, so it comes back on when QuantBot reopens
+const tunnel = createTunnel({
+  binDir: path.join(app.getPath('userData'), 'bin'),
+  port: () => server?.port,
+  fetch: (url) => session.defaultSession.fetch(url),
+  log,
+});
+
+// What Settings > Updates, the Signals page and the server's /api/app routes call
 const hooks = {
   heartbeat() {},
   log,
+  tunnel: {
+    status: tunnel.status,
+    async start() { hooks.setPrefs({ tunnel: true }); return tunnel.start(); },
+    stop() { hooks.setPrefs({ tunnel: false }); return tunnel.stop(); },
+  },
   setPrefs(next) {
     try { fs.writeFileSync(prefsFile(), JSON.stringify({ ...prefs(), ...next })); } catch (e) { log(`prefs: ${e.message}`); }
   },
@@ -311,6 +325,8 @@ async function start() {
     return;
   }
 
+  if (prefs().tunnel) tunnel.start();
+
   // Later updates download in the background and install the next time QuantBot closes
   if (UPDATES) {
     autoUpdater.on('update-downloaded', () => { updateReady = true; });
@@ -333,6 +349,7 @@ async function shutdown() {
   if (quitting) return;
   quitting = true;
   setTimeout(() => app.exit(0), 3000); // never hang on the way out
+  tunnel.stop();
   try {
     server?.server.closeAllConnections?.();
     await server?.close();

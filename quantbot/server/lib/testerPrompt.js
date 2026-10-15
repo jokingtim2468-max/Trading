@@ -14,6 +14,7 @@ const SETTINGS = `TESTER SETTINGS (fixed, never ask the trader):
 
 export const TESTER_SYSTEM = `You are QuantBot's strategy tester. You get a complete MetaTrader 5 (MQL5) or TradingView (Pine Script) script. Translate its trading logic into sim_code for QuantBot's bar-by-bar simulator so the backtest measures the script as written.
 - Reproduce the logic faithfully: entries, filters, sessions, stops, targets, breakeven, trailing, partial closes (approximate as a stop move) and strategy exits. Do not improve or change the strategy.
+- Ignore alert(), webhook (QuantBot signals), Print, notification and drawing code: it reports trades and doesn't change them.
 - Logic that needs data the simulator lacks (ticks, other symbols, order book) is approximated on the available bars and noted in the rules. Build higher-timeframe values (H1/H4/D1 highs, lows, EMAs, Asian range) from the current bars inside ctx.state.
 - ${SIM_CONTRACT}
 

@@ -17,6 +17,16 @@ any chat the AI can read your saved tests, their trades and the built-in market 
 prompt (`server/lib/chatPrompt.js`) explains the backtester, the markets, broker time and how to use the tools. AI: your own Claude (Opus / Sonnet / Haiku 5.5) or Gemini key, or a free local model through
 Ollama (Settings → Local model).
 
+Signals: scripts the chat writes (and any script that follows the format in `server/lib/signals.js`) send every buy,
+sell, limit, cancel, stop/target move and close as a small JSON message to QuantBot's webhook,
+`/hook/<secret key>`. The Signals page logs each one, chimes, shows a desktop notification and lists what is open with
+its SL and TP; every signal also goes into the log file. MT5 EAs post to `http://127.0.0.1:<port>/hook/<key>` on the
+same PC (allow that address under Tools > Options > Expert Advisors > Allow WebRequest). TradingView sends webhooks
+from its own servers, so the desktop app can open a public link through Cloudflare's free quick tunnel (`cloudflared`,
+downloaded from Cloudflare's GitHub releases the first time you turn it on; the address changes each time it starts).
+TradingView webhooks need a paid TradingView plan with two-factor login. Only `/hook/<key>` answers through the public
+link. QuantBot doesn't place orders: Lucid and other prop accounts can't be traded through Tradovate's API.
+
 Both testers translate the script into JavaScript for the bar-by-bar simulator (`src/lib/backtest/engine.js`), which
 runs in a worker and shows how far it has got. Test code that would take more than two minutes (usually code that
 rescans the whole chart on every bar, common in ICT scripts) is stopped early and the Strategy Tester asks the model

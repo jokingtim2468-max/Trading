@@ -12,6 +12,7 @@ import { createCipher } from './crypto.js';
 import { createMarketStore } from './market/store.js';
 import { TIMEFRAMES, MAX_RANGE_DAYS } from './market/instruments.js';
 import { encodeBars } from './market/resample.js';
+import { createSignals } from './signals.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -46,7 +47,7 @@ function trusted(req) {
   return !origin || origin === `http://${req.headers.host}`;
 }
 
-async function handleApi(req, res, { backend, market, app }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -70,6 +71,28 @@ async function handleApi(req, res, { backend, market, app }, url) {
     send(res, 200, { ok: true });
     setTimeout(() => app.restart(), 100);
     return undefined;
+  }
+
+  // Signals page: the webhook addresses (this PC for MT5, the desktop app's public link for TradingView)
+  if (req.method === 'GET' && url.pathname === '/api/signals/config') {
+    const tunnel = app?.tunnel ? app.tunnel.status() : { available: false };
+    return send(res, 200, { key: signals.key(), localUrl: `http://127.0.0.1:${port()}/hook/${signals.key()}`, tunnel });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/signals/rotate') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    signals.rotate();
+    return send(res, 200, { ok: true });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/signals/tunnel') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    if (!app?.tunnel) return send(res, 400, { error: 'The public link is part of the desktop app' });
+    const { on } = JSON.parse((await readBody(req, 1000)).toString('utf8') || '{}');
+    return send(res, 200, on ? await app.tunnel.start() : await app.tunnel.stop());
+  }
+  if (req.method === 'POST' && url.pathname === '/api/signals/test') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    const body = (await readBody(req, 4000)).toString('utf8');
+    return send(res, 200, await signals.receive(body, { local: true }));
   }
 
   if (req.method === 'POST' && url.pathname === '/api/invoke') {
@@ -137,7 +160,9 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     defaults: entityDefaults(path.join(root, 'server', 'entities')),
   });
 
+  const signals = createSignals({ dataDir, db: { run: (...a) => backend.handle('entity', ...a) }, log: app?.log });
   const server = http.createServer();
+  const boundPort = () => server.address()?.port;
   let vite = null;
   const dist = path.join(root, 'dist');
   if (prod) {
@@ -151,9 +176,23 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     const url = new URL(req.url, 'http://localhost');
     // The launcher's loading screen asks this until QuantBot itself answers
     if (url.pathname === '/__launcher/status') return send(res, 200, { percent: 100, label: 'Ready', ready: true });
+    // Webhook for TradingView alerts and MT5 EAs: open to any host (the public link forwards here), guarded by the key
+    const hook = url.pathname.match(/^\/hook\/([^/]+)\/?$/);
+    if (hook) {
+      if (req.method !== 'POST' || !signals.matches(hook[1])) return send(res, 404, { error: 'Not found' });
+      try {
+        const body = (await readBody(req, 4000)).toString('utf8');
+        const host = String(req.headers.host || '').replace(/:\d+$/, '');
+        const saved = await signals.receive(body, { userAgent: String(req.headers['user-agent'] || ''), local: LOCAL_HOSTS.has(host) && !req.headers['cf-connecting-ip'] });
+        return send(res, 200, { ok: true, id: saved.id });
+      } catch (e) {
+        app?.log?.(`signal rejected: ${e.message}`);
+        return send(res, e.status || 400, { error: e.message });
+      }
+    }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
@@ -175,7 +214,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     if (vite) await vite.close();
     await new Promise((r) => server.close(r));
   };
-  return { server, port: server.address().port, close, backend, market };
+  return { server, port: server.address().port, close, backend, market, signals };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

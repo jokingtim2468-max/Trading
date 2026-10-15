@@ -14,6 +14,7 @@ import StrategyConverter from '@/pages/StrategyConverter';
 import TestHistory from '@/pages/TestHistory';
 import PnlCalendar from '@/pages/PnlCalendar';
 import Accounts from '@/pages/Accounts';
+import Signals from '@/pages/Signals';
 
 const AuthenticatedApp = () => (
   <Routes>
@@ -25,6 +26,7 @@ const AuthenticatedApp = () => (
       <Route path="/test-history" element={<TestHistory />} />
       <Route path="/pnl" element={<PnlCalendar />} />
       <Route path="/accounts" element={<Accounts />} />
+      <Route path="/signals" element={<Signals />} />
     </Route>
     <Route path="*" element={<PageNotFound />} />
   </Routes>

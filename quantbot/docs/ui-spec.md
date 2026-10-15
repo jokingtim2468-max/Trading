@@ -98,6 +98,16 @@ Everything that opens from a click uses one motion.
 - **Leaderboard** at the bottom of every Strategy Tester run, Converter run and saved session: every market and
   version ranked by net P&L, with return, win rate, profit factor, max drawdown, trades and the Monte Carlo grade.
   Click a row to open that run.
+- **Signals page** (sidebar, radio icon, after Accounts): sticky glass header like the other pages, then three cards.
+  **Webhook**: "Send test signal" (outline, send icon); a bordered "TradingView public link" box (desktop app only)
+  with a state pill (Off / Downloading / Connecting / On, green border when on), a Turn on / Turn off button, the URL in
+  a monospace field with a Copy button (check icon for 1.5 s after copying) and one paragraph of setup help; a second box
+  with the "MT5 / this PC" address; "New secret key" (ghost button, key icon). **Open from signals**: one small card
+  per open position or pending limit: side pill (LONG / SHORT / BUY LIMIT / SELL LIMIT), symbol, qty, strategy, and
+  Entry / SL (red label) / TP (green label) in monospace. **Signal log**: filter tabs (All, Entries, SL / TP moves,
+  Closes), Clear log, and a table newest first with a coloured pill per event: BUY green, SELL red, BUY/SELL LIMIT
+  lighter green/red, SET SL amber, SET TP sky blue, CLOSE neutral, CANCEL muted. New signals chime (two notes, rising
+  for buys, falling for sells) and show a desktop notification; test signals stay quiet.
 - **Settings > Logs** (desktop app only, under Updates): a card titled "QuantBot's log file" with one line of help,
   the full log path in small monospace muted text, and an outline **Open logs folder** button (folder icon) that opens
   the `logs` folder in the install folder in File Explorer.

@@ -1,0 +1,23 @@
+{
+  "name": "Signal",
+  "type": "object",
+  "properties": {
+    "event": {
+      "type": "string",
+      "enum": ["buy", "sell", "buy_limit", "sell_limit", "cancel", "set_sl", "set_tp", "close"],
+      "description": "What the script asked for"
+    },
+    "symbol": { "type": "string" },
+    "tf": { "type": "string", "description": "Chart timeframe the script ran on" },
+    "price": { "type": "number", "description": "Entry, limit or exit price" },
+    "sl": { "type": "number" },
+    "tp": { "type": "number" },
+    "qty": { "type": "number", "description": "Contracts or lots" },
+    "reason": { "type": "string", "description": "Close reason: tp, sl, time, signal, eod, daily_limit, breakeven" },
+    "strategy": { "type": "string" },
+    "trade_id": { "type": "string", "description": "Links the buy/sell, stop moves and close of one trade" },
+    "bar_time": { "type": "number", "description": "Bar time (ms) the script sent" },
+    "source": { "type": "string", "enum": ["tradingview", "mt5", "test", "other"], "default": "other" },
+    "raw": { "type": "string", "description": "The message as received (first 2,000 characters)" }
+  }
+}

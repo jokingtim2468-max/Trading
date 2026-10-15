@@ -276,3 +276,53 @@ describe('API keys from an older version', () => {
     assert.deepEqual(be.handle('function', 'apiKeys', { action: 'status' }).anthropic, { linked: true, last4: '5678' });
   });
 });
+
+describe('signals webhook', () => {
+  let app, base, key;
+  before(async () => {
+    app = await startServer({ port: 0, dataDir: tmp(), userName: 'Signals' });
+    base = `http://localhost:${app.port}`;
+    key = (await (await fetch(`${base}/api/signals/config`)).json()).key;
+  });
+  after(() => app.close());
+  const hook = (body, k = key, headers = {}) => fetch(`${base}/hook/${k}`, { method: 'POST', headers: { 'content-type': 'text/plain', ...headers }, body });
+  const list = async () => (await (await fetch(`${base}/api/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'entity', args: ['Signal', 'filter', {}, 'created_date'] }) })).json()).result;
+
+  test('a TradingView or MT5 message is checked, saved and tracked', async () => {
+    assert.match(key, /^[0-9a-f]{32}$/);
+    const msg = { qb: 1, event: 'buy', symbol: 'MNQ1!', tf: '5', price: '21450.25', sl: 21430, tp: 21490.5, qty: 3, trade_id: 'DOL-1', strategy: 'QuantBot DOL', source: 'tradingview', time: 1729000000000 };
+    const res = await hook(JSON.stringify(msg));
+    assert.equal(res.status, 200);
+    await hook(JSON.stringify({ event: 'set_sl', symbol: 'MNQ1!', sl: 21450.25, trade_id: 'DOL-1', strategy: 'QuantBot DOL' }), key, { 'user-agent': 'MetaTrader 5 Terminal/5.0' });
+    await hook(JSON.stringify({ event: 'close', symbol: 'MNQ1!', price: 21490.5, reason: 'tp', trade_id: 'DOL-1', strategy: 'QuantBot DOL' }));
+    const rows = await list();
+    assert.deepEqual(rows.map((r) => r.event), ['buy', 'set_sl', 'close']);
+    assert.equal(rows[0].price, 21450.25); // numbers sent as strings are read as numbers
+    assert.equal(rows[0].source, 'tradingview');
+    assert.equal(rows[1].source, 'mt5');
+    assert.equal(rows[2].reason, 'tp');
+  });
+
+  test('wrong key, wrong method and bad messages are refused', async () => {
+    assert.equal((await hook('{"event":"buy"}', 'a'.repeat(32))).status, 404);
+    assert.equal((await fetch(`${base}/hook/${key}`)).status, 404);
+    assert.match((await (await hook('buy now')).json()).error, /must be JSON/);
+    assert.match((await (await hook('{"event":"moon","symbol":"X"}')).json()).error, /Unknown event "moon"/);
+    assert.match((await (await hook('{"event":"buy","symbol":"X"}')).json()).error, /buy needs a price/);
+    assert.match((await (await hook('{"event":"set_tp","symbol":"X"}')).json()).error, /set_tp needs tp/);
+  });
+
+  test('the public link reaches the webhook but not the rest of the API; a new key stops the old address', async () => {
+    const viaTunnel = (p, body) => new Promise((resolve, reject) => {
+      const req = http.request({ port: app.port, path: p, method: 'POST', headers: { host: 'abc.trycloudflare.com', 'cf-connecting-ip': '1.2.3.4', 'content-type': 'application/json' } }, resolve);
+      req.on('error', reject);
+      req.end(body);
+    });
+    assert.equal((await viaTunnel(`/hook/${key}`, '{"event":"cancel","symbol":"MNQ1!","strategy":"S"}')).statusCode, 200);
+    assert.equal((await list()).at(-1).source, 'tradingview'); // no source field, came through the tunnel
+    assert.equal((await viaTunnel('/api/invoke', '{"kind":"user","args":["me"]}')).statusCode, 403);
+    assert.equal((await viaTunnel('/api/signals/config', '')).statusCode, 403);
+    await fetch(`${base}/api/signals/rotate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal((await hook('{"event":"cancel","symbol":"X"}')).status, 404);
+  });
+});

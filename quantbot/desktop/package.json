@@ -24,7 +24,7 @@
     "productName": "QuantBot",
     "copyright": "QuantBot",
     "directories": { "output": "release", "buildResources": "build" },
-    "files": ["main.mjs", "preload.cjs", "splash.html", "fonts/**", "package.json"],
+    "files": ["main.mjs", "tunnel.mjs", "preload.cjs", "splash.html", "fonts/**", "package.json"],
     "extraResources": [
       { "from": "../server", "to": "quantbot/server" },
       { "from": "../dist", "to": "quantbot/dist" },

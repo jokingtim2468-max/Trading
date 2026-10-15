@@ -516,6 +516,38 @@ await step('PnL calendar: days, weeks, months, bot filter, day drill-down', asyn
   await snap('pnl');
 });
 
+await step('Signals: a script\'s buy, SL move and TP close show up live; test signal; secret key', async () => {
+  await page.goto(`${base()}/`);
+  await sidebarLink('Signals').click();
+  await page.getByRole('heading', { name: 'Signals', exact: true }).waitFor();
+  const local = page.getByLabel('MT5 / this PC', { exact: true });
+  await local.filter({ hasText: /\/hook\/[0-9a-f]{32}$/ }).waitFor();
+  const url = (await local.textContent()).trim().replace('127.0.0.1', new URL(base()).hostname);
+  // The browser version has no public link (that's the desktop app)
+  expect(!(await page.getByText('TradingView public link').count()), 'public link shown outside the desktop app');
+  await page.getByRole('button', { name: 'Send test signal' }).click();
+  await page.locator('tr[data-signal="buy"]').filter({ hasText: 'QuantBot test' }).waitFor();
+  // What a TradingView alert sends: a buy, the stop moved to breakeven, then the take profit
+  const send = (m) => fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ qb: 1, symbol: 'MNQ1!', tf: '5', strategy: 'QuantBot DOL', trade_id: 'DOL-1', source: 'tradingview', time: Date.now(), ...m }) });
+  expect((await send({ event: 'buy', price: 21450.25, sl: 21430, tp: 21490.5, qty: 3 })).ok, 'buy refused');
+  const pos = page.locator('[data-position="MNQ1!"]').filter({ hasText: 'QuantBot DOL' });
+  await pos.filter({ hasText: 'LONG' }).filter({ hasText: '21,430' }).waitFor({ timeout: 6000 });
+  await send({ event: 'set_sl', sl: 21450.25 });
+  await pos.filter({ hasText: /SL21,450\.25/ }).waitFor({ timeout: 6000 });
+  await snap('signals-open');
+  await send({ event: 'close', price: 21490.5, reason: 'tp' });
+  await pos.waitFor({ state: 'detached', timeout: 6000 });
+  await page.locator('tr[data-signal="close"]').filter({ hasText: 'tp' }).waitFor();
+  await page.getByRole('tab', { name: 'SL / TP moves' }).click();
+  await expectCount(page.locator('tr[data-signal]'), 1);
+  await page.getByRole('tab', { name: 'All' }).click();
+  // A new secret key: the old address stops answering
+  await page.getByRole('button', { name: 'New secret key' }).click();
+  await local.filter({ hasNotText: url.split('/hook/')[1] }).waitFor();
+  expect((await send({ event: 'cancel' })).status === 404, 'old key still accepted');
+  await snap('signals-log');
+});
+
 await step('Accounts: platform detected from the account, TradingView by hand, filters, groups, remove', async () => {
   await page.goto(`${base()}/accounts`);
   await text(/No accounts yet/).waitFor();

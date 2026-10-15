@@ -111,6 +111,29 @@ await win.screenshot({ path: path.join(OUT, 'tester-ict.png'), fullPage: true })
 check(!!ict && !ict.error && ict.trades.length === 3 && ict.trades.reduce((a, b) => a + b, 0) > 0,
   `Strategy Tester, ICT rules on real M15 data (last 180 days): ${ict?.error || (ict ? `trades XAUUSD/US100/NQ ${ict.trades.join(' / ')} in ${Math.round((Date.now() - t1) / 1000)} s` : 'timed out')}`);
 
+// 4. Signals: turn on the public link (Cloudflare quick tunnel) and send a TradingView-style alert through the internet
+const api = (p, body) => win.evaluate(async ([path, b]) => {
+  const r = await fetch(path, b === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  return r.json();
+}, [p, body]);
+const t2 = Date.now();
+let tun = await api('/api/signals/tunnel', { on: true });
+const cfg = await api('/api/signals/config');
+let delivered = null;
+if (tun.state === 'on' && tun.url) {
+  // A brand-new trycloudflare name can take a few seconds to resolve
+  for (let k = 0; k < 20 && !delivered; k++) {
+    try {
+      const r = await fetch(`${tun.url}/hook/${cfg.key}`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify({ qb: 1, event: 'buy', symbol: 'MNQ1!', price: 21450.25, sl: 21430, tp: 21490.5, qty: 1, trade_id: 'LIVE-1', strategy: 'Live check' }) });
+      if (r.ok) delivered = await r.json();
+    } catch { /* not resolving yet */ }
+    if (!delivered) await wait(3000);
+  }
+}
+const got = delivered && await win.evaluate(() => fetch('/api/invoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'entity', args: ['Signal', 'filter', { strategy: 'Live check' }] }) }).then((r) => r.json()));
+check(got?.result?.[0]?.source === 'tradingview', `Signals public link: ${tun.error || (tun.url ? `${tun.url} ${delivered ? 'delivered a buy signal' : 'did not answer'}` : 'no link')} (${Math.round((Date.now() - t2) / 1000)} s)`);
+tun = await api('/api/signals/tunnel', { on: false });
+
 console.log(`\nApp log (last lines):\n${logTail()}`);
 try { fs.copyFileSync(logPath, path.join(OUT, 'quantbot.log')); } catch { /* no log */ }
 await app.close().catch(() => {});
