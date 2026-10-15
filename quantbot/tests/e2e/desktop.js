@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { _electron as electron } from 'playwright-core';
 
 const desktop = path.resolve('desktop');
@@ -157,8 +158,13 @@ let w2 = await mainWindow(again);
 await w2.locator('aside').getByText('Saved chat one').waitFor({ timeout: 15000 });
 const chat2 = (await invoke(w2, 'entity', ['ChatSession', 'create', { title: 'Saved chat two', group: 'MT5', last_message_at: new Date().toISOString() }])).result;
 await invoke(w2, 'entity', ['ChatMessage', 'create', { session_id: chat2.id, role: 'user', content: 'written right before a crash' }]);
-again.process().kill('SIGKILL');
-await wait(500);
+// Like Task Manager's End task: the whole process tree at once (on Windows, killing only the main process leaves
+// Electron's helper processes behind for a moment, and a relaunch meanwhile hands over to them and quits)
+const victim = again.process();
+if (process.platform === 'win32') execFileSync('taskkill', ['/F', '/T', '/PID', String(victim.pid)], { stdio: 'ignore' });
+else victim.kill('SIGKILL');
+for (let k = 0; k < 50 && victim.exitCode === null && victim.signalCode === null; k++) await wait(100);
+await wait(1000);
 again = await launch();
 w2 = await mainWindow(again);
 await w2.locator('aside').getByText('Saved chat two').waitFor({ timeout: 15000 });
