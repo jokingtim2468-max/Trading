@@ -1,0 +1,757 @@
+// Script: QB Gold Nasdaq M5
+//@version=6
+strategy("QB Gold Nasdaq M5", overlay=true, initial_capital=10000, default_qty_type=strategy.fixed, pyramiding=0, process_orders_on_close=false, calc_on_every_tick=false, max_lines_count=500, max_labels_count=500, max_boxes_count=500, commission_type=strategy.commission.cash_per_contract, commission_value=0, slippage=1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5-minute liquidity sweep -> displacement -> fair value gap retrace, 1H bias.
+// One script for gold (XAUUSD / GC / MGC) and Nasdaq (US100 / NQ / MNQ).
+// Signals only on confirmed bars. Every trade action is sent to QuantBot as JSON.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const string TZ  = "America/New_York"
+const string G_S = "Strategy"
+const string G_R = "Risk"
+const string G_T = "Sessions"
+const string G_F = "Filters"
+const string G_V = "Visuals"
+const string G_Q = "QuantBot"
+
+const color C_RED   = #ef4343
+const color C_GREEN = #22c55e
+const color C_GREY  = #6b7280
+const color C_LIQ   = #f59e0b
+const color C_ASIA  = #a78bfa
+const color C_CLEAR = #00000000
+
+// ───────────────────────────── Inputs: Strategy ─────────────────────────────
+int   iSwingLen   = input.int(20, "Sweep lookback (bars)", minval = 5, maxval = 300, group = G_S, tooltip = "Swing liquidity = highest high / lowest low of this many closed bars before the sweep bar.")
+bool  iUsePD      = input.bool(true, "Use previous day high/low", group = G_S)
+bool  iUseAsia    = input.bool(true, "Use Asia range high/low", group = G_S)
+bool  iUseSwing   = input.bool(true, "Use swing high/low (lookback)", group = G_S)
+int   iFvgWin     = input.int(5, "FVG window after sweep (bars)", minval = 1, maxval = 30, group = G_S)
+float iDispMult   = input.float(1.0, "Displacement body (x ATR)", minval = 0.1, step = 0.1, group = G_S)
+int   iAtrLen     = input.int(14, "ATR length", minval = 1, maxval = 300, group = G_S)
+int   iExpiry     = input.int(6, "Limit order expiry (bars)", minval = 1, maxval = 50, group = G_S)
+float iRR         = input.float(2.0, "Take profit (R multiple)", minval = 0.5, step = 0.1, group = G_S)
+bool  iLiqTarget  = input.bool(false, "Target opposite liquidity if bigger R:R", group = G_S)
+float iMinStopAtr = input.float(0.6, "Minimum stop distance (x ATR)", minval = 0.0, step = 0.1, group = G_S)
+bool  iUseBE      = input.bool(true, "Move stop to breakeven", group = G_S)
+float iBeR        = input.float(1.0, "Breakeven trigger (R)", minval = 0.1, step = 0.1, group = G_S)
+int   iMaxHold    = input.int(120, "Time stop (minutes from entry)", minval = 5, group = G_S)
+
+// ───────────────────────────── Inputs: Risk ─────────────────────────────────
+float iRiskPct    = input.float(1.0, "Risk per trade (% of equity)", minval = 0.01, maxval = 10, step = 0.1, group = G_R)
+float iMaxStopAtr = input.float(3.0, "Skip trade if stop wider than (x ATR)", minval = 0.5, step = 0.1, group = G_R)
+int   iMaxTrades  = input.int(3, "Max trades per day", minval = 1, group = G_R)
+int   iMaxLosses  = input.int(2, "Stop for the day after N losses in a row", minval = 1, group = G_R)
+float iDailyLoss  = input.float(3.0, "Daily loss limit (% of day start equity)", minval = 0.1, step = 0.1, group = G_R)
+float iMaxDD      = input.float(10.0, "Max drawdown guard (% below equity peak)", minval = 1, step = 0.5, group = G_R)
+int   iMaxContr   = input.int(20, "Futures: max contracts (0 = no cap)", minval = 0, group = G_R, tooltip = "Futures (GC, MGC, NQ, MNQ) trade whole contracts. Set this to your prop account's contract cap.")
+
+// ───────────────────────────── Inputs: Sessions ─────────────────────────────
+bool   iLonOn    = input.bool(true, "London", inline = "lon", group = G_T)
+string iLonSes   = input.session("0200-0500", "", inline = "lon", group = G_T)
+bool   iNyOn     = input.bool(true, "New York", inline = "ny", group = G_T)
+string iNySes    = input.session("0830-1130", "", inline = "ny", group = G_T)
+bool   iPmOn     = input.bool(false, "Afternoon", inline = "pm", group = G_T)
+string iPmSes    = input.session("1330-1530", "", inline = "pm", group = G_T)
+string iAsiaSes  = input.session("2000-0000", "Asia range (liquidity only)", group = G_T)
+int    iEodMin   = input.int(10, "Close trades N minutes before session end", minval = 0, maxval = 60, group = G_T)
+int    iFriHour  = input.int(12, "Friday: no new trades after (NY hour)", minval = 0, maxval = 24, group = G_T)
+string iNews     = input.string("08:30,10:00", "News times (NY, comma separated)", group = G_T)
+int    iNewsPre  = input.int(5, "News block: minutes before", minval = 0, group = G_T)
+int    iNewsPost = input.int(10, "News block: minutes after", minval = 0, group = G_T)
+
+// ───────────────────────────── Inputs: Filters ──────────────────────────────
+string iProfile = input.string("Auto", "Profile", options = ["Auto", "Gold", "Nasdaq"], group = G_F)
+float  iMinAtrG = input.float(1.2, "Gold: minimum ATR", minval = 0, step = 0.1, group = G_F)
+float  iMinAtrN = input.float(8.0, "Nasdaq: minimum ATR", minval = 0, step = 0.5, group = G_F)
+float  iBufG    = input.float(0.15, "Gold: stop buffer (x ATR)", minval = 0, step = 0.01, group = G_F)
+float  iBufN    = input.float(0.10, "Nasdaq: stop buffer (x ATR)", minval = 0, step = 0.01, group = G_F)
+bool   iUseBias = input.bool(true, "Require 1H bias", group = G_F)
+string iBiasTf  = input.timeframe("60", "Bias timeframe", group = G_F)
+int    iEmaFast = input.int(50, "Bias EMA fast", minval = 1, maxval = 300, group = G_F)
+int    iEmaSlow = input.int(200, "Bias EMA slow", minval = 1, maxval = 300, group = G_F)
+
+// ───────────────────────────── Inputs: Visuals ──────────────────────────────
+bool iShowSess  = input.bool(true, "Session backgrounds", group = G_V)
+bool iShowLiq   = input.bool(true, "Liquidity lines (PDH / PDL / Asia)", group = G_V)
+bool iShowSweep = input.bool(true, "Sweep markers", group = G_V)
+bool iShowFvg   = input.bool(true, "FVG boxes", group = G_V)
+bool iShowPend  = input.bool(true, "Pending limit line", group = G_V)
+bool iShowTrade = input.bool(true, "Trade lines and risk / reward boxes", group = G_V)
+bool iShowExit  = input.bool(true, "Exit labels", group = G_V)
+bool iShowEma   = input.bool(true, "1H EMA 50 / 200", group = G_V)
+bool iShowSig   = input.bool(true, "QuantBot event shapes", group = G_V)
+bool iShowDash  = input.bool(true, "Dashboard", group = G_V)
+int  iKeep      = input.int(30, "Keep last N trades drawn", minval = 1, maxval = 50, group = G_V)
+
+// ───────────────────────────── Inputs: QuantBot ─────────────────────────────
+bool   iQbOn   = input.bool(true, "Send QuantBot alerts", group = G_Q)
+string iQbName = input.string("QB Gold Nasdaq M5", "QuantBot strategy name", group = G_Q)
+
+string qbName = str.replace_all(iQbName, "\"", "'")
+
+// ───────────────────────────── Symbol profile ───────────────────────────────
+string tkU      = str.upper(syminfo.ticker)
+string rtU      = str.upper(syminfo.root)
+bool   autoGold = str.contains(tkU, "XAU") or str.contains(tkU, "GOLD") or str.contains(rtU, "XAU") or str.contains(rtU, "GOLD") or rtU == "GC" or rtU == "MGC"
+bool   autoNas  = not autoGold and (str.contains(tkU, "100") or str.contains(tkU, "NAS") or str.contains(tkU, "NDX") or str.contains(tkU, "USTEC") or str.contains(tkU, "NQ") or str.contains(tkU, "USATECH") or rtU == "NQ" or rtU == "MNQ")
+bool   isGold   = iProfile == "Gold" or (iProfile == "Auto" and autoGold)
+string profTxt  = (isGold ? "GOLD" : "NASDAQ") + (iProfile != "Auto" ? " (manual)" : autoGold or autoNas ? " (auto)" : " (default)")
+float  minAtr   = isGold ? iMinAtrG : iMinAtrN
+float  stopBuf  = isGold ? iBufG : iBufN
+bool   isFut    = syminfo.type == "futures"
+
+// ───────────────────────────── Drawing container ────────────────────────────
+type Setup
+    int   dir
+    box   fvg
+    line  mid
+    line  pend
+    label pendLb
+    line  entLn
+    line  slLn
+    line  tpLn
+    box   riskBx
+    box   rewBx
+    label entLb
+    label exitLb
+
+method wipe(Setup s) =>
+    box.delete(s.fvg)
+    line.delete(s.mid)
+    line.delete(s.pend)
+    label.delete(s.pendLb)
+    line.delete(s.entLn)
+    line.delete(s.slLn)
+    line.delete(s.tpLn)
+    box.delete(s.riskBx)
+    box.delete(s.rewBx)
+    label.delete(s.entLb)
+    label.delete(s.exitLb)
+
+// ───────────────────────────── Helpers ──────────────────────────────────────
+sesStart(string s) =>
+    int(str.tonumber(str.substring(s, 0, 2))) * 60 + int(str.tonumber(str.substring(s, 2, 4)))
+
+sesEnd(string s) =>
+    int e = int(str.tonumber(str.substring(s, 5, 7))) * 60 + int(str.tonumber(str.substring(s, 7, 9)))
+    e == 0 ? 1440 : e
+
+fmtP(float x) =>
+    str.tostring(x, format.mintick)
+
+money(float p) =>
+    (p >= 0 ? "+$" : "-$") + str.tostring(math.abs(p), "#,##0.00")
+
+jNum(string k, float v) =>
+    na(v) ? "" : ",\"" + k + "\":" + str.tostring(math.round_to_mintick(v))
+
+jQty(float v) =>
+    na(v) ? "" : ",\"qty\":" + str.tostring(math.round(v, 2))
+
+// One JSON message per trade action. Built with + only (no str.format, its {} break JSON).
+qbSend(string ev, float px, float sl, float tp, float q, string rsn, string tid) =>
+    string m = "{\"qb\":1,\"event\":\"" + ev + "\",\"symbol\":\"" + syminfo.ticker + "\",\"tf\":\"" + timeframe.period + "\""
+    m += jNum("price", px) + jNum("sl", sl) + jNum("tp", tp) + jQty(q)
+    m += ",\"trade_id\":\"" + tid + "\",\"reason\":\"" + rsn + "\",\"strategy\":\"" + qbName + "\",\"source\":\"tradingview\",\"time\":" + str.tostring(time) + "}"
+    if iQbOn
+        alert(m, alert.freq_once_per_bar_close)
+    ev + (rsn != "" ? " (" + rsn + ")" : "") + " " + str.format_time(time, "MM-dd HH:mm", TZ)
+
+nearAbove(float ref, float a, float b, float c) =>
+    float r = na
+    if not na(a) and a > ref
+        r := a
+    if not na(b) and b > ref and (na(r) or b < r)
+        r := b
+    if not na(c) and c > ref and (na(r) or c < r)
+        r := c
+    r
+
+nearBelow(float ref, float a, float b, float c) =>
+    float r = na
+    if not na(a) and a < ref
+        r := a
+    if not na(b) and b < ref and (na(r) or b > r)
+        r := b
+    if not na(c) and c < ref and (na(r) or c > r)
+        r := c
+    r
+
+liqLine(float y, string txt, color c, array<line> store, array<label> lbs) =>
+    line ln = line.new(bar_index, y, bar_index, y, color = c, style = line.style_dotted, width = 1)
+    label lb = label.new(bar_index, y, txt, style = label.style_label_left, color = C_CLEAR, textcolor = c, size = size.tiny)
+    store.push(ln)
+    lbs.push(lb)
+    ln
+
+// Freeze an old liquidity line, drop its label, keep at most 16 old lines.
+archive(line ln, label lb, array<line> old) =>
+    label.delete(lb)
+    if not na(ln)
+        old.push(ln)
+        if old.size() > 16
+            line.delete(old.shift())
+
+greyOut(line ln, label lb) =>
+    if not na(ln)
+        line.set_color(ln, C_GREY)
+        label.set_textcolor(lb, C_GREY)
+
+endPending(Setup s) =>
+    line.delete(s.pend)
+    label.delete(s.pendLb)
+    s.pend := na
+    s.pendLb := na
+    if not na(s.fvg)
+        box.set_right(s.fvg, bar_index)
+    if not na(s.mid)
+        line.set_x2(s.mid, bar_index)
+
+drawTrade(Setup s, int eBar, float ePx, float sl, float tp, float q, int dir) =>
+    if iShowTrade
+        s.entLn  := line.new(eBar, ePx, bar_index, ePx, color = color.white, width = 1)
+        s.slLn   := line.new(eBar, sl, bar_index, sl, color = C_RED, width = 1)
+        s.tpLn   := line.new(eBar, tp, bar_index, tp, color = C_GREEN, width = 1)
+        s.riskBx := box.new(eBar, math.max(ePx, sl), bar_index, math.min(ePx, sl), border_color = C_CLEAR, bgcolor = color.new(C_RED, 85))
+        s.rewBx  := box.new(eBar, math.max(ePx, tp), bar_index, math.min(ePx, tp), border_color = C_CLEAR, bgcolor = color.new(C_GREEN, 85))
+        float rr = math.abs(tp - ePx) / math.max(math.abs(ePx - sl), syminfo.mintick)
+        string txt = (dir == 1 ? "LONG @ " : "SHORT @ ") + fmtP(ePx) + " | SL " + fmtP(sl) + " | TP " + fmtP(tp) + " | R:R " + str.tostring(rr, "0.0") + " | qty " + str.tostring(q)
+        s.entLb := label.new(eBar, ePx, txt, style = label.style_label_right, color = color.new(#1f2937, 10), textcolor = color.white, size = size.small)
+
+stretchTrade(Setup s, int x) =>
+    if not na(s.entLn)
+        line.set_x2(s.entLn, x)
+        line.set_x2(s.slLn, x)
+        line.set_x2(s.tpLn, x)
+        box.set_right(s.riskBx, x)
+        box.set_right(s.rewBx, x)
+
+// ───────────────────────────── Market data ──────────────────────────────────
+float atr  = ta.atr(iAtrLen)
+float swHi = ta.highest(high, iSwingLen)[1]
+float swLo = ta.lowest(low, iSwingLen)[1]
+
+[bFast, bSlow, bClose] = request.security(syminfo.tickerid, iBiasTf, [ta.ema(close, iEmaFast)[1], ta.ema(close, iEmaSlow)[1], close[1]], lookahead = barmerge.lookahead_off)
+int  bias    = na(bFast) or na(bSlow) or na(bClose) ? 0 : bFast > bSlow and bClose > bFast ? 1 : bFast < bSlow and bClose < bFast ? -1 : 0
+bool longOk  = iUseBias ? bias == 1 : true
+bool shortOk = iUseBias ? bias == -1 : true
+
+// ───────────────────────────── Time (New York) ──────────────────────────────
+int  nyMin  = hour(time, TZ) * 60 + minute(time, TZ)
+int  nxtMin = hour(time_close, TZ) * 60 + minute(time_close, TZ)   // next bar opens here = when a new order goes live
+bool inLon  = iLonOn and not na(time(timeframe.period, iLonSes + ":23456", TZ))
+bool inNy   = iNyOn and not na(time(timeframe.period, iNySes + ":23456", TZ))
+bool inPm   = iPmOn and not na(time(timeframe.period, iPmSes + ":23456", TZ))
+bool inSess = inLon or inNy or inPm
+int  curEnd = inPm ? sesEnd(iPmSes) : inNy ? sesEnd(iNySes) : inLon ? sesEnd(iLonSes) : 1440
+bool nearEnd = inSess and nxtMin >= curEnd - iEodMin
+bool friCut  = dayofweek(time_close, TZ) == dayofweek.friday and nxtMin >= iFriHour * 60
+
+int  asS       = sesStart(iAsiaSes)
+int  asE       = sesEnd(iAsiaSes)
+bool inAsia    = asE > asS ? nyMin >= asS and nyMin < asE : nyMin >= asS or nyMin < asE
+bool asiaStart = inAsia and not inAsia[1]
+bool asiaEnd   = not inAsia and inAsia[1]
+
+int  nyDate = year(time, TZ) * 10000 + month(time, TZ) * 100 + dayofmonth(time, TZ)
+int  nyDow  = dayofweek(time, TZ)
+// Sunday evening and Monday are one trading day, so Monday's PDH/PDL are Friday's.
+bool newDay = bar_index > 0 and nyDate != nyDate[1] and not (nyDow == dayofweek.monday and nyDow[1] == dayofweek.sunday)
+
+var array<int> newsMins = array.new<int>()
+if barstate.isfirst
+    for p in str.split(iNews, ",")
+        string t = str.replace_all(str.replace_all(p, " ", ""), ":", "")
+        float  v = str.tonumber(t)
+        if not na(v) and newsMins.size() < 50
+            newsMins.push(int(math.floor(v / 100)) * 60 + int(v % 100))
+
+bool newsBlk = false
+for m in newsMins
+    if nxtMin >= m - iNewsPre and nxtMin < m + iNewsPost
+        newsBlk := true
+
+// ───────────────────────────── State ────────────────────────────────────────
+var float dHi    = na
+var float dLo    = na
+var float pdh    = na
+var float pdl    = na
+var bool  pdhSw  = false
+var bool  pdlSw  = false
+var float asRunH = na
+var float asRunL = na
+var int   asBar  = na
+var float asH    = na
+var float asL    = na
+var bool  asHSw  = false
+var bool  asLSw  = false
+
+var line  pdhLn = na
+var line  pdlLn = na
+var line  ashLn = na
+var line  aslLn = na
+var label pdhLb = na
+var label pdlLb = na
+var label ashLb = na
+var label aslLb = na
+var array<line>  liqLines  = array.new<line>()
+var array<label> liqLabels = array.new<label>()
+var array<line>  liqOld    = array.new<line>()
+
+var int   swDir = 0
+var int   swBar = na
+var float swExt = na
+
+var int    pendDir = 0
+var int    pendBar = na
+var float  pendPx  = na
+var float  pendSl  = na
+var float  pendTp  = na
+var string tradeId = ""
+
+var bool  inTrade    = false
+var int   trDir      = 0
+var float trEntry    = na
+var int   trTime     = na
+var int   trBar      = na
+var float trSl       = na
+var float trTp       = na
+var float trQty      = na
+var float trRisk     = na
+var bool  beDone     = false
+var int   lastClosed = 0
+
+var Setup         cur    = na
+var array<Setup>  setups = array.new<Setup>()
+var array<label>  misc   = array.new<label>()
+
+var int    tradesToday = 0
+var int    lossStreak  = 0
+var bool   haltDay     = false
+var string haltWhy     = ""
+var bool   ddHalt      = false
+var float  dayStartEq  = strategy.initial_capital
+var float  dayStartNet = 0.0
+var float  peakEq      = strategy.initial_capital
+var float  maxDdPct    = 0.0
+var string lastEvt     = "none"
+
+// Step counters (why a week has few trades)
+var int cSess     = 0
+var int cSweep    = 0
+var int cSweepB   = 0
+var int cFvg      = 0
+var int cLimit    = 0
+var int cFill     = 0
+var int cBlkBias  = 0
+var int cBlkBusy  = 0
+var int cBlkLimit = 0
+var int cBlkTime  = 0
+var int cBlkNews  = 0
+var int cBlkAtr   = 0
+var int cBlkWide  = 0
+var int cBlkSize  = 0
+
+// Sweep and FVG conditions (levels already marked as swept are spent)
+bool sweepL = (iUsePD and not pdlSw and not na(pdl) and low < pdl and close > pdl) or (iUseAsia and not asLSw and not na(asL) and low < asL and close > asL) or (iUseSwing and not na(swLo) and low < swLo and close > swLo)
+bool sweepS = (iUsePD and not pdhSw and not na(pdh) and high > pdh and close < pdh) or (iUseAsia and not asHSw and not na(asH) and high > asH and close < asH) or (iUseSwing and not na(swHi) and high > swHi and close < swHi)
+bool fvgUp  = low > high[2] and close[1] > open[1] and close[1] - open[1] >= iDispMult * atr[1]
+bool fvgDn  = high < low[2] and close[1] < open[1] and open[1] - close[1] >= iDispMult * atr[1]
+
+// Per-bar event flags (one plotshape per event type)
+bool evSweepL  = false
+bool evSweepS  = false
+bool evBuyLmt  = false
+bool evSellLmt = false
+bool evCancel  = false
+bool evBuy     = false
+bool evSell    = false
+bool evSetSl   = false
+bool evClose   = false
+
+// ───────────────────────────── Main logic (confirmed bars only) ─────────────
+if barstate.isconfirmed
+
+    // 1) New New York day: roll levels and reset the daily limits
+    if newDay
+        archive(pdhLn, pdhLb, liqOld)
+        archive(pdlLn, pdlLb, liqOld)
+        pdhLn := na
+        pdlLn := na
+        pdhLb := na
+        pdlLb := na
+        pdh   := dHi
+        pdl   := dLo
+        pdhSw := false
+        pdlSw := false
+        dHi   := high
+        dLo   := low
+        tradesToday := 0
+        lossStreak  := 0
+        haltDay     := false
+        haltWhy     := ""
+        dayStartEq  := strategy.equity
+        dayStartNet := strategy.netprofit
+        if iShowLiq and not na(pdh)
+            pdhLn := liqLine(pdh, "PDH", C_LIQ, liqLines, liqLabels)
+            pdhLb := liqLabels.last()
+            pdlLn := liqLine(pdl, "PDL", C_LIQ, liqLines, liqLabels)
+            pdlLb := liqLabels.last()
+    else
+        dHi := na(dHi) ? high : math.max(dHi, high)
+        dLo := na(dLo) ? low : math.min(dLo, low)
+
+    // 2) Asia range
+    if asiaStart
+        asRunH := high
+        asRunL := low
+        asBar  := bar_index
+    else if inAsia
+        asRunH := math.max(nz(asRunH, high), high)
+        asRunL := math.min(nz(asRunL, low), low)
+    if asiaEnd and not na(asRunH)
+        archive(ashLn, ashLb, liqOld)
+        archive(aslLn, aslLb, liqOld)
+        ashLn := na
+        aslLn := na
+        ashLb := na
+        aslLb := na
+        asH   := asRunH
+        asL   := asRunL
+        asHSw := false
+        asLSw := false
+        if iShowLiq
+            ashLn := liqLine(asH, "ASIA H", C_ASIA, liqLines, liqLabels)
+            ashLb := liqLabels.last()
+            aslLn := liqLine(asL, "ASIA L", C_ASIA, liqLines, liqLabels)
+            aslLb := liqLabels.last()
+            if not na(asBar)
+                line.set_x1(ashLn, asBar)
+                line.set_x1(aslLn, asBar)
+    // only the live lines/labels are tracked here; old ones live in liqOld
+    while liqLines.size() > 8
+        liqLines.shift()
+    while liqLabels.size() > 8
+        liqLabels.shift()
+
+    // 3) A trade closed (TP / SL / TIME / EOD / DAILY)
+    if strategy.closedtrades > lastClosed
+        int ci = strategy.closedtrades - 1
+        if not inTrade
+            // filled and closed inside the same bar: report the fill first
+            trDir   := strategy.closedtrades.size(ci) > 0 ? 1 : -1
+            trEntry := strategy.closedtrades.entry_price(ci)
+            trBar   := strategy.closedtrades.entry_bar_index(ci)
+            trSl    := pendSl
+            trTp    := pendTp
+            trQty   := math.abs(strategy.closedtrades.size(ci))
+            beDone  := false
+            pendDir := 0
+            tradesToday += 1
+            cFill += 1
+            lastEvt := qbSend(trDir == 1 ? "buy" : "sell", trEntry, trSl, trTp, trQty, "", tradeId)
+            evBuy  := trDir == 1
+            evSell := trDir == -1
+            if not na(cur)
+                endPending(cur)
+                drawTrade(cur, trBar, trEntry, trSl, trTp, trQty, trDir)
+        float  xPx  = strategy.closedtrades.exit_price(ci)
+        float  pnl  = strategy.closedtrades.profit(ci)
+        int    xBar = strategy.closedtrades.exit_bar_index(ci)
+        string cm   = strategy.closedtrades.exit_comment(ci)
+        string rsn  = cm == "TP" ? "tp" : cm == "SL" ? (beDone ? "breakeven" : "sl") : cm == "TIME" ? "time" : cm == "EOD" ? "eod" : cm == "DAILY" ? "daily_limit" : str.lower(cm)
+        lastEvt := qbSend("close", xPx, na, na, trQty, rsn, tradeId)
+        evClose := true
+        if not na(cur)
+            stretchTrade(cur, xBar)
+            if iShowExit
+                string xTxt = rsn == "tp" ? "TP " + money(pnl) : rsn == "sl" ? "SL " + money(pnl) : rsn == "breakeven" ? "BE" : rsn == "time" ? "TIME " + money(pnl) : rsn == "eod" ? "EOD " + money(pnl) : rsn == "daily_limit" ? "DAILY " + money(pnl) : cm + " " + money(pnl)
+                color  xCol = rsn == "tp" ? C_GREEN : rsn == "sl" ? C_RED : rsn == "breakeven" ? C_GREY : pnl >= 0 ? C_GREEN : C_RED
+                cur.exitLb := label.new(xBar, xPx, xTxt, style = label.style_label_left, color = color.new(xCol, 15), textcolor = color.white, size = size.small)
+        if rsn != "breakeven"
+            lossStreak := pnl < 0 ? lossStreak + 1 : 0
+        if lossStreak >= iMaxLosses and not haltDay
+            haltDay := true
+            haltWhy := str.tostring(iMaxLosses) + " LOSSES"
+        inTrade    := false
+        lastClosed := strategy.closedtrades
+
+    // 4) The limit order filled
+    if strategy.opentrades > 0 and not inTrade
+        inTrade := true
+        trDir   := strategy.position_size > 0 ? 1 : -1
+        trEntry := strategy.opentrades.entry_price(0)
+        trTime  := strategy.opentrades.entry_time(0)
+        trBar   := strategy.opentrades.entry_bar_index(0)
+        trSl    := pendSl
+        trTp    := pendTp
+        trQty   := math.abs(strategy.opentrades.size(0))
+        trRisk  := math.abs(trEntry - trSl)
+        beDone  := false
+        pendDir := 0
+        tradesToday += 1
+        cFill += 1
+        lastEvt := qbSend(trDir == 1 ? "buy" : "sell", trEntry, trSl, trTp, trQty, "", tradeId)
+        evBuy  := trDir == 1
+        evSell := trDir == -1
+        if not na(cur)
+            endPending(cur)
+            drawTrade(cur, trBar, trEntry, trSl, trTp, trQty, trDir)
+
+    // 5) Equity guards: daily loss limit and max drawdown
+    peakEq := math.max(peakEq, strategy.equity)
+    float ddPct = peakEq > 0 ? (peakEq - strategy.equity) / peakEq * 100 : 0.0
+    maxDdPct := math.max(maxDdPct, ddPct)
+    if not ddHalt and ddPct >= iMaxDD
+        ddHalt := true
+        misc.push(label.new(bar_index, high, "MAX DRAWDOWN", style = label.style_label_down, color = C_RED, textcolor = color.white, size = size.normal))
+    float todayPnl   = strategy.netprofit - dayStartNet + strategy.openprofit
+    bool  dailyClose = false
+    if haltWhy != "DAILY LIMIT" and todayPnl <= -iDailyLoss / 100 * dayStartEq
+        haltDay := true
+        haltWhy := "DAILY LIMIT"
+        if inTrade and strategy.position_size != 0
+            strategy.close(trDir == 1 ? "BUY" : "SELL", comment = "DAILY")
+            dailyClose := true
+
+    // 6) Manage the open trade: EOD, 2-hour time stop, breakeven
+    if inTrade and strategy.position_size != 0 and not dailyClose
+        string eid = trDir == 1 ? "BUY" : "SELL"
+        string xid = trDir == 1 ? "XL" : "XS"
+        if not inSess or nearEnd
+            strategy.close(eid, comment = "EOD")
+        else if time_close - trTime >= iMaxHold * 60000
+            strategy.close(eid, comment = "TIME")
+        else if iUseBE and not beDone and bar_index > trBar
+            float fav   = trDir == 1 ? high - trEntry : trEntry - low
+            bool  ahead = trDir == 1 ? close > trEntry : close < trEntry
+            if fav >= iBeR * trRisk and ahead
+                beDone := true
+                trSl   := math.round_to_mintick(trEntry)
+                strategy.exit(xid, from_entry = eid, stop = trSl, limit = trTp, comment_profit = "TP", comment_loss = "SL")
+                lastEvt := qbSend("set_sl", close, trSl, trTp, na, "breakeven", tradeId)
+                evSetSl := true
+                if not na(cur) and not na(cur.slLn)
+                    line.set_y1(cur.slLn, trSl)
+                    line.set_y2(cur.slLn, trSl)
+
+    // 7) Pending limit: expiry, session end, news, halts
+    if pendDir != 0 and strategy.position_size == 0
+        string why = bar_index - pendBar >= iExpiry ? "expired" : not inSess or nearEnd ? "session_end" : newsBlk ? "news" : haltDay or ddHalt ? "halt" : ""
+        if why != ""
+            strategy.cancel(pendDir == 1 ? "BUY" : "SELL")
+            strategy.cancel(pendDir == 1 ? "XL" : "XS")
+            lastEvt := qbSend("cancel", pendPx, na, na, na, why, tradeId)
+            evCancel := true
+            if not na(cur)
+                endPending(cur)
+            pendDir := 0
+
+    // 8) Armed sweep: invalidate, track its extreme, look for displacement + FVG
+    int bs = na(swBar) ? 9999 : bar_index - swBar
+    if swDir == 1
+        if close < swExt
+            swDir := 0
+        else
+            swExt := math.min(swExt, low)
+    else if swDir == -1
+        if close > swExt
+            swDir := 0
+        else
+            swExt := math.max(swExt, high)
+
+    if swDir != 0 and bs >= 1 and bs <= iFvgWin and (swDir == 1 ? fvgUp and longOk : fvgDn and shortOk)
+        cFvg += 1
+        int   d    = swDir
+        float ent  = math.round_to_mintick(d == 1 ? (low + high[2]) / 2 : (high + low[2]) / 2)
+        float sl   = d == 1 ? swExt - stopBuf * atr : swExt + stopBuf * atr
+        sl := d == 1 ? math.min(sl, ent - iMinStopAtr * atr) : math.max(sl, ent + iMinStopAtr * atr)
+        sl := math.round_to_mintick(sl)
+        float risk = math.abs(ent - sl)
+        float tp   = d == 1 ? ent + iRR * risk : ent - iRR * risk
+        if iLiqTarget
+            float lv = d == 1 ? nearAbove(ent, pdhSw ? float(na) : pdh, asHSw ? float(na) : asH, swHi) : nearBelow(ent, pdlSw ? float(na) : pdl, asLSw ? float(na) : asL, swLo)
+            if not na(lv) and (d == 1 ? lv > tp : lv < tp)
+                tp := lv
+        tp := math.round_to_mintick(tp)
+        // size: risk money / (stop distance x point value); whole contracts on futures
+        float riskCash = strategy.equity * iRiskPct / 100
+        float q = risk > 0 ? riskCash / (risk * syminfo.pointvalue) : 0.0
+        if isFut
+            q := math.floor(q)
+            if iMaxContr > 0
+                q := math.min(q, iMaxContr)
+        else
+            q := math.max(math.floor(q * 100) / 100, 0.01)
+
+        if strategy.position_size != 0 or pendDir != 0
+            cBlkBusy += 1
+        else if haltDay or ddHalt or tradesToday >= iMaxTrades
+            cBlkLimit += 1
+        else if not inSess or nearEnd or friCut
+            cBlkTime += 1
+        else if newsBlk
+            cBlkNews += 1
+        else if atr < minAtr
+            cBlkAtr += 1
+        else if risk <= 0 or risk > iMaxStopAtr * atr
+            cBlkWide += 1
+            misc.push(label.new(bar_index, d == 1 ? low : high, "TOO WIDE", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(C_GREY, 20), textcolor = color.white, size = size.tiny))
+        else if q < (isFut ? 1.0 : 0.01)
+            cBlkSize += 1
+            misc.push(label.new(bar_index, d == 1 ? low : high, "SIZE < 1", style = d == 1 ? label.style_label_up : label.style_label_down, color = color.new(C_GREY, 20), textcolor = color.white, size = size.tiny))
+        else
+            string eid = d == 1 ? "BUY" : "SELL"
+            string xid = d == 1 ? "XL" : "XS"
+            strategy.entry(eid, d == 1 ? strategy.long : strategy.short, qty = q, limit = ent)
+            strategy.exit(xid, from_entry = eid, stop = sl, limit = tp, comment_profit = "TP", comment_loss = "SL")
+            pendDir := d
+            pendBar := bar_index
+            pendPx  := ent
+            pendSl  := sl
+            pendTp  := tp
+            tradeId := qbName + "-" + str.tostring(time)
+            lastEvt := qbSend(d == 1 ? "buy_limit" : "sell_limit", ent, sl, tp, q, "", tradeId)
+            evBuyLmt  := d == 1
+            evSellLmt := d == -1
+            cLimit += 1
+            Setup s = Setup.new(dir = d)
+            color gc = d == 1 ? C_GREEN : C_RED
+            if iShowFvg
+                s.fvg := box.new(bar_index - 2, d == 1 ? low : low[2], bar_index, d == 1 ? high[2] : high, border_color = color.new(gc, 60), bgcolor = color.new(gc, 85))
+                s.mid := line.new(bar_index - 2, ent, bar_index, ent, color = color.new(gc, 20), style = line.style_dashed, width = 1)
+            if iShowPend
+                s.pend   := line.new(bar_index, ent, bar_index + 1, ent, color = color.white, style = line.style_dashed, width = 1)
+                s.pendLb := label.new(bar_index + 1, ent, (d == 1 ? "BUY LIMIT " : "SELL LIMIT ") + fmtP(ent), style = label.style_label_left, color = C_CLEAR, textcolor = color.white, size = size.small)
+            setups.push(s)
+            if setups.size() > iKeep
+                setups.shift().wipe()
+            cur := s
+        swDir := 0     // one setup per sweep
+
+    if swDir != 0 and bs >= iFvgWin
+        swDir := 0     // window over
+
+    // 9) New sweeps (in session only; bias decides the side)
+    if inSess
+        cSess += 1
+        bool aL = sweepL and longOk
+        bool aS = sweepS and shortOk and not aL
+        if sweepL or sweepS
+            cSweep += 1
+            if not aL and not aS
+                cBlkBias += 1
+        if aL or aS
+            cSweepB += 1
+            if strategy.position_size != 0 or pendDir != 0
+                cBlkBusy += 1
+            else if haltDay or ddHalt or tradesToday >= iMaxTrades
+                cBlkLimit += 1
+            else
+                swDir := aL ? 1 : -1
+                swBar := bar_index
+                swExt := aL ? low : high
+                evSweepL := aL
+                evSweepS := aS
+
+    // 10) Liquidity levels turn grey once traded through
+    if not pdhSw and not na(pdh) and high > pdh
+        pdhSw := true
+        greyOut(pdhLn, pdhLb)
+    if not pdlSw and not na(pdl) and low < pdl
+        pdlSw := true
+        greyOut(pdlLn, pdlLb)
+    if not asHSw and not na(asH) and high > asH
+        asHSw := true
+        greyOut(ashLn, ashLb)
+    if not asLSw and not na(asL) and low < asL
+        asLSw := true
+        greyOut(aslLn, aslLb)
+
+    // 11) Keep drawings attached to the current bar
+    if not na(pdhLn)
+        line.set_x2(pdhLn, bar_index)
+        label.set_x(pdhLb, bar_index)
+    if not na(pdlLn)
+        line.set_x2(pdlLn, bar_index)
+        label.set_x(pdlLb, bar_index)
+    if not na(ashLn)
+        line.set_x2(ashLn, bar_index)
+        label.set_x(ashLb, bar_index)
+    if not na(aslLn)
+        line.set_x2(aslLn, bar_index)
+        label.set_x(aslLb, bar_index)
+    if not na(cur)
+        if pendDir != 0
+            if not na(cur.pend)
+                line.set_x2(cur.pend, bar_index + 1)
+                label.set_x(cur.pendLb, bar_index + 1)
+            if not na(cur.fvg)
+                box.set_right(cur.fvg, bar_index)
+            if not na(cur.mid)
+                line.set_x2(cur.mid, bar_index)
+        if inTrade
+            stretchTrade(cur, bar_index)
+    while misc.size() > 50
+        label.delete(misc.shift())
+
+// ───────────────────────────── Plots ────────────────────────────────────────
+bgcolor(iShowSess and inLon ? color.new(#3b82f6, 92) : na, title = "London session")
+bgcolor(iShowSess and inNy ? color.new(#f59e0b, 92) : na, title = "New York session")
+bgcolor(iShowSess and inPm ? color.new(#a855f7, 92) : na, title = "Afternoon session")
+
+plot(iShowEma ? bFast : na, "1H EMA 50", color = color.new(#38bdf8, 20), linewidth = 1)
+plot(iShowEma ? bSlow : na, "1H EMA 200", color = color.new(#f472b6, 20), linewidth = 1)
+
+plotshape(iShowSweep and evSweepL, "Sweep low", shape.triangleup, location.belowbar, color.new(#38bdf8, 0), text = "SWEEP", textcolor = color.new(#38bdf8, 0), size = size.tiny)
+plotshape(iShowSweep and evSweepS, "Sweep high", shape.triangledown, location.abovebar, color.new(#f472b6, 0), text = "SWEEP", textcolor = color.new(#f472b6, 0), size = size.tiny)
+
+plotshape(iShowSig and evBuyLmt, "QB buy_limit", shape.triangleup, location.belowbar, C_GREEN, text = "BUY LMT", textcolor = C_GREEN, size = size.tiny)
+plotshape(iShowSig and evSellLmt, "QB sell_limit", shape.triangledown, location.abovebar, C_RED, text = "SELL LMT", textcolor = C_RED, size = size.tiny)
+plotshape(iShowSig and evCancel, "QB cancel", shape.xcross, location.abovebar, C_GREY, text = "CXL", textcolor = C_GREY, size = size.tiny)
+plotshape(iShowSig and evBuy, "QB buy", shape.labelup, location.belowbar, C_GREEN, text = "BUY", textcolor = color.white, size = size.tiny)
+plotshape(iShowSig and evSell, "QB sell", shape.labeldown, location.abovebar, C_RED, text = "SELL", textcolor = color.white, size = size.tiny)
+plotshape(iShowSig and evSetSl, "QB set_sl", shape.diamond, location.abovebar, color.new(#eab308, 0), text = "BE", textcolor = color.new(#eab308, 0), size = size.tiny)
+plotshape(iShowSig and evClose, "QB close", shape.square, location.abovebar, color.white, text = "CLOSE", textcolor = color.white, size = size.tiny)
+
+// ───────────────────────────── Dashboard ────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 22, bgcolor = color.new(#0b1220, 8), frame_color = color.new(#334155, 0), frame_width = 1, border_color = color.new(#1e293b, 0), border_width = 1)
+
+dRow(int r, string k, string v, color vc) =>
+    table.cell(dash, 0, r, k, text_color = #94a3b8, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, r, v, text_color = vc, text_size = size.small, text_halign = text.align_right)
+
+if iShowDash and barstate.islast
+    string biasTxt = "BIAS: " + (bias == 1 ? "LONG" : bias == -1 ? "SHORT" : "NONE") + (iUseBias ? "" : " (off)")
+    color  biasCol = bias == 1 ? C_GREEN : bias == -1 ? C_RED : C_GREY
+    string sessTxt = (inLon ? "LONDON" : inNy ? "NEW YORK" : inPm ? "AFTERNOON" : "CLOSED") + (newsBlk ? " | NEWS" : "") + (friCut ? " | FRI" : "") + (nearEnd ? " | END" : "")
+    float  realToday = strategy.netprofit - dayStartNet
+    float  wr = strategy.closedtrades > 0 ? float(strategy.wintrades) / strategy.closedtrades * 100 : na
+    float  pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+    string status = ddHalt ? "MAX DRAWDOWN" : haltDay ? haltWhy : tradesToday >= iMaxTrades ? "MAX TRADES" : "ACTIVE"
+    table.cell(dash, 0, 0, qbName, text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 0, syminfo.ticker + " " + timeframe.period + (timeframe.period != "5" ? " (use 5m!)" : ""), text_color = color.white, text_size = size.small, text_halign = text.align_right)
+    dRow(1, "Profile", profTxt, color.white)
+    dRow(2, "1H bias", biasTxt, biasCol)
+    dRow(3, "Session now", sessTxt, inSess ? C_GREEN : C_GREY)
+    dRow(4, "ATR(" + str.tostring(iAtrLen) + ") / min", fmtP(atr) + " / " + str.tostring(minAtr), atr >= minAtr ? color.white : C_RED)
+    dRow(5, "Trades today", str.tostring(tradesToday) + " / " + str.tostring(iMaxTrades), color.white)
+    dRow(6, "Today P&L", money(realToday), realToday >= 0 ? C_GREEN : C_RED)
+    dRow(7, "Total net P&L", money(strategy.netprofit), strategy.netprofit >= 0 ? C_GREEN : C_RED)
+    dRow(8, "Win rate", na(wr) ? "-" : str.tostring(wr, "0.0") + "% (" + str.tostring(strategy.closedtrades) + ")", color.white)
+    dRow(9, "Profit factor", na(pf) ? "-" : str.tostring(pf, "0.00"), na(pf) ? color.white : pf >= 1.3 ? C_GREEN : pf >= 1 ? #eab308 : C_RED)
+    dRow(10, "Max drawdown", str.tostring(maxDdPct, "0.00") + "%", maxDdPct < iMaxDD * 0.5 ? color.white : C_RED)
+    dRow(11, "Status", status, status == "ACTIVE" ? C_GREEN : C_RED)
+    dRow(12, "1 In-session bars", str.tostring(cSess), color.white)
+    dRow(13, "2 Sweeps (all)", str.tostring(cSweep), color.white)
+    dRow(14, "3 Sweeps with bias", str.tostring(cSweepB), color.white)
+    dRow(15, "4 FVG after sweep", str.tostring(cFvg), color.white)
+    dRow(16, "5 Limits placed", str.tostring(cLimit), color.white)
+    dRow(17, "6 Fills", str.tostring(cFill), color.white)
+    dRow(18, "Blocked bias/busy/limit", str.tostring(cBlkBias) + " / " + str.tostring(cBlkBusy) + " / " + str.tostring(cBlkLimit), C_GREY)
+    dRow(19, "Blocked time/news/ATR", str.tostring(cBlkTime) + " / " + str.tostring(cBlkNews) + " / " + str.tostring(cBlkAtr), C_GREY)
+    dRow(20, "Blocked wide/size", str.tostring(cBlkWide) + " / " + str.tostring(cBlkSize), C_GREY)
+    dRow(21, "Last QuantBot event", lastEvt, #38bdf8)
