@@ -29,13 +29,16 @@ if (proxy) {
     { u: decodeURIComponent(proxy.username), p: decodeURIComponent(proxy.password) });
 }
 const userData = await app.evaluate(({ app: a }) => a.getPath('userData'));
-const logTail = () => { try { return fs.readFileSync(path.join(userData, 'quantbot.log'), 'utf8').split('\n').slice(-40).join('\n'); } catch { return '(no log)'; } };
+// The app's log (logs/quantbot.log; Settings > Logs shows where)
+let logPath = path.join(userData, 'logs', 'quantbot.log');
+const logTail = () => { try { return fs.readFileSync(logPath, 'utf8').split('\n').slice(-40).join('\n'); } catch { return '(no log)'; } };
 let failed = 0;
 const check = (ok, msg) => { console.log(`  ${ok ? '✓' : '✗'} ${msg}`); if (!ok) failed++; };
 
 let win;
 for (let k = 0; k < 300 && !win; k++) { win = app.windows().find((w) => w.url().startsWith('http')); if (!win) await wait(200); }
 await win.waitForLoadState();
+logPath = (await win.evaluate(() => window.quantbotDesktop?.logsPath?.())) || logPath;
 win.on('console', (m) => { if (m.type() === 'error') console.log(`    console: ${m.text().slice(0, 300)}`); });
 
 // 1. Straight downloads: each market on a few timeframes and periods (recent, years back, daily from the 1990s)
@@ -109,7 +112,7 @@ check(!!ict && !ict.error && ict.trades.length === 3 && ict.trades.reduce((a, b)
   `Strategy Tester, ICT rules on real M15 data (last 180 days): ${ict?.error || (ict ? `trades XAUUSD/US100/NQ ${ict.trades.join(' / ')} in ${Math.round((Date.now() - t1) / 1000)} s` : 'timed out')}`);
 
 console.log(`\nApp log (last lines):\n${logTail()}`);
-fs.copyFileSync(path.join(userData, 'quantbot.log'), path.join(OUT, 'quantbot.log'));
+try { fs.copyFileSync(logPath, path.join(OUT, 'quantbot.log')); } catch { /* no log */ }
 await app.close().catch(() => {});
 await models.close();
 console.log(failed ? `\n${failed} check(s) failed.` : '\nLive check passed.');

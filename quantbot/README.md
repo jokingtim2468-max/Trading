@@ -41,7 +41,8 @@ open. Closing the window ends QuantBot completely. The testers use the built-in 
 checks the GitHub releases and, when there's a newer version, downloads and installs it first (progress in the
 loading window). Settings > Updates shows the version and can install an update now. Your data lives in
 `%APPDATA%\QuantBot\data` and is kept through updates and uninstalls; data from the older PowerShell version is copied
-in the first time the app opens. Windows may warn about an unrecognised app the first time (the installer isn't
+in the first time the app opens. The log is `logs\quantbot.log` in the install folder (Settings > Logs shows the path
+and opens the folder); a copy is kept in `%APPDATA%\QuantBot` while an update installs and put back afterwards. Windows may warn about an unrecognised app the first time (the installer isn't
 code-signed): click **More info**, then **Run anyway**.
 
 Releases are built by GitHub Actions (`.github/workflows/quantbot-desktop.yml`) on every push that changes `quantbot/`:

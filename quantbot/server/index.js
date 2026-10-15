@@ -155,7 +155,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
       try {
         await handleApi(req, res, { backend, market, app }, url);
       } catch (e) {
-        // The desktop app writes the full error to %APPDATA%\QuantBot\quantbot.log for troubleshooting
+        // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
         if (!res.headersSent) send(res, e.status || 500, { error: e.message || String(e) });
       }

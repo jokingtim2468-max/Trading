@@ -123,6 +123,14 @@ expect(JSON.parse(fs.readFileSync(path.join(userData, 'prefs.json'), 'utf8')).mo
 console.log('  ✓ Settings > Motion switches between full and reduced');
 expect(fs.existsSync(path.join(data, 'secret.key')), 'data was not written to QUANTBOT_DATA');
 console.log('  ✓ data saved in the app data folder');
+// Settings > Logs: the log file is in a "logs" folder and already has the startup in it
+await win.getByRole('heading', { name: 'Logs' }).scrollIntoViewIfNeeded();
+const logPath = (await win.getByTestId('log-path').textContent()).trim();
+expect(path.basename(logPath) === 'quantbot.log' && path.basename(path.dirname(logPath)) === 'logs', `log at ${logPath}`);
+expect(/QuantBot \S+ on http/.test(fs.readFileSync(logPath, 'utf8')), 'startup was not logged');
+await win.getByRole('button', { name: 'Open logs folder' }).waitFor();
+await win.screenshot({ path: path.join(OUT, 'settings-logs.png') });
+console.log(`  ✓ Settings > Logs shows ${logPath} and an Open logs folder button`);
 
 // A chat to find again after restarts
 const invoke = (page, kind, args) => page.evaluate(([k, a]) => fetch('/api/invoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: k, args: a }) }).then((r) => r.json()), [kind, args]);
@@ -153,8 +161,14 @@ const mainWindow = async (a) => {
   }
   throw new Error('main window did not open');
 };
+// An update replaces the install folder: the copy kept in the app data folder comes back on the next start
+const kept = path.join(userData, 'quantbot.log');
+fs.writeFileSync(kept, `${fs.readFileSync(logPath, 'utf8')}kept through the update\n`);
+fs.rmSync(logPath);
 let again = await launch();
 let w2 = await mainWindow(again);
+expect(fs.readFileSync(logPath, 'utf8').includes('kept through the update') && !fs.existsSync(kept), 'the log was not brought back after the update');
+console.log('  ✓ the log survives an update');
 await w2.locator('aside').getByText('Saved chat one').waitFor({ timeout: 15000 });
 const chat2 = (await invoke(w2, 'entity', ['ChatSession', 'create', { title: 'Saved chat two', group: 'MT5', last_message_at: new Date().toISOString() }])).result;
 await invoke(w2, 'entity', ['ChatMessage', 'create', { session_id: chat2.id, role: 'user', content: 'written right before a crash' }]);

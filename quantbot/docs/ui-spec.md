@@ -98,6 +98,9 @@ Everything that opens from a click uses one motion.
 - **Leaderboard** at the bottom of every Strategy Tester run, Converter run and saved session: every market and
   version ranked by net P&L, with return, win rate, profit factor, max drawdown, trades and the Monte Carlo grade.
   Click a row to open that run.
+- **Settings > Logs** (desktop app only, under Updates): a card titled "QuantBot's log file" with one line of help,
+  the full log path in small monospace muted text, and an outline **Open logs folder** button (folder icon) that opens
+  the `logs` folder in the install folder in File Explorer.
 - **Test progress:** while a test simulates, the status line under the loader counts up ("XAUUSD: simulating
   trades... 42% of 45,120 bars"). The Strategy Tester's **Run test** button turns into an outline **Stop** button
   (square icon) while it runs, like the Converter's; Stop ends the test at once with no error shown.

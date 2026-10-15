@@ -42,7 +42,39 @@ const dataDir = () => process.env.QUANTBOT_DATA || path.join(userData(), 'data')
 const prefsFile = () => path.join(userData(), 'prefs.json');
 const prefs = () => { try { return JSON.parse(fs.readFileSync(prefsFile(), 'utf8')); } catch { return {}; } };
 const calm = () => prefs().motion === 'reduced';
-const log = (msg) => { try { fs.appendFileSync(path.join(userData(), 'quantbot.log'), `${new Date().toISOString()} ${msg}\n`); } catch { /* best effort */ } };
+// The log is in a "logs" folder inside the install folder, next to QuantBot.exe (a per-user install, so it can be
+// written). Running from source, or if that folder can't be written, it is in the app data folder instead. An update
+// replaces the install folder, so the log is copied to the app data folder first and copied back on the next start.
+let logsDir = null;
+const logDir = () => {
+  if (logsDir) return logsDir;
+  const candidates = [process.env.QUANTBOT_LOG_DIR, app.isPackaged && path.join(path.dirname(process.execPath), 'logs'), path.join(userData(), 'logs')];
+  for (const dir of candidates.filter(Boolean)) {
+    try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); return (logsDir = dir); } catch { /* next */ }
+  }
+  return (logsDir = userData());
+};
+const logFile = () => path.join(logDir(), 'quantbot.log');
+const logBackup = () => path.join(userData(), 'quantbot.log'); // also where older versions kept the log
+const LOG_MAX = 5 * 1024 * 1024;
+const log = (msg) => {
+  try {
+    const file = logFile();
+    if ((fs.statSync(file, { throwIfNoEntry: false })?.size || 0) > LOG_MAX) fs.renameSync(file, path.join(logDir(), 'quantbot.old.log'));
+    fs.appendFileSync(file, `${new Date().toISOString()} ${msg}\n`);
+  } catch { /* best effort */ }
+};
+// Before an update installs: keep a copy outside the install folder
+const backupLog = () => { try { fs.copyFileSync(logFile(), logBackup()); } catch { /* nothing to keep */ } };
+// On start: bring back the copy kept through an update (or the log from older versions) if the install folder lost it
+function restoreLog() {
+  try {
+    const kept = logBackup();
+    if (kept === logFile() || !fs.existsSync(kept)) return;
+    if (!fs.existsSync(logFile())) fs.copyFileSync(kept, logFile());
+    fs.rmSync(kept);
+  } catch { /* best effort */ }
+}
 
 app.on('second-instance', () => {
   const w = main || splash;
@@ -93,6 +125,7 @@ function updateAtStart() {
     const onProgress = (p) => progress({ percent: 6 + p.percent * 0.84, label: `Downloading update… ${(p.transferred / 1e6).toFixed(1)} of ${(p.total / 1e6).toFixed(1)} MB` });
     const onDownloaded = () => {
       progress({ percent: 96, label: 'Installing the update…' });
+      backupLog();
       setTimeout(() => autoUpdater.quitAndInstall(true, true), 600);
       done(true);
     };
@@ -164,7 +197,7 @@ const hooks = {
   })(),
   // Installs a downloaded update now, or reopens QuantBot so the loading window downloads it
   async restart() {
-    if (updateReady) return autoUpdater.quitAndInstall(true, true);
+    if (updateReady) { backupLog(); return autoUpdater.quitAndInstall(true, true); }
     app.relaunch();
     app.quit();
   },
@@ -219,6 +252,13 @@ ipcMain.on('window:minimize', (e) => { if (fromMain(e)) main.minimize(); });
 ipcMain.on('window:toggle-maximize', (e) => { if (fromMain(e)) { if (main.isMaximized()) main.unmaximize(); else main.maximize(); } });
 ipcMain.on('window:close', (e) => { if (fromMain(e)) main.close(); });
 ipcMain.handle('window:is-maximized', (e) => (fromMain(e) ? main.isMaximized() : false));
+// Settings > Logs
+ipcMain.handle('logs:path', (e) => (fromMain(e) ? logFile() : null));
+ipcMain.handle('logs:open', async (e) => {
+  if (!fromMain(e)) return 'Not allowed';
+  if (!fs.existsSync(logFile())) log('Log opened from Settings');
+  return shell.openPath(logDir()); // '' when it opened
+});
 
 // Opening: the main window appears at its real size (resizing a window every frame is what made it stutter) and fades
 // in while its content zooms out of the middle (CSS, on the graphics card: html.app-opening in src/index.css) and the
@@ -267,7 +307,7 @@ async function start() {
     await reveal();
   } catch (e) {
     log(`start failed: ${e.stack || e.message}`);
-    progress({ label: "QuantBot couldn't start", error: `${e.message} Details: ${path.join(userData(), 'quantbot.log')}` });
+    progress({ label: "QuantBot couldn't start", error: `${e.message} Details: ${logFile()}` });
     return;
   }
 
@@ -281,7 +321,10 @@ async function start() {
 
 // A second copy only brings the open window forward
 if (!primary) app.quit();
-else app.whenReady().then(start);
+else {
+  restoreLog(); // before anything writes to the log
+  app.whenReady().then(start);
+}
 
 // Closing the window ends QuantBot completely: the local server stops (open connections included) and the
 // process exits, so nothing keeps running in the background or in Task Manager. A downloaded update installs now.
@@ -294,8 +337,7 @@ async function shutdown() {
     server?.server.closeAllConnections?.();
     await server?.close();
   } catch { /* exiting anyway */ }
-  if (updateReady) autoUpdater.quitAndInstall(true, false);
-  else app.exit(0);
+  if (updateReady) { backupLog(); autoUpdater.quitAndInstall(true, false); } else app.exit(0);
 }
 app.on('window-all-closed', shutdown);
 app.on('before-quit', (e) => { if (!quitting && server) { e.preventDefault(); shutdown(); } });
