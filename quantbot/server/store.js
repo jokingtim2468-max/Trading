@@ -28,8 +28,12 @@ export function createUser(dir, name) {
 export function createKeys(dir, encrypt, decrypt) {
   const file = path.join(dir, 'keys.json');
   const all = () => readJson(file, {});
+  // A key this PC can't decrypt (saved by an older version, or with another secret.key) counts as not linked,
+  // so the app asks for it again instead of failing
+  const read = (r) => { try { return r?.ciphertext ? decrypt(r.ciphertext) : null; } catch { return null; } };
   return {
-    get: (provider) => { const r = all()[provider]; return r ? decrypt(r.ciphertext) : null; },
+    get: (provider) => read(all()[provider]),
+    unreadable: (provider) => !!all()[provider] && read(all()[provider]) == null,
     set(provider, key) {
       const a = all();
       a[provider] = { ciphertext: encrypt(key), last4: key.slice(-4) };
@@ -42,7 +46,10 @@ export function createKeys(dir, encrypt, decrypt) {
     },
     status() {
       const a = all();
-      return Object.fromEntries(Object.keys(KEY_PROVIDERS).map((p) => [p, a[p] ? { linked: true, last4: a[p].last4 } : { linked: false }]));
+      return Object.fromEntries(Object.keys(KEY_PROVIDERS).map((p) => {
+        if (!a[p]) return [p, { linked: false }];
+        return [p, read(a[p]) == null ? { linked: false, unreadable: true } : { linked: true, last4: a[p].last4 }];
+      }));
     },
   };
 }

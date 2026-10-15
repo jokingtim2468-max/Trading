@@ -33,6 +33,9 @@ export default function ProviderKeyCard({ provider, status, onChange }) {
           <span className="text-xs text-muted-foreground border border-border rounded-full px-2.5 py-1">Not linked</span>
         )}
       </div>
+      {s?.unreadable && (
+        <p className="text-xs text-destructive">Your saved key was stored by an older version of QuantBot and can't be read. Paste it again below.</p>
+      )}
       {s && <ApiKeyForm provider={provider} onSaved={onChange} buttonLabel={s.linked ? 'Replace' : 'Save key'} />}
       {s?.linked && (
         <Button variant="outline" size="sm" onClick={remove} disabled={removing} className="bg-transparent text-destructive border-destructive/40 hover:text-destructive">

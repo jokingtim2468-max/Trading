@@ -28,6 +28,7 @@ export function createFunctions({ db, user, keys, market }) {
       if (!me.ollama_model) fail('Set up your local model in Settings first.');
       return { url: me.ollama_url || DEFAULT_OLLAMA_URL, model: me.ollama_model };
     }
+    if (keys.unreadable(provider)) fail(`Your saved ${PROVIDER_NAMES[provider]} API key can't be read (it was saved by an older version of QuantBot). Add it again in Settings.`);
     return keys.get(provider) || fail(`No ${PROVIDER_NAMES[provider]} API key linked. Add one in Settings.`);
   }
 

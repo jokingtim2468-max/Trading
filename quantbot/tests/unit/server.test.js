@@ -262,3 +262,17 @@ describe('HTTP server', () => {
     assert.equal((await invoke('file', ['a.csv', [1, 2]])).status, 400);
   });
 });
+
+describe('API keys from an older version', () => {
+  test('an unreadable saved key counts as not linked and gives a clear message', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'quantbot-oldkey-'));
+    // A keys.json the current secret can't decrypt (another format / another PC)
+    fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ anthropic: { ciphertext: 'not-our-format', last4: '1234' } }));
+    const cipher = createCipher(dir);
+    const be = createBackend({ dataDir: dir, encrypt: cipher.encrypt, decrypt: cipher.decrypt, userName: 'T' });
+    assert.deepEqual(be.handle('function', 'apiKeys', { action: 'status' }).anthropic, { linked: false, unreadable: true });
+    await assert.rejects(() => Promise.resolve(be.handle('function', 'strategyTester', { strategy: 'x', rules: '', target: 'MT5', model: 'claude-opus-5-5', market: { symbol: 'XAUUSD', timeframe: 'M15', balance: 10000 } })), /can't be read.*Add it again in Settings/);
+    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-new-key-5678' });
+    assert.deepEqual(be.handle('function', 'apiKeys', { action: 'status' }).anthropic, { linked: true, last4: '5678' });
+  });
+});
