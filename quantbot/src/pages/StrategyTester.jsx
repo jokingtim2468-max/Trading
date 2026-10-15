@@ -40,7 +40,7 @@ export default function StrategyTester() {
               chats={t.chats} datasets={t.datasets} chatId={chatId} datasetIds={datasetIds}
               onChat={setChatId} onDatasets={setDatasetIds} running={t.running}
               range={range} rangeLimits={{ min, max: today() }} onRange={(p) => setRange((r) => ({ ...r, ...p }))}
-              onRun={() => t.run(chatId, datasetIds, range)}
+              onRun={() => t.run(chatId, datasetIds, range)} onStop={t.stop}
             />
             <p className="text-xs text-muted-foreground px-1">
               Tests the newest script in the chat on the chosen dates. XAUUSD, US100 and NQ history downloads from Dukascopy the first
@@ -54,7 +54,7 @@ export default function StrategyTester() {
             <ChartLoader className="w-20 h-12" />{t.phase}
           </div>
         )}
-        {t.error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{t.error}</div>}
+        {t.error && <div role="alert" data-testid="tester-error" className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{t.error}</div>}
         {t.results.map((r) => (
           <div key={r.ds.id} id={`result-${r.ds.id}`} className="space-y-5 scroll-mt-4">
             <h2 className="font-heading text-base font-semibold">{r.ds.symbol} {r.ds.timeframe}</h2>

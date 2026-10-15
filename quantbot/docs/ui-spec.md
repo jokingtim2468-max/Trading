@@ -98,6 +98,9 @@ Everything that opens from a click uses one motion.
 - **Leaderboard** at the bottom of every Strategy Tester run, Converter run and saved session: every market and
   version ranked by net P&L, with return, win rate, profit factor, max drawdown, trades and the Monte Carlo grade.
   Click a row to open that run.
+- **Test progress:** while a test simulates, the status line under the loader counts up ("XAUUSD: simulating
+  trades... 42% of 45,120 bars"). The Strategy Tester's **Run test** button turns into an outline **Stop** button
+  (square icon) while it runs, like the Converter's; Stop ends the test at once with no error shown.
 
 ## Market data
 
@@ -105,7 +108,8 @@ Everything that opens from a click uses one motion.
   daily from Nov 1990) and NQ (the same Nasdaq-100 prices on NQ's contract: 0.25 tick, $20 per point, 1-tick spread),
   downloaded free from Dukascopy and saved on the PC.
 - The Converter converts a strategy once and tests that bot on every picked market (all three by default).
-- Bar times are broker server time: UTC+2, or UTC+3 while New York is on daylight saving (like FTMO's MT5).
+- Bar times are broker server time: UTC+2, or UTC+3 while New York is on daylight saving (like FTMO's MT5), which is
+  always New York time + 7 hours. Test code gets both clocks (`ctx.hour`, `ctx.nyHour`).
 - Timeframes: M1, M5, M15, M30, H1, H4, D1. M1 tests cover up to 370 days.
 
 ## Desktop app (Electron)

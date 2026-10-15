@@ -30,7 +30,7 @@ Market data (built in, free, from Dukascopy, saved on the trader's PC):
 - US100 Nasdaq-100 CFD: point 0.01, contract 1, 1-minute bars from Sept 2011, daily from 1990, real spread.
 - NQ Nasdaq-100 E-mini futures: same Nasdaq-100 prices on NQ's contract (0.25 tick, $20 per point), 1-tick fixed spread. Prices sit slightly below the real futures (no CME data), moves match.
 - Timeframes M1, M5, M15, M30, H1, H4, D1. M1 ranges up to 370 days per test.
-- All times are broker server time: UTC+2, UTC+3 while New York is on daylight saving time (FTMO MT5 time). London opens 10:00 server time, New York cash open 16:30 server time.
+- All times are broker server time: UTC+2, UTC+3 while New York is on daylight saving time (FTMO MT5 time), so server time is always New York time + 7 hours. London opens 10:00 server time, New York cash open 16:30 server time (09:30 New York). The simulator gives both (ctx.hour and ctx.nyHour), so ICT killzones in New York time stay exact.
 
 Your data tools (read-only; call them yourself, the trader cannot see the calls):
 - list_tests: every saved bot, version and market with its key numbers and run ids.

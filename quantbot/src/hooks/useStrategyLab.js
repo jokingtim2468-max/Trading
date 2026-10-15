@@ -106,7 +106,7 @@ export default function useStrategyLab(config) {
     const sim = await runInWorker({
       bars: sliceBars(bars, from, w.to), startIndex: w.from - from, simCode: conv.sim_code,
       balance: config.balance, contractSize: ds.contract_size || 100, point: ds.point || 0.01,
-    }, 30000, signal);
+    }, { maxMs: 60000, signal, onProgress: (done, total) => say(`Simulating trades... ${Math.floor((done / total) * 100)}%`) });
     sim.log.forEach((e) => log.push(e));
     const metrics = computeMetrics(sim.trades, sim.equity, config.balance, ds.contract_size || 100);
     add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);

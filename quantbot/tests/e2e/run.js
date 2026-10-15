@@ -262,7 +262,7 @@ await step('Strategy Tester: 3 built-in markets (XAUUSD, US100, NQ) on M15 / las
   await page.keyboard.press('Escape');
   await page.getByLabel('From date').fill(daysAgo(120));
   await page.getByRole('button', { name: 'Run test' }).click();
-  await text(/downloading M15 history|Reading the script|Simulating/).first().waitFor();
+  await text(/downloading M15 history|reading the script|simulating/i).first().waitFor();
   await snap('tester-progress');
   for (const h of ['XAUUSD M15', 'US100 M15', 'NQ M15']) await page.getByRole('heading', { name: h }).waitFor({ timeout: 180000 });
   const board = page.getByRole('region', { name: /Leaderboard: every market in this test/ });
@@ -302,6 +302,59 @@ await step('Strategy Tester: M1 over a year is refused with a clear message', as
   await page.getByLabel('From date').fill(daysAgo(500));
   await page.getByRole('button', { name: 'Run test' }).click();
   await text(/M1 tests can cover at most 370 days/).waitFor();
+});
+
+await step('Strategy Tester: a script whose test code is too slow is rewritten for speed; Stop stops at once', async () => {
+  // A chat whose script the fake model first translates into code that rescans the whole chart every bar
+  await back();
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await page.getByPlaceholder('Reply to QuantBot...').fill('write my slow ict strategy');
+  await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
+  await page.locator('aside').getByText('Slow ICT', { exact: true }).waitFor();
+  await sidebarLink('Strategy Tester').click();
+  await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
+  await pick(page.getByRole('combobox').first(), 'Slow ICT');
+  await pick(page.getByLabel('Timeframe'), 'M15');
+  await page.getByLabel('From date').fill(daysAgo(120));
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await text(/simulating trades\.\.\. \d+% of/).first().waitFor();
+  await page.getByRole('heading', { name: 'XAUUSD M15' }).waitFor({ timeout: 120000 });
+  await page.getByRole('tab', { name: /Log \(/ }).first().click();
+  await text(/Simulation was too slow: \d+% of [\d,]+ bars|Simulation stopped: one bar took more than/).first().waitFor();
+  await text(/Rewrote the test code for speed/).first().waitFor();
+  expect(!(await page.getByTestId('tester-error').count()), 'the rewrite should leave no error');
+  // Stop during the slow simulation ends the run straight away, with no error
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await text(/simulating trades\.\.\. \d+% of/).first().waitFor();
+  const t0 = Date.now();
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.getByRole('button', { name: 'Run test' }).waitFor({ timeout: 2000 });
+  expect(Date.now() - t0 < 2000, 'Stop took too long');
+  expect(!(await page.getByTestId('tester-error').count()), 'Stop should not show an error');
+});
+
+await step('Strategy Tester: test code that takes no trades is checked once, with condition counts in the log', async () => {
+  await back();
+  await page.getByRole('button', { name: 'New chat' }).click();
+  await page.getByPlaceholder('Reply to QuantBot...').fill('write my quiet ict strategy');
+  await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
+  await page.locator('aside').getByText('Quiet ICT', { exact: true }).waitFor();
+  await sidebarLink('Strategy Tester').click();
+  await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
+  await pick(page.getByRole('combobox').first(), 'Quiet ICT');
+  await pick(page.getByLabel('Timeframe'), 'M15');
+  await page.getByLabel('From date').fill(daysAgo(120));
+  const before = models.calls.length;
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await page.getByRole('heading', { name: 'XAUUSD M15' }).waitFor({ timeout: 120000 });
+  await page.getByRole('tab', { name: /Log \(/ }).first().click();
+  await text(/Condition counts over [\d,]+ bars: in session [\d,]+/).first().waitFor();
+  await text(/took no trades, so it was sent back to be checked/).first().waitFor();
+  await text(/Backtest: [1-9]\d* trades/).first().waitFor();
+  const testerCalls = models.calls.slice(before).filter((c) => c.system?.startsWith("You are QuantBot's strategy tester"));
+  expect(testerCalls.length === 2, `${testerCalls.length} tester calls: one translation and one check`);
+  await page.getByRole('tab', { name: 'Script' }).first().click();
+  await text('Test code the simulator ran').first().waitFor();
 });
 
 await step('Strategy Converter: converts, tests on unseen M15 week, all report tabs', async () => {

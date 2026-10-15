@@ -1,6 +1,7 @@
 // Stand-ins for the Claude API and Ollama, so the end-to-end run costs nothing and gives the same answers every time.
 // They answer the three QuantBot jobs: chat (an EA in a code block), the converter and the script tester (JSON).
 import http from 'node:http';
+import { ICT_PINE, ICT_SIM_CODE } from './ictSim.js';
 
 // A strategy the simulator can run that fires BUY, SELL, CLOSE, TP and SL
 export const SIM_CODE = `
@@ -17,6 +18,28 @@ return buy
   ? { action: 'buy', lots, sl: c - 1.5 * atr, tp: c + 1.5 * atr }
   : { action: 'sell', lots, sl: c + 1.5 * atr, tp: c - 1.5 * atr };`;
 
+// What a model writes for an ICT script when it rescans the whole chart on every bar: far too slow on months of M15
+export const SLOW_SIM_CODE = `
+let top = -Infinity;
+for (let k = 0; k <= ctx.i; k++) for (let m = 0; m < 4000; m++) top = Math.max(top, ctx.high[k] - m * 1e-9);
+return null;`;
+
+export const SLOW_PINE = `// Script: Slow ICT
+//@version=5
+strategy("Slow ICT", overlay=true)
+// order blocks and fair value gaps over the whole chart`;
+
+// Test code with a translation bug: the sweep never fires, so it takes no trades until it is checked
+export const QUIET_SIM_CODE = `
+ctx.count('in session');
+if (ctx.high[ctx.i] < 0) ctx.count('bull sweep');
+return null;`;
+
+export const QUIET_PINE = `// Script: Quiet ICT
+//@version=5
+strategy("Quiet ICT", overlay=true)
+// sweep + fair value gap entries in the New York killzone`;
+
 export const EA = `// Script: Gold Breakout
 #property strict
 #include <Trade\\Trade.mqh>
@@ -27,6 +50,15 @@ void OnTick() { /* breakout logic */ }`;
 
 function reply(system, last = '') {
   if (/long ea/i.test(last)) return longReply();
+  if (/live ict/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
+    return `Here is the ICT strategy.\n\n\`\`\`pine\n${ICT_PINE}\n\`\`\``;
+  }
+  if (/quiet ict/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
+    return `Here is the ICT strategy.\n\n\`\`\`pine\n${QUIET_PINE}\n\`\`\``;
+  }
+  if (/slow ict/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
+    return `Here is the ICT strategy.\n\n\`\`\`pine\n${SLOW_PINE}\n\`\`\``;
+  }
   if (system.startsWith("You are QuantBot's strategy converter")) {
     return JSON.stringify({
       code: EA, sim_code: SIM_CODE, summary: 'ATR breakout with fixed 1.5 ATR stop and target.',
@@ -37,6 +69,17 @@ function reply(system, last = '') {
     });
   }
   if (system.startsWith("You are QuantBot's strategy tester")) {
+    if (last.includes('Script: Live ICT')) {
+      return JSON.stringify({ sim_code: ICT_SIM_CODE, summary: 'ICT sweep + FVG in the New York killzone.', rules: ['13 rules as in the script'] });
+    }
+    // The quiet script first comes back with a bug that never trades; checked with the counts, it comes back fixed
+    if (last.includes('Script: Quiet ICT') && !last.includes('TOOK NO TRADES')) {
+      return JSON.stringify({ sim_code: QUIET_SIM_CODE, summary: 'ICT sweep and FVG.', rules: ['Sweep then FVG in the killzone'] });
+    }
+    // The slow script first comes back slow; asked again with the speed note, it comes back fast
+    if (last.includes('Script: Slow ICT') && !last.includes('WAS TOO SLOW')) {
+      return JSON.stringify({ sim_code: SLOW_SIM_CODE, summary: 'ICT order blocks.', rules: ['Order blocks from the whole chart'] });
+    }
     return JSON.stringify({ sim_code: SIM_CODE, summary: 'Breakout on ATR with time exit.', rules: ['Enter every 20 bars', 'SL and TP 1.5 ATR', 'Close after 12 bars'] });
   }
   return `Here is the EA.\n\n\`\`\`mql5\n${EA}\n\`\`\`\n\nBacktest it before going live.`;

@@ -17,6 +17,12 @@ any chat the AI can read your saved tests, their trades and the built-in market 
 prompt (`server/lib/chatPrompt.js`) explains the backtester, the markets, broker time and how to use the tools. AI: your own Claude (Opus / Sonnet / Haiku 5.5) or Gemini key, or a free local model through
 Ollama (Settings → Local model).
 
+Both testers translate the script into JavaScript for the bar-by-bar simulator (`src/lib/backtest/engine.js`), which
+runs in a worker and shows how far it has got. Test code that would take more than two minutes (usually code that
+rescans the whole chart on every bar, common in ICT scripts) is stopped early and the Strategy Tester asks the model
+once for a faster version with the same logic. Stop ends a test at once. Bars carry broker time and New York time
+(`ctx.nyHour`), and a run with no trades logs why (entries never triggered, stops on the wrong side, or errors).
+
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 

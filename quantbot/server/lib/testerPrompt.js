@@ -1,5 +1,5 @@
 // Strategy Tester (chat scripts) prompt, task and result shaping.
-import { SIM_CONTRACT, marketText } from './simContract.js';
+import { SIM_CONTRACT, marketText, clip } from './simContract.js';
 
 const BALANCE = 10000;
 
@@ -36,8 +36,21 @@ export function testerInputError({ code, language }) {
   return null;
 }
 
-export const testerTask = ({ code, language, market }) =>
-  `${marketText({ ...market, balance: BALANCE })}\n\n${language === 'MT5' ? 'MQL5 EXPERT ADVISOR' : 'PINE SCRIPT'}:\n${code}`;
+// slow: { sim_code, done, total, seconds } from a previous translation that ran too slowly
+// idle: { sim_code, bars, counts, log } from a previous translation that took no trades
+export const testerTask = ({ code, language, market, slow, idle }) => {
+  const task = `${marketText({ ...market, balance: BALANCE })}\n\n${language === 'MT5' ? 'MQL5 EXPERT ADVISOR' : 'PINE SCRIPT'}:\n${code}`;
+  if (idle?.sim_code) {
+    const counts = idle.counts && typeof idle.counts === 'object' && Object.keys(idle.counts).length
+      ? Object.entries(idle.counts).slice(0, 30).map(([k, v]) => `${clip(k, 40)}: ${Number(v) || 0}`).join(', ')
+      : 'none (ctx.count was never called)';
+    const lines = Array.isArray(idle.log) ? idle.log.slice(0, 10).map((l) => `- ${clip(l, 300)}`).join('\n') : '';
+    return `${task}\n\nYOUR PREVIOUS sim_code TOOK NO TRADES in ${Number(idle.bars) || 0} bars of this market (it never returned a buy or sell).\nCondition counts: ${counts}\n${lines ? `Simulator log:\n${lines}\n` : ''}A script like this normally trades over that many bars, so look for translation bugs first: the wrong clock (ctx.hour is server time, ctx.nyHour is New York time), off-by-one bar offsets (Pine's [1] is ctx.i - 1), conditions required on the same bar that the script allows on different bars, state that is never set or never reset, a daily limit that starts at zero, NaN from an indicator or a value read before it exists, comparisons the wrong way round. Fix every bug, keep the script's logic exactly, and call ctx.count at each entry stage. If the script as written truly cannot trade here, return the same logic and say which rule blocks it in the summary.\nPREVIOUS sim_code:\n${clip(idle.sim_code, 30000)}`;
+  }
+  if (!slow?.sim_code) return task;
+  const progress = `${Number(slow.done) || 0} of ${Number(slow.total) || 0} bars in ${Number(slow.seconds) || 0}s`;
+  return `${task}\n\nYOUR PREVIOUS sim_code WAS TOO SLOW (${slow.stuck ? 'stuck inside one bar' : progress}) and the test was stopped. Rewrite it so the logic stays exactly the same but every bar does a small, fixed amount of work, following the SPEED rules: no loops back to the start of the chart, no lists that grow forever, lookbacks of at most 300 bars, state updated incrementally in ctx.state.\nPREVIOUS sim_code:\n${clip(slow.sim_code, 30000)}`;
+};
 
 // The tester response, or null when the model returned no simulation
 export function testerResult(report) {

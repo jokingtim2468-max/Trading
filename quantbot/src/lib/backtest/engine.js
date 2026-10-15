@@ -1,11 +1,19 @@
 import { createTA } from './indicators';
 
 const MAX_LOTS = 100;
+const HOUR = 3600000;
+// Built-in market data is on broker server time (UTC+2, UTC+3 in US summer), which is New York time + 7 hours
+const NY_OFFSET = 7 * HOUR;
+const PROGRESS_EVERY = 1000;
+const PROGRESS_MS = 250;
 
 // Bar-by-bar simulator: signals on bar close, fills at next bar open, SL checked before TP intrabar.
-export function runBacktest({ bars, startIndex, simCode, balance, contractSize, point }) {
+// onProgress(done, total) is called every PROGRESS_EVERY bars or PROGRESS_MS, whichever comes first, so a slow strategy
+// can be measured while it runs and a stuck one is caught on the bar it is stuck on.
+export function runBacktest({ bars, startIndex, simCode, balance, contractSize, point }, onProgress = null) {
   const log = [];
   const add = (level, msg, t) => { if (log.length < 400) log.push({ level, msg, t }); };
+  const addFinal = (level, msg) => log.push({ level, msg });
   let onBar;
   try { onBar = new Function('ctx', simCode); } catch (e) {
     add('error', `Simulation code does not compile: ${e.message}`);
@@ -14,11 +22,20 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
 
   const n = bars.time.length;
   let i = startIndex;
-  const ctx = { ...bars, point, contractSize, state: {}, ta: createTA(bars, () => i) };
+  // ctx.count('label') tallies how many bars pass each entry condition, so a run with no trades shows which one never fires
+  const counts = new Map();
+  const count = (label) => {
+    const k = String(label).slice(0, 40);
+    if (counts.has(k) || counts.size < 30) counts.set(k, (counts.get(k) || 0) + 1);
+  };
+  const ctx = { ...bars, point, contractSize, state: {}, ta: createTA(bars, () => i), count };
   const trades = [], equity = [];
   const warned = new Set();
   const warnOnce = (key, msg, t) => { if (!warned.has(key)) { warned.add(key); add('warn', msg, t); } };
   let cash = balance, pos = null, pending = null, errors = 0;
+  // Why a run has no trades: orders asked for, orders rejected, bars that errored
+  const why = { orders: 0, badsl: 0 };
+  let reported = 0;
 
   const ask = (k, price) => price + bars.spread[k] * point;
   const exitAt = (k, price, reason) => {
@@ -32,6 +49,10 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
   const marketExit = (k, reason) => exitAt(k, pos.side === 'long' ? bars.open[k] : ask(k, bars.open[k]), reason);
 
   for (; i < n; i++) {
+    if (onProgress && ((i - startIndex) % PROGRESS_EVERY === 0 || Date.now() - reported > PROGRESS_MS)) {
+      reported = Date.now();
+      onProgress(i - startIndex, n - startIndex);
+    }
     const t = bars.time[i], o = bars.open[i], h = bars.high[i], l = bars.low[i], c = bars.close[i];
 
     if (pending) {
@@ -62,9 +83,10 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
     const eq = cash + unreal;
     equity.push({ t, equity: eq, balance: cash });
 
-    const d = new Date(t);
+    const d = new Date(t), ny = new Date(t - NY_OFFSET);
     Object.assign(ctx, {
       i, balance: cash, equity: eq, hour: d.getUTCHours(), minute: d.getUTCMinutes(), dayOfWeek: d.getUTCDay(),
+      nyHour: ny.getUTCHours(), nyMinute: ny.getUTCMinutes(), nyDayOfWeek: ny.getUTCDay(),
       position: pos ? { side: pos.side, entry: pos.entry, sl: pos.sl, tp: pos.tp, lots: pos.lots, barsOpen: i - pos.openIndex } : null,
     });
 
@@ -84,6 +106,7 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
       pending = { action: 'close' };
     } else if (sig.action === 'buy' || sig.action === 'sell') {
       const side = sig.action === 'buy' ? 'long' : 'short';
+      why.orders++;
       if (pos && pos.side === side) continue;
       let lots = Number(sig.lots);
       if (!(lots > 0)) { lots = 0.1; warnOnce('lots', 'Order without a valid lot size: used 0.1 lots.', t); }
@@ -91,7 +114,7 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
       const sl = Number.isFinite(sig.sl) ? sig.sl : null;
       const tp = Number.isFinite(sig.tp) ? sig.tp : null;
       if (sl == null) warnOnce('nosl', 'A trade was opened without a stop loss.', t);
-      if (sl != null && (side === 'long' ? sl >= c : sl <= c)) { warnOnce('badsl', `Rejected ${side} order: stop loss on the wrong side of price.`, t); continue; }
+      if (sl != null && (side === 'long' ? sl >= c : sl <= c)) { why.badsl++; warnOnce('badsl', `Rejected ${side} order: stop loss on the wrong side of price.`, t); continue; }
       pending = { action: sig.action, lots: Math.round(lots * 100) / 100, sl, tp };
     }
   }
@@ -103,5 +126,16 @@ export function runBacktest({ bars, startIndex, simCode, balance, contractSize, 
     exitAt(k, pos.side === 'long' ? bars.close[k] : ask(k, bars.close[k]), 'end');
     if (equity.length) equity[equity.length - 1] = { ...equity[equity.length - 1], equity: cash, balance: cash };
   }
-  return { trades, equity, log, errors };
+  const funnel = [...counts].map(([k, v]) => `${k} ${v.toLocaleString('en-US')}`).join(', ');
+  if (funnel) addFinal('info', `Condition counts over ${(n - startIndex).toLocaleString('en-US')} bars: ${funnel}`);
+  if (!trades.length) addFinal('warn', noTradesReason(why, errors, n - startIndex));
+  return { trades, equity, log, errors, counts: Object.fromEntries(counts), orders: why.orders };
+}
+
+// One line on why a run took no trades, for the log and the fix prompt
+function noTradesReason(why, errors, bars) {
+  if (errors) return `No trades: the test code threw ${errors} runtime error${errors === 1 ? '' : 's'} (see the errors above).`;
+  if (why.orders && why.badsl === why.orders) return `No trades: all ${why.orders} orders had the stop loss on the wrong side of price and were rejected.`;
+  if (why.orders) return `No trades: ${why.orders} orders were asked for but none filled (${why.badsl} had the stop loss on the wrong side of price).`;
+  return `No trades: the entry conditions never triggered in ${bars} bars. Check the session hours (bar times are broker server time, New York + 7h; use ctx.nyHour for New York sessions) and the filters.`;
 }

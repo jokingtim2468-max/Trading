@@ -1,5 +1,6 @@
 // Real-data check of the desktop app: launches it (Electron), downloads XAUUSD, US100 and NQ from Dukascopy itself
-// (through its bot check), then runs the Strategy Converter on all three markets the way a trader does. The AI is a
+// (through its bot check), then runs the Strategy Converter on all three markets the way a trader does, and the
+// Strategy Tester on an ICT script. The AI is a
 // local fake, so no API key or cost. Needs internet; GitHub runs it on Windows (quantbot-desktop-check.yml).
 //   cd desktop && npm install && npm run stage, then from quantbot/: node tests/e2e/desktop-live.js
 import fs from 'node:fs';
@@ -73,6 +74,39 @@ for (let k = 0; k < 1500 && !result; k++) {
 }
 await win.screenshot({ path: path.join(OUT, 'converter.png') });
 check(!!result?.rows, `Converter on XAUUSD, US100 and NQ: ${result?.error || (result ? `${result.rows.length} markets ranked in ${Math.round((Date.now() - t0) / 1000)} s` : 'timed out')}`);
+
+// 3. The Strategy Tester on a trader's ICT rules (NY killzone sweep + FVG, tests/support/ictSim.js) over real M15 data:
+// a faithful translation of those rules must trade, and the log shows how often each condition fired
+await win.goto(new URL('/', win.url()).href);
+await win.getByRole('button', { name: 'New chat' }).click();
+await win.getByPlaceholder('Reply to QuantBot...').fill('write my live ict strategy');
+await win.getByPlaceholder('Reply to QuantBot...').press('Enter');
+await win.locator('aside').getByText('Live ICT', { exact: true }).waitFor({ timeout: 60000 });
+await win.goto(new URL('/strategy-tester', win.url()).href);
+await win.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
+await win.getByRole('combobox').first().click();
+await win.getByRole('option', { name: 'Live ICT' }).click();
+await win.getByLabel('From date').fill(day(180));
+await win.getByRole('button', { name: 'Run test' }).click();
+const t1 = Date.now();
+let ict = null;
+for (let k = 0; k < 3000 && !ict; k++) {
+  const err = win.getByTestId('tester-error');
+  if (await err.count()) ict = { error: await err.first().textContent() };
+  else if ((await win.getByRole('heading', { name: /^(XAUUSD|US100|NQ) M15$/ }).count()) >= 3 && await win.getByRole('button', { name: 'Run test' }).count()) ict = {};
+  else await wait(400);
+}
+if (ict && !ict.error) {
+  const logs = win.getByRole('tab', { name: /Log \(/ });
+  for (let k = 0; k < await logs.count(); k++) await logs.nth(k).click();
+  ict.backtests = await win.getByText(/Backtest: \d+ trades/).allTextContents();
+  ict.counts = await win.getByText(/Condition counts over/).allTextContents();
+  ict.trades = ict.backtests.map((t) => Number(t.match(/Backtest: (\d+) trades/)[1]));
+}
+await win.screenshot({ path: path.join(OUT, 'tester-ict.png'), fullPage: true });
+(ict?.counts || []).forEach((c) => console.log(`    ${c.replace(/^.*?(Condition counts)/, '$1')}`));
+check(!!ict && !ict.error && ict.trades.length === 3 && ict.trades.reduce((a, b) => a + b, 0) > 0,
+  `Strategy Tester, ICT rules on real M15 data (last 180 days): ${ict?.error || (ict ? `trades XAUUSD/US100/NQ ${ict.trades.join(' / ')} in ${Math.round((Date.now() - t1) / 1000)} s` : 'timed out')}`);
 
 console.log(`\nApp log (last lines):\n${logTail()}`);
 fs.copyFileSync(path.join(userData, 'quantbot.log'), path.join(OUT, 'quantbot.log'));

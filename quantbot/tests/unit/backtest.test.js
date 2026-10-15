@@ -73,6 +73,76 @@ describe('engine', () => {
     assert.equal(rsi, 100);
     assert.ok(atr > 0);
   });
+
+  test('rolling indicators match a plain recount, pivots match Pine', async () => {
+    const { createTA } = await load('/src/lib/backtest/indicators.js');
+    const closes = Array.from({ length: 300 }, (_, i) => 100 + 10 * Math.sin(i / 7) + ((i * 37) % 11));
+    const bars = makeBars(closes);
+    let i = 0;
+    const ta = createTA(bars, () => i);
+    for (i = 20; i < 300; i += 13) {
+      const w = Array.from(bars.high.subarray(i - 19, i + 1));
+      assert.equal(ta.highest(bars.high, 20), Math.max(...w));
+      assert.equal(ta.lowest(bars.low, 20), Math.min(...Array.from(bars.low.subarray(i - 19, i + 1))));
+      const c = Array.from(bars.close.subarray(i - 19, i + 1)), m = c.reduce((a, b) => a + b) / 20;
+      assert.ok(Math.abs(ta.stdev(bars.close, 20) - Math.sqrt(c.reduce((a, b) => a + (b - m) ** 2, 0) / 20)) < 1e-6);
+      // Pivot high confirmed 3 bars later: above the 3 bars before it, not beaten by the 3 after, NaN otherwise
+      const p = i - 3, v = bars.high[p];
+      const isPivot = [1, 2, 3].every((k) => bars.high[p - k] < v && bars.high[p + k] <= v);
+      const got = ta.pivothigh(bars.high, 3, 3);
+      assert.equal(Number.isNaN(got) ? null : got, isPivot ? v : null);
+    }
+  });
+
+  test('New York time, progress and a reason when nothing trades', async () => {
+    const { runBacktest } = await load('/src/lib/backtest/engine.js');
+    const bars = makeBars(Array.from({ length: 2500 }, () => 100));
+    const seen = [];
+    const r = runBacktest({ bars, startIndex: 0, simCode: 'if (ctx.i === 0) ctx.state.t = [ctx.hour, ctx.nyHour]; return null;', balance: 1, contractSize: 1, point: 1 }, (d, t) => seen.push([d, t]));
+    for (const p of [[0, 2500], [1000, 2500], [2000, 2500]]) assert.ok(seen.some(([d, t]) => d === p[0] && t === p[1]), `no progress at ${p[0]}`);
+    assert.match(r.log.at(-1).msg, /^No trades: the entry conditions never triggered in 2500 bars/);
+    const counted = runBacktest({ bars, startIndex: 0, simCode: "ctx.count('in session'); if (ctx.i % 10 === 0) ctx.count('sweep'); return null;", balance: 1, contractSize: 1, point: 1 });
+    assert.deepEqual(counted.counts, { 'in session': 2500, sweep: 250 });
+    assert.equal(counted.log.at(-2).msg, 'Condition counts over 2,500 bars: in session 2,500, sweep 250');
+    const bad = runBacktest({ bars, startIndex: 0, simCode: "return {action:'buy', lots:1, sl: 200, tp: 300};", balance: 1, contractSize: 1, point: 1 });
+    assert.match(bad.log.at(-1).msg, /^No trades: all 2500 orders had the stop loss on the wrong side/);
+    const { runBacktest: run2 } = await load('/src/lib/backtest/engine.js');
+    const ny = run2({ bars, startIndex: 0, simCode: 'throw new Error(ctx.hour + "/" + ctx.nyHour);', balance: 1, contractSize: 1, point: 1 });
+    assert.equal(ny.log[0].msg, 'Runtime error: 0/17'); // 00:00 server time is 17:00 the evening before in New York
+  });
+
+  test('the ICT rules used by the live check run without errors', async () => {
+    const { runBacktest } = await load('/src/lib/backtest/engine.js');
+    const { ICT_SIM_CODE } = await import('../support/ictSim.js');
+    const closes = Array.from({ length: 20000 }, (_, i) => 2000 + 30 * Math.sin(i / 40) + 12 * Math.sin(i / 3.1) + ((i * 7919) % 13) - 6);
+    const r = runBacktest({ bars: makeBars(closes), startIndex: 500, simCode: ICT_SIM_CODE, balance: 10000, contractSize: 100, point: 0.01 });
+    assert.equal(r.errors, 0, r.log.find((l) => l.level === 'error')?.msg);
+    assert.ok(r.counts['in session'] > 0);
+  });
+
+  test('incremental ICT-style code runs 50,000 bars in well under the limit', async () => {
+    const { runBacktest } = await load('/src/lib/backtest/engine.js');
+    const closes = Array.from({ length: 50000 }, (_, i) => 2000 + 30 * Math.sin(i / 40) + 8 * Math.sin(i / 5.3));
+    const bars = makeBars(closes);
+    // Swings from pivots, fair value gaps kept in a capped list, New York killzone, fixed work per bar
+    const sim = `
+      const s = ctx.state; s.fvg ||= []; const i = ctx.i;
+      if (i < 3) return null;
+      const ph = ctx.ta.pivothigh(ctx.high, 5, 5), pl = ctx.ta.pivotlow(ctx.low, 5, 5);
+      if (!Number.isNaN(ph)) s.hi = ph;
+      if (!Number.isNaN(pl)) s.lo = pl;
+      if (ctx.low[i] > ctx.high[i - 2]) { s.fvg.push({ top: ctx.low[i], bot: ctx.high[i - 2] }); if (s.fvg.length > 50) s.fvg.shift(); }
+      s.fvg = s.fvg.filter((g) => ctx.low[i] > g.bot);
+      const kz = ctx.nyHour >= 8 && ctx.nyHour < 11;
+      if (!ctx.position && kz && s.fvg.length && s.lo && ctx.close[i] > ctx.ta.ema(ctx.close, 50))
+        return { action: 'buy', lots: 0.1, sl: Math.min(s.lo, ctx.low[i]) - 1, tp: ctx.close[i] + 2 * (ctx.close[i] - Math.min(s.lo, ctx.low[i]) + 1) };
+      return null;`;
+    const t0 = Date.now();
+    const r = runBacktest({ bars, startIndex: 500, simCode: sim, balance: 10000, contractSize: 100, point: 0.01 });
+    assert.equal(r.errors, 0);
+    assert.ok(r.trades.length > 10, `${r.trades.length} trades`);
+    assert.ok(Date.now() - t0 < 5000, `took ${Date.now() - t0}ms`);
+  });
 });
 
 describe('results', () => {

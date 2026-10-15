@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
 import { defaultModel, MODELS } from '@/lib/models';
@@ -21,6 +21,7 @@ export default function useScriptTester() {
   const [phase, setPhase] = useState('');
   const [error, setError] = useState('');
   const [results, setResults] = useState([]);
+  const stopper = useRef(null);
 
   useEffect(() => {
     Promise.all([client.auth.me(), api.getKeyStatus(), loadDatasets()]).then(async ([user, status, ds]) => {
@@ -36,62 +37,124 @@ export default function useScriptTester() {
   async function run(chatId, datasetIds, range) {
     setError('');
     setResults([]);
+    const ctl = new AbortController();
+    stopper.current = ctl;
+    // One translation per run, shared by every market (and any rewrite or check it needed)
+    const shared = { prepared: null, rewrote: false, rechecked: false };
     for (const picked of datasets.filter((d) => datasetIds.includes(d.id))) {
-      const r = await runOne(chatId, asTested(picked, range.tf), range);
-      if (!r) break;
+      const r = await runOne(chatId, asTested(picked, range.tf), range, ctl.signal, shared);
+      if (!r || ctl.signal.aborted) break;
       setResults((xs) => [...xs, r]);
     }
+    // A run that was stopped leaves the screen to whatever started after it
+    if (stopper.current === ctl) {
+      stopper.current = null;
+      setPhase('');
+    }
+  }
+
+  // Stops the test at once, whatever step it is on
+  function stop() {
+    stopper.current?.abort();
+    stopper.current = null;
     setPhase('');
   }
 
-  async function runOne(chatId, ds, range) {
+  async function runOne(chatId, ds, range, signal, shared) {
+    const live = (text) => { if (!signal.aborted) setPhase(text); };
+    const stopped = () => { if (signal.aborted) throw new DOMException('Stopped', 'AbortError'); };
     const chat = chats.find((c) => c.id === chatId);
     const modelLabel = MODELS.find((m) => m.id === model)?.label;
     const log = [];
     const add = (level, msg) => log.push({ level, msg, t: Date.now() });
     try {
-      setPhase('Pulling the newest script from the chat...');
+      live('Pulling the newest script from the chat...');
       const script = await latestScript(chatId);
       if (!script) throw new Error(`No MT5 or Pine script in "${chat.title}" yet. Ask QuantBot to write one in that chat first.`);
       add('info', `Script "${chat.title}" (${script.language}) from the reply sent ${new Date(script.at).toLocaleString()}`);
 
-      setPhase(`${ds.symbol}: loading market data...`);
+      live(`${ds.symbol}: loading market data...`);
       // Warm-up bars come from before the chosen dates, so the whole range is traded
       const { bars, start } = await loadTestBars(ds, {
         tf: range.tf, from: range.from, to: range.to,
-        onProgress: (done, total) => total && setPhase(`${ds.symbol}: downloading ${ds.timeframe} history (${done} of ${total} files)...`),
+        onProgress: (done, total) => total && live(`${ds.symbol}: downloading ${ds.timeframe} history (${done} of ${total} files)...`),
       });
       const n = bars.time.length;
       if (n - start < 20) throw new Error(`Only ${n - start} bars of ${ds.symbol} ${ds.timeframe} between ${range.from} and ${range.to}. Pick a longer range.`);
 
-      setPhase(`Reading the script with ${modelLabel}...`);
-      const t0 = Date.now();
-      const res = await client.functions.invoke('scriptTester', {
-        code: script.code, language: script.language, model,
-        market: { symbol: ds.symbol, timeframe: ds.timeframe, contract_size: ds.contract_size, point: ds.point, stats: marketStats(bars) },
-      });
-      const { sim_code: simCode, summary, rules, settings } = res.data;
-      add('info', `Prepared the test with ${modelLabel} in ${Math.round((Date.now() - t0) / 1000)}s`);
-
-      setPhase('Simulating trades...');
+      stopped();
+      const market = { symbol: ds.symbol, timeframe: ds.timeframe, contract_size: ds.contract_size, point: ds.point, stats: marketStats(bars) };
+      const translate = async (extra, what) => {
+        live(`${ds.symbol}: ${what}`);
+        const t0 = Date.now();
+        const res = await client.functions.invoke('scriptTester', { code: script.code, language: script.language, model, market, ...extra });
+        stopped();
+        return { data: res.data, seconds: Math.round((Date.now() - t0) / 1000) };
+      };
       const contractSize = ds.contract_size || 100;
-      const sim = await runInWorker({ bars, startIndex: start, simCode, balance: settings.balance, contractSize, point: ds.point || 0.01 }, 90000);
+      const simulate = (prep) => runInWorker(
+        { bars, startIndex: start, simCode: prep.sim_code, balance: prep.settings.balance, contractSize, point: ds.point || 0.01 },
+        { maxMs: 120000, signal, onProgress: (done, total) => live(`${ds.symbol}: simulating trades... ${Math.floor((done / total) * 100)}% of ${total.toLocaleString()} bars`) },
+      );
+
+      // The script is translated once per run and the same test code runs on every market
+      if (!shared.prepared) {
+        const r = await translate({}, `reading the script with ${modelLabel}...`);
+        shared.prepared = r.data;
+        add('info', `Prepared the test with ${modelLabel} in ${r.seconds}s`);
+      } else add('info', 'Same test code as the first market');
+
+      let sim;
+      try {
+        sim = await simulate(shared.prepared);
+      } catch (e) {
+        if (!e.slow || shared.rewrote) throw e;
+        // Slow test code (usually a loop over the whole chart on every bar): one rewrite, then the same check again
+        add('warn', e.message);
+        shared.rewrote = true;
+        const r = await translate({ slow: { ...e.slow, sim_code: shared.prepared.sim_code } }, `the test code was too slow, asking ${modelLabel} for a faster version...`);
+        shared.prepared = r.data;
+        add('info', `Rewrote the test code for speed with ${modelLabel} in ${r.seconds}s`);
+        try {
+          sim = await simulate(shared.prepared);
+        } catch (e2) {
+          if (!e2.slow) throw e2;
+          throw new Error(`${e2.message} A rewrite didn't fix it. Try a shorter date range, or ask the chat to simplify the script's loops.`);
+        }
+      }
+
+      // No order at all over the whole range usually means a translation bug: one check with the condition counts
+      if (!sim.trades.length && !sim.orders && !shared.rechecked) {
+        shared.rechecked = true;
+        sim.log.forEach((e) => log.push(e));
+        add('warn', 'The test code took no trades, so it was sent back to be checked for translation bugs');
+        const r = await translate({
+          idle: { sim_code: shared.prepared.sim_code, bars: n - start, counts: sim.counts, log: sim.log.filter((e) => e.level !== 'info' || !e.msg.startsWith('Opened')).map((e) => e.msg) },
+        }, `no trades, asking ${modelLabel} to check the test code...`);
+        shared.prepared = r.data;
+        add('info', `Checked the test code with ${modelLabel} in ${r.seconds}s. Results below are from the checked version.`);
+        sim = await simulate(shared.prepared);
+      }
+      const prepared = shared.prepared;
+      const { sim_code: simCode, summary, rules, settings } = prepared;
       sim.log.forEach((e) => log.push(e));
       const metrics = computeMetrics(sim.trades, sim.equity, settings.balance, contractSize);
       const signals = testSignals(sim.trades);
       const mc = runMonteCarlo(sim.trades, settings.balance);
       add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);
 
-      setPhase('Saving results...');
+      stopped();
+      live('Saving results...');
       const period = { start: new Date(bars.time[start]).toISOString(), end: new Date(bars.time[n - 1]).toISOString() };
       const test = { name: chat.title, script, ds, model, balance: settings.balance, summary, rules, simCode, metrics, results: signals.results, ...period };
       const saved = await saveScriptTest({ ...test, logText: log.map(logLine).join('\n').slice(0, 20000) }, sim.trades);
       return { ...test, ...saved, modelLabel, log, mc, trades: sim.trades, equity: downsample(sim.equity) };
     } catch (e) {
+      if (e.name === 'AbortError' || signal.aborted) return null;
       setError(`${ds.symbol}: ${e.response?.data?.error || e.message}`);
       return null;
     }
   }
 
-  return { chats, datasets, model, ready, phase, error, results, running: !!phase, run };
+  return { chats, datasets, model, ready, phase, error, results, running: !!phase, run, stop };
 }
