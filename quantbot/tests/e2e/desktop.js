@@ -123,6 +123,11 @@ console.log('  ✓ Settings > Motion switches between full and reduced');
 expect(fs.existsSync(path.join(data, 'secret.key')), 'data was not written to QUANTBOT_DATA');
 console.log('  ✓ data saved in the app data folder');
 
+// A chat to find again after restarts
+const invoke = (page, kind, args) => page.evaluate(([k, a]) => fetch('/api/invoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: k, args: a }) }).then((r) => r.json()), [kind, args]);
+const chat = (await invoke(win, 'entity', ['ChatSession', 'create', { title: 'Saved chat one', group: 'MT5', last_message_at: new Date().toISOString() }])).result;
+await invoke(win, 'entity', ['ChatMessage', 'create', { session_id: chat.id, role: 'user', content: 'remember me' }]);
+
 // Close from the title bar: the whole app process must end, server included
 const proc = app.process();
 const port = 5297;
@@ -133,4 +138,35 @@ expect(exited, 'QuantBot is still running after its window was closed');
 const stillServing = await fetch(`http://127.0.0.1:${port}/api/app/ping`).then(() => true, () => false);
 expect(!stillServing, 'the local server is still answering after close');
 console.log(`  ✓ Close ends QuantBot completely (exit code ${proc.exitCode})`);
+// Chats are on disk the moment they're made: reopen after closing, then after a forced kill (Task Manager, power cut)
+const launch = () => electron.launch({
+  executablePath: path.join(desktop, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron'),
+  args: [desktop, ...(process.platform === 'linux' ? ['--no-sandbox'] : [])],
+  env: { ...process.env, QUANTBOT_DATA: data, QUANTBOT_PORT: '5297' },
+});
+const mainWindow = async (a) => {
+  for (let k = 0; k < 300; k++) {
+    const w = a.windows().find((x) => x.url().startsWith('http'));
+    if (w) { await w.waitForLoadState(); return w; }
+    await wait(100);
+  }
+  throw new Error('main window did not open');
+};
+let again = await launch();
+let w2 = await mainWindow(again);
+await w2.locator('aside').getByText('Saved chat one').waitFor({ timeout: 15000 });
+const chat2 = (await invoke(w2, 'entity', ['ChatSession', 'create', { title: 'Saved chat two', group: 'MT5', last_message_at: new Date().toISOString() }])).result;
+await invoke(w2, 'entity', ['ChatMessage', 'create', { session_id: chat2.id, role: 'user', content: 'written right before a crash' }]);
+again.process().kill('SIGKILL');
+await wait(500);
+again = await launch();
+w2 = await mainWindow(again);
+await w2.locator('aside').getByText('Saved chat two').waitFor({ timeout: 15000 });
+await w2.locator('aside').getByText('Saved chat one').waitFor();
+await w2.locator('aside').getByText('Saved chat two').click();
+await w2.getByText('written right before a crash').waitFor();
+console.log('  ✓ chats are still there after closing and after a forced kill');
+await w2.getByRole('button', { name: 'Close' }).click();
+await wait(1000);
+
 console.log(`\nDesktop test passed. Screenshots: ${OUT}`);

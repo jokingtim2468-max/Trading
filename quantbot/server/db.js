@@ -1,5 +1,5 @@
 // Local database: each entity is one JSON file in the app's data folder,
-// held in memory and saved shortly after each change.
+// held in memory and saved to disk on every change (trades in batches).
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -32,7 +32,11 @@ export function createDb(dir, userId, defaults = {}) {
     fs.renameSync(`${file(name)}.tmp`, file(name));
   }
 
+  // Saved to disk straight away (chats, accounts, settings survive a crash or a forced close). Only the large trade
+  // table is batched: a saved test adds thousands of trades in one go.
+  const BATCHED = new Set(['Trade']);
   const changed = (name) => {
+    if (!BATCHED.has(name)) { write(name); return; }
     clearTimeout(timers.get(name));
     timers.set(name, setTimeout(() => write(name), 300));
   };

@@ -25,7 +25,8 @@ CTrade trade;
 int OnInit() { trade.SetExpertMagicNumber(4821); return INIT_SUCCEEDED; }
 void OnTick() { /* breakout logic */ }`;
 
-function reply(system) {
+function reply(system, last = '') {
+  if (/long ea/i.test(last)) return longReply();
   if (system.startsWith("You are QuantBot's strategy converter")) {
     return JSON.stringify({
       code: EA, sim_code: SIM_CODE, summary: 'ATR breakout with fixed 1.5 ATR stop and target.',
@@ -39,6 +40,12 @@ function reply(system) {
     return JSON.stringify({ sim_code: SIM_CODE, summary: 'Breakout on ATR with time exit.', rules: ['Enter every 20 bars', 'SL and TP 1.5 ATR', 'Close after 12 bars'] });
   }
   return `Here is the EA.\n\n\`\`\`mql5\n${EA}\n\`\`\`\n\nBacktest it before going live.`;
+}
+
+// A 60-line EA, for the chat's collapsed code blocks
+export const LONG_EA = [EA, ...Array.from({ length: 53 }, (_, k) => `// filler line ${k + 1}`)].join('\n');
+function longReply() {
+  return `Full EA below.\n\n\`\`\`mql5\n${LONG_EA}\n\`\`\``;
 }
 
 // Chat with data tools: "check my tests" makes the fake call list_tests and market_stats, then answer from the results
@@ -80,7 +87,8 @@ export async function startFakeModels({ delayMs = 800 } = {}) {
       }
       if (req.url === '/v1/messages') {
         calls.push({ kind: 'claude', model: b.model, fallbacks: b.fallbacks, headers: req.headers, system: b.system, tools: (b.tools || []).map((t) => t.name), messages: b.messages });
-        const answer = (b.tools && chatWithTools(b)) || { content: [{ type: 'text', text: reply(b.system) }], stop_reason: 'end_turn' };
+        const lastUser = [...b.messages].reverse().find((m) => m.role === 'user');
+        const answer = (b.tools && chatWithTools(b)) || { content: [{ type: 'text', text: reply(b.system, typeof lastUser?.content === 'string' ? lastUser.content : '') }], stop_reason: 'end_turn' };
         return setTimeout(() => json(res, answer), delayMs);
       }
       res.statusCode = 404;

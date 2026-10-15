@@ -178,6 +178,20 @@ async function expectCount(loc, n) {
   throw new Error(`expected ${n}, found ${await loc.count()}`);
 }
 
+await step('Chat: code over 25 lines collapses and expands with a button', async () => {
+  await page.getByPlaceholder('Reply to QuantBot...').fill('Send the long EA');
+  await page.keyboard.press('Enter');
+  const block = page.locator('[data-code-block]').last();
+  await block.getByRole('button', { name: 'Show all 60 lines' }).waitFor({ timeout: 30000 });
+  const shownText = () => block.locator('pre').textContent();
+  const collapsed = await shownText();
+  expect(collapsed.split('\n').length === 25 && collapsed.includes('// filler line 18') && !collapsed.includes('// filler line 19'), 'collapsed block should show exactly the first 25 lines');
+  await block.getByRole('button', { name: 'Show all 60 lines' }).click();
+  expect((await shownText()).includes('// filler line 53'), 'expanded block is missing the last line');
+  await block.getByRole('button', { name: 'Collapse' }).click();
+  await block.getByRole('button', { name: 'Show all 60 lines' }).waitFor();
+});
+
 await step('Chat: local model answers when picked', async () => {
   const before = models.calls.length;
   await pick(page.getByRole('combobox').filter({ hasText: 'Auto (your default model)' }), 'Local model (Ollama)');

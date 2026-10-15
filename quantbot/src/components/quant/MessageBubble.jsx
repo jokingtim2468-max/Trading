@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown';
 import LogoMark from './LogoMark';
+import { MarkdownPre } from '@/components/CodeBlock';
 
 export default function MessageBubble({ message }) {
   if (message.role === 'user') {
@@ -15,7 +16,7 @@ export default function MessageBubble({ message }) {
     <div className="flex gap-3">
       <LogoMark className="w-5 h-5 mt-1.5 shrink-0" />
       <div className="quant-md font-heading min-w-0 flex-1 text-foreground/95">
-        <ReactMarkdown>{message.content}</ReactMarkdown>
+        <ReactMarkdown components={{ pre: MarkdownPre }}>{message.content}</ReactMarkdown>
       </div>
     </div>
   );
