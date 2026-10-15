@@ -104,3 +104,22 @@ python step4_tune.py  <data_dir> results/step4_tune.json
 python step5_checks.py <data_dir> results/step5_checks.json
 python step6_test.py  <data_dir> <vault> results/step6_test.json
 ```
+
+## Paper-trading plan (added at the user's request; setups remain UNVALIDATED)
+Files: `pine/orb_gap_paper_indicator.pine` (live signals) and `pine/orb_gap_paper_strategy.pine` (Strategy Tester).
+* **Chart:** 5-minute MES1! / MNQ1! (the strategy must run on micro charts so 1 qty = 1 micro). The indicator also
+  works on ES1! / NQ1! and sizes in micros.
+* **Size:** $150 risk per trade. Do not scale up for paper. Results only mean something at the size you would trade.
+* **Commission:** TradingView paper trading charges none, so subtract $1.24 per micro per round trip in your log.
+* **Logging:** log every signal you take or skip. Use real fill prices, not the label prices.
+* **Decision rules, fixed before starting:**
+  * **Stop immediately:** if paper equity falls $1,000 below its highest end-of-day balance. That would have failed
+    the Lucid eval.
+  * **Judge after ≥40 trades per instrument** (about 2 months for ORB; gap fill alone averages ~1 signal per week):
+    * **Continue:** PF > 1.3 after costs and $/week > 0.
+    * **Stop:** anything else.
+* **Expectation from the test period:** about −$75 to +$13 per week. $1,000/week is not a realistic outcome for these
+  setups at Lucid 25K risk limits.
+* **Differences from the Python study:** the Pine versions work on 5-minute bars (time/news exits happen on 5-minute
+  bar closes, not 1-minute bars). TradingView's broker emulator also resolves stop vs. target inside one bar
+  differently. Expect small differences.

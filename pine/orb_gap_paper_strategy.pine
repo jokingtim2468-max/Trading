@@ -1,0 +1,184 @@
+//@version=6
+// Strategy-Tester version of orb_gap_paper_indicator.pine (same rules).
+// UNVALIDATED: both setups failed the walk-forward study in research/REPORT.md.
+// Run it on MES1! or MNQ1! (5-minute) so qty = micros and P&L uses $5 / $2 per point.
+// Costs: $0.62/side commission per contract (= $1.24 round trip), 1 tick slippage on
+// market/stop fills, limits fill only when price trades 1 tick through.
+strategy("ES/NQ Paper Test - ORB + Gap Fill [UNVALIDATED] (Strategy)", shorttitle = "ORB+GAP strat", overlay = true,
+     initial_capital = 25000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.62, slippage = 1,
+     backtest_fill_limits_assumption = 1, max_labels_count = 500, max_boxes_count = 500)
+
+// ───────────────────────── inputs
+grpS = "Setups"
+mode      = input.string("Both", "Setups", options = ["ORB", "Gap Fill", "Both"], group = grpS)
+orMin     = input.int(15, "ORB: opening range minutes", minval = 5, step = 5, group = grpS)
+orTpR     = input.float(2.0, "ORB: target (R multiple)", minval = 0.5, step = 0.25, group = grpS)
+orEndHHMM = input.int(1130, "ORB: last signal time ET (HHMM)", group = grpS)
+gapMin    = input.float(0.15, "Gap: min gap %", step = 0.05, group = grpS)
+gapMax    = input.float(1.0, "Gap: max gap %", step = 0.05, group = grpS)
+gapMinRR  = input.float(1.0, "Gap: min reward/risk to prior close", step = 0.25, group = grpS)
+
+grpR = "Lucid 25K rules"
+riskUsd    = input.float(150, "Risk per trade $", group = grpR)
+maxMicros  = input.int(20, "Max micros", group = grpR)
+maxLosses  = input.int(2, "Max losing trades per day", group = grpR)
+maxDayLoss = input.float(400, "Max daily loss $", group = grpR)
+maxHold    = input.int(60, "Max minutes in a trade", group = grpR)
+commRT     = input.float(1.24, "Commission $ per micro (round trip, for sizing)", group = grpR)
+slipTicks  = input.int(1, "Slippage ticks (for sizing)", group = grpR)
+
+grpN = "News blackout"
+useFomc   = input.bool(true, "FOMC days (14:00 ET): no entries 13:30-15:00", group = grpN)
+useIsm    = input.bool(true, "ISM (10:00 ET, 1st & 3rd trading day of month)", group = grpN)
+extraNews = input.string("", "Extra news: YYYY-MM-DD HH:MM, comma separated", group = grpN)
+
+// ───────────────────────── constants
+tz     = "America/New_York"
+var fomc = array.from("2020-12-16", "2021-01-27", "2021-03-17", "2021-04-28", "2021-06-16", "2021-07-28", "2021-09-22", "2021-11-03", "2021-12-15",
+     "2022-01-26", "2022-03-16", "2022-05-04", "2022-06-15", "2022-07-27", "2022-09-21", "2022-11-02", "2022-12-14",
+     "2023-02-01", "2023-03-22", "2023-05-03", "2023-06-14", "2023-07-26", "2023-09-20", "2023-11-01", "2023-12-13",
+     "2024-01-31", "2024-03-20", "2024-05-01", "2024-06-12", "2024-07-31", "2024-09-18", "2024-11-07", "2024-12-18",
+     "2025-01-29", "2025-03-19", "2025-05-07", "2025-06-18", "2025-07-30", "2025-09-17", "2025-10-29", "2025-12-10",
+     "2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17", "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09",
+     "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09", "2027-07-28", "2027-09-15", "2027-10-27", "2027-12-08")
+pv     = syminfo.pointvalue
+tick   = syminfo.mintick
+tfMin  = int(timeframe.in_seconds() / 60)
+etMin  = hour(time, tz) * 60 + minute(time, tz)
+clMin  = etMin + tfMin
+today  = str.format_time(time, "yyyy-MM-dd", tz)
+orEnd  = int(math.floor(orEndHHMM / 100)) * 60 + orEndHHMM % 100
+isOpenBar = etMin == 570
+
+// ───────────────────────── day state
+var int   tdom = 0
+var int   lastMonth = -1
+var float orh = na
+var float orl = na
+var float pdc = na
+var float rthCloseToday = na
+var bool  orbDone = false
+var float npDayStart = 0.0
+var int   lossDayStart = 0
+var bool  isFomc = false
+var array<int> evMins = array.new<int>()
+
+if isOpenBar
+    m = month(time, tz)
+    tdom := m != lastMonth ? 1 : tdom + 1
+    lastMonth := m
+    pdc := rthCloseToday
+    orh := high
+    orl := low
+    orbDone := false
+    npDayStart := strategy.netprofit
+    lossDayStart := strategy.losstrades
+    isFomc := useFomc and array.includes(fomc, today)
+    array.clear(evMins)
+    if useIsm and (tdom == 1 or tdom == 3)
+        array.push(evMins, 600)
+    if str.length(extraNews) > 0
+        for p in str.split(extraNews, ",")
+            s = str.trim(p)
+            if str.length(s) >= 16 and str.substring(s, 0, 10) == today
+                array.push(evMins, int(str.tonumber(str.substring(s, 11, 13)) * 60 + str.tonumber(str.substring(s, 14, 16))))
+else if etMin > 570 and etMin < 570 + orMin
+    orh := math.max(orh, high)
+    orl := math.min(orl, low)
+if etMin < 960 and clMin >= 960
+    rthCloseToday := close
+
+inBlackout(int t) =>
+    bool b = false
+    for e in evMins
+        if t >= e - 15 and t < e + 5
+            b := true
+    if isFomc and t >= 810 and t < 900
+        b := true
+    b
+
+mustFlatten(int closeT, int entryT) =>
+    bool f = false
+    for e in evMins
+        if closeT >= e - 5 and entryT < e
+            f := true
+    if isFomc and closeT >= 835 and entryT < 840
+        f := true
+    f
+
+sizeFor(float e, float sl) =>
+    rpm = (math.abs(e - sl) + 2 * slipTicks * tick) * pv + commRT
+    math.min(maxMicros, math.floor(riskUsd / rpm))
+
+dayPnl    = strategy.netprofit - npDayStart
+dayLosses = strategy.losstrades - lossDayStart
+locked    = dayLosses >= maxLosses or dayPnl <= -maxDayLoss
+inPos     = strategy.position_size != 0
+
+// ───────────────────────── exits: time / EOD / news (market, next bar open)
+if inPos
+    et = strategy.opentrades.entry_time(strategy.opentrades - 1)
+    eMin = hour(et, tz) * 60 + minute(et, tz)
+    if clMin - eMin >= maxHold or clMin >= 955 or mustFlatten(clMin, eMin)
+        strategy.close_all(comment = "Time/EOD/News")
+
+// ───────────────────────── signals (closed bars only)
+canEnter = barstate.isconfirmed and not inPos and not locked and clMin >= 575 and clMin < 950 and not inBlackout(clMin)
+
+bool orbLong = false
+bool orbShort = false
+if mode != "Gap Fill" and not orbDone and etMin >= 570 + orMin and clMin <= orEnd and barstate.isconfirmed
+    if close > orh
+        orbLong := true
+        orbDone := true
+    else if close < orl
+        orbShort := true
+        orbDone := true
+mid = (orh + orl) / 2
+
+bool gapLong = false
+bool gapShort = false
+if mode != "ORB" and isOpenBar and barstate.isconfirmed and not na(pdc)
+    g = (open - pdc) / pdc * 100
+    if math.abs(g) >= gapMin and math.abs(g) <= gapMax
+        if g > 0 and close < open and close - pdc >= gapMinRR * (high + tick - close)
+            gapShort := true
+        else if g < 0 and close > open and pdc - close >= gapMinRR * (close - (low - tick))
+            gapLong := true
+
+int    side = 0
+float  sl = na
+float  tp = na
+string setup = ""
+if canEnter
+    if gapLong or gapShort
+        side := gapLong ? 1 : -1
+        sl := gapLong ? low - tick : high + tick
+        tp := pdc
+        setup := "GAP"
+    else if orbLong or orbShort
+        side := orbLong ? 1 : -1
+        sl := mid
+        tp := close + orTpR * (close - mid)
+        setup := "ORB"
+
+qty = side != 0 ? sizeFor(close, sl) : 0
+longSig  = side > 0 and qty >= 1
+shortSig = side < 0 and qty >= 1
+
+if longSig
+    strategy.entry("L", strategy.long, qty = qty, comment = setup + " L")
+    strategy.exit("LX", "L", stop = sl, limit = tp)
+if shortSig
+    strategy.entry("S", strategy.short, qty = qty, comment = setup + " S")
+    strategy.exit("SX", "S", stop = sl, limit = tp)
+
+if longSig or shortSig
+    right = bar_index + math.max(1, int(math.round(maxHold / tfMin)))
+    box.new(bar_index, math.max(close, tp), right, math.min(close, tp), border_color = color.new(color.green, 75), bgcolor = color.new(color.green, 75))
+    box.new(bar_index, math.max(close, sl), right, math.min(close, sl), border_color = color.new(color.red, 75), bgcolor = color.new(color.red, 75))
+
+plotshape(longSig, "Long", shape.triangleup, location.belowbar, color.green, size = size.small)
+plotshape(shortSig, "Short", shape.triangledown, location.abovebar, color.red, size = size.small)
+bgcolor(locked and etMin >= 570 and etMin < 960 ? color.new(color.red, 92) : na, title = "Daily loss lock")
