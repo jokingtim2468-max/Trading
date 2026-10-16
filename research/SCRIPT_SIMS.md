@@ -101,19 +101,25 @@ instead fills at the next 1-minute open and checks exits minute by minute.
 | 11 | TradeX QuantORB | V4.1 Lucid rules (1h cap) | $150 | −$5,912 | $10,734 |
 | 12 | TradeAxis DOL | as written (pool clogs, few signals) | $150 | −$7,261 | $7,261 |
 | 13 | TradeX QuantORB | V3.1 Lucid rules (1h cap) | $150 | −$9,134 | $15,086 |
-| 14 | iFVG Ultimate+ | script lines (BE, no target) | $150 | −$14,216 | $15,182 |
-| 15 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
-| 16 | Liquidity DOL Scoring | only PoT >= 60%, Lucid rules | $150 | −$22,305 | $25,192 |
-| 17 | Liquidity DOL Scoring | only PoT >= 60%, script rules | $150 | −$23,344 | $26,199 |
-| 18 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, script rules | $150 | −$38,882 | $50,088 |
-| 19 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
-| 20 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
-| 21 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, Lucid rules | $150 | −$42,458 | $50,665 |
-| 22 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, Lucid rules | $150 | −$45,052 | $50,547 |
-| 23 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, script rules | $150 | −$76,391 | $82,759 |
-| 24 | Liquidity DOL Scoring | every new DOL, Lucid rules | $150 | −$93,643 | $97,011 |
-| 25 | Liquidity DOL Scoring | every new DOL, script rules | $150 | −$156,341 | $160,029 |
-| 26 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
+| 14 | SMC Concepts Suite | C BOS/CHoCH continuation, Lucid rules | $150 | −$10,322 | $11,602 |
+| 15 | SMC Concepts Suite | C BOS/CHoCH continuation, script rules | $150 | −$12,338 | $17,161 |
+| 16 | SMC Concepts Suite | A OB retest, script rules | $150 | −$13,632 | $14,070 |
+| 17 | iFVG Ultimate+ | script lines (BE, no target) | $150 | −$14,216 | $15,182 |
+| 18 | SMC Concepts Suite | A OB retest, Lucid rules | $150 | −$14,328 | $14,692 |
+| 19 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
+| 20 | Liquidity DOL Scoring | only PoT >= 60%, Lucid rules | $150 | −$22,305 | $25,192 |
+| 21 | Liquidity DOL Scoring | only PoT >= 60%, script rules | $150 | −$23,344 | $26,199 |
+| 22 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, script rules | $150 | −$38,882 | $50,088 |
+| 23 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
+| 24 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
+| 25 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, Lucid rules | $150 | −$42,458 | $50,665 |
+| 26 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, Lucid rules | $150 | −$45,052 | $50,547 |
+| 27 | SMC Concepts Suite | B sweep reversal, Lucid rules | $150 | −$60,654 | $64,375 |
+| 28 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, script rules | $150 | −$76,391 | $82,759 |
+| 29 | SMC Concepts Suite | B sweep reversal, script rules | $150 | −$76,398 | $78,818 |
+| 30 | Liquidity DOL Scoring | every new DOL, Lucid rules | $150 | −$93,643 | $97,011 |
+| 31 | Liquidity DOL Scoring | every new DOL, script rules | $150 | −$156,341 | $160,029 |
+| 32 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
 
 ## QuantORB on the newest week: 2026-10-05 → 2026-10-09 – `orb_week.py`
 Data: real NQ=F 1-minute bars from Yahoo Finance (CME), saved in `results/orb_week/`. Each day has a full 390-bar
@@ -210,3 +216,27 @@ on the other side (1:1), skip levels closer than 0.5 ATR, $150 risk.
 * **No direction edge:** price reached the level before an equal-distance stop only ~50% of the time. After costs
   that is a loss.
 * **Too many trades:** the target changes ~20 times a day, so trading every new DOL multiplies the losses.
+
+## Smart Money Concepts Suite – `smcsuite_sim.py`
+Port of the defaults:
+* Swing structure 50/50 and internal structure 5/5. BOS/CHoCH = a close beyond the last unbroken swing.
+* On a swing break, the order block = the last opposite candle within 15 bars (max 6 per side). An OB is mitigated
+  on a wick touch, and the script also checks this on the creation bar.
+* Sweep = a wick beyond the swing level that closes back inside.
+
+The script has no trades, so three SMC readings were tested (regular hours, 2R targets, $150 risk):
+
+| Version | Trades | Win % | PF | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| A: OB retest (limit at OB edge), script rules | 726 | 32.0 | 0.78 | −$13,632 | $14,070 |
+| A: OB retest, Lucid rules | 717 | 34.0 | 0.75 | −$14,328 | $14,692 |
+| B: sweep reversal, script rules | 5,624 | 34.3 | 0.84 | −$76,398 | $78,818 |
+| B: sweep reversal, Lucid rules | 4,269 | 36.7 | 0.82 | −$60,654 | $64,375 |
+| C: BOS/CHoCH continuation, script rules | 1,508 | 38.9 | 0.88 | −$12,338 | $17,161 |
+| C: BOS/CHoCH continuation, Lucid rules | 1,461 | 43.3 | 0.86 | −$10,322 | $11,602 |
+
+* **Instant mitigation:** 2,067 of 4,599 order blocks (45%) were mitigated on the bar that created them, because the
+  break candle had already dipped into the OB. The script greys them out at once.
+* **Repeated sweeps:** the SWEEP label fires on every bar that wicks through a swing and closes back, often several
+  times in a row (21,690 raw signals).
+* **All lose:** every reading loses after costs, and every drawdown is far above $1,000.

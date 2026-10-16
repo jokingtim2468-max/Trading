@@ -157,6 +157,42 @@
  },
  {
   "rank": 14,
+  "script": "SMC Concepts Suite",
+  "version": "C BOS/CHoCH continuation, Lucid rules",
+  "risk": "$150",
+  "trades": 1461,
+  "win": 43.3,
+  "pf": 0.86,
+  "net": -10322,
+  "maxdd": 11602,
+  "per_week": -19.9
+ },
+ {
+  "rank": 15,
+  "script": "SMC Concepts Suite",
+  "version": "C BOS/CHoCH continuation, script rules",
+  "risk": "$150",
+  "trades": 1508,
+  "win": 38.9,
+  "pf": 0.88,
+  "net": -12338,
+  "maxdd": 17161,
+  "per_week": -23.8
+ },
+ {
+  "rank": 16,
+  "script": "SMC Concepts Suite",
+  "version": "A OB retest, script rules",
+  "risk": "$150",
+  "trades": 726,
+  "win": 32.0,
+  "pf": 0.78,
+  "net": -13632,
+  "maxdd": 14070,
+  "per_week": -26.3
+ },
+ {
+  "rank": 17,
   "script": "iFVG Ultimate+",
   "version": "script lines (BE, no target)",
   "risk": "$150",
@@ -168,7 +204,19 @@
   "per_week": -27.4
  },
  {
-  "rank": 15,
+  "rank": 18,
+  "script": "SMC Concepts Suite",
+  "version": "A OB retest, Lucid rules",
+  "risk": "$150",
+  "trades": 717,
+  "win": 34.0,
+  "pf": 0.75,
+  "net": -14328,
+  "maxdd": 14692,
+  "per_week": -27.6
+ },
+ {
+  "rank": 19,
   "script": "iFVG Ultimate+",
   "version": "+ 2R target",
   "risk": "$150",
@@ -180,7 +228,7 @@
   "per_week": -35.9
  },
  {
-  "rank": 16,
+  "rank": 20,
   "script": "Liquidity DOL Scoring",
   "version": "only PoT >= 60%, Lucid rules",
   "risk": "$150",
@@ -192,7 +240,7 @@
   "per_week": -43.0
  },
  {
-  "rank": 17,
+  "rank": 21,
   "script": "Liquidity DOL Scoring",
   "version": "only PoT >= 60%, script rules",
   "risk": "$150",
@@ -204,7 +252,7 @@
   "per_week": -45.0
  },
  {
-  "rank": 18,
+  "rank": 22,
   "script": "SUPER INDIBOT Ribbon",
   "version": "A: BUY to SELL arrow, script rules",
   "risk": "$150",
@@ -216,7 +264,7 @@
   "per_week": -74.9
  },
  {
-  "rank": 19,
+  "rank": 23,
   "script": "TBR Sessions",
   "version": "B: sweep reversal",
   "risk": "$150",
@@ -228,7 +276,7 @@
   "per_week": -78.9
  },
  {
-  "rank": 20,
+  "rank": 24,
   "script": "TBR Sessions",
   "version": "A: 0.618 Fib line",
   "risk": "$150",
@@ -240,7 +288,7 @@
   "per_week": -79.1
  },
  {
-  "rank": 21,
+  "rank": 25,
   "script": "SUPER INDIBOT Ribbon",
   "version": "A: BUY to SELL arrow, Lucid rules",
   "risk": "$150",
@@ -252,7 +300,7 @@
   "per_week": -81.8
  },
  {
-  "rank": 22,
+  "rank": 26,
   "script": "SUPER INDIBOT Ribbon",
   "version": "B: exit when ribbon unaligns, Lucid rules",
   "risk": "$150",
@@ -264,7 +312,19 @@
   "per_week": -86.8
  },
  {
-  "rank": 23,
+  "rank": 27,
+  "script": "SMC Concepts Suite",
+  "version": "B sweep reversal, Lucid rules",
+  "risk": "$150",
+  "trades": 4269,
+  "win": 36.7,
+  "pf": 0.82,
+  "net": -60654,
+  "maxdd": 64375,
+  "per_week": -116.8
+ },
+ {
+  "rank": 28,
   "script": "SUPER INDIBOT Ribbon",
   "version": "B: exit when ribbon unaligns, script rules",
   "risk": "$150",
@@ -276,7 +336,19 @@
   "per_week": -147.1
  },
  {
-  "rank": 24,
+  "rank": 29,
+  "script": "SMC Concepts Suite",
+  "version": "B sweep reversal, script rules",
+  "risk": "$150",
+  "trades": 5624,
+  "win": 34.3,
+  "pf": 0.84,
+  "net": -76398,
+  "maxdd": 78818,
+  "per_week": -147.1
+ },
+ {
+  "rank": 30,
   "script": "Liquidity DOL Scoring",
   "version": "every new DOL, Lucid rules",
   "risk": "$150",
@@ -288,7 +360,7 @@
   "per_week": -180.4
  },
  {
-  "rank": 25,
+  "rank": 31,
   "script": "Liquidity DOL Scoring",
   "version": "every new DOL, script rules",
   "risk": "$150",
@@ -300,7 +372,7 @@
   "per_week": -301.1
  },
  {
-  "rank": 26,
+  "rank": 32,
   "script": "TradeAxis DOL",
   "version": "dead-level bug fixed",
   "risk": "$150",

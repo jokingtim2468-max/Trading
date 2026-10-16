@@ -38,6 +38,10 @@ for v in ("all DOLs", "PoT>=60%"):
     for acct in ("script rules", "Lucid rules"):
         rows.append(("Liquidity DOL Scoring", f"{'every new DOL' if v == 'all DOLs' else 'only PoT >= 60%'}, {acct}",
                      "$150", lq[f"{v} {acct}"]["overall"]))
+ss = j("smcsuite/smcsuite_summary.json")
+for r in ("A OB retest", "B sweep reversal", "C BOS/CHoCH continuation"):
+    for acct in ("script rules", "Lucid rules"):
+        rows.append(("SMC Concepts Suite", f"{r}, {acct}", "$150", ss[f"{r} {acct}"]["overall"]))
 rows.sort(key=lambda r: -r[3]["net"])
 out = []
 for i, (s, v, risk, o) in enumerate(rows, 1):
@@ -56,7 +60,7 @@ BG, GRID, TXT, MUTED = "#131722", "#2a2e39", "#d1d4dc", "#787b86"
 plt.rcParams.update({"axes.facecolor": BG, "figure.facecolor": BG, "axes.edgecolor": GRID, "axes.labelcolor": TXT,
                      "xtick.color": MUTED, "ytick.color": MUTED, "text.color": TXT, "grid.color": GRID,
                      "font.size": 10, "text.parse_math": False})
-fig, ax = plt.subplots(figsize=(13, 12))
+fig, ax = plt.subplots(figsize=(13, 14))
 labels = [f"#{r['rank']}  {r['script']} - {r['version']}  ({r['risk']} risk)" for r in out][::-1]
 vals = [r["net"] for r in out][::-1]
 cols = ["#089981" if v > 0 else "#F23645" for v in vals]
