@@ -54,3 +54,49 @@ and 3-drive patterns. It has no entries, so two readings were tested in the NY w
 
 * Both lost money in **every year** from 2015 to 2025.
 * Version A wins 55% of the time but only targets about 0.6R. After costs it needs ~65% winners to break even.
+
+## TradeX QuantORB – `orb_sim.py`
+The script defines its own trade, and it was ported exactly:
+* 09:30–09:45 opening range; trade only if the range is 10–100 points.
+* Enter on a 5-minute close beyond the range until 12:00, max 2 trades per day.
+* V4.1: stop = opposite side of the range, 2R target, break-even at 1R. V3.1: stop 25% inside the range, 1.5R target,
+  break-even at 0.75R.
+* Flat at 15:55.
+
+The script marks stop/target hits on its own entry bar, using price action from before the entry. The simulation
+instead fills at the next 1-minute open and checks exits minute by minute.
+
+| Version | Risk | Trades | Win % | PF | Net P&L | Max drawdown | $/week |
+|---|---|---|---|---|---|---|---|
+| V4.1 as written | $500 | 2,827 | 38.7 | 1.05 | +$26,798 | $29,128 | +$52 |
+| V4.1 script rules | $150 | 2,238 | 37.2 | 1.02 | +$2,754 | $7,792 | +$5 |
+| V4.1 + Lucid 1h cap / news / day lock | $150 | 2,938 | 46.1 | 0.94 | −$5,912 | $10,734 | −$11 |
+| V3.1 as written | $500 | 3,402 | 35.0 | 1.00 | −$386 | $46,530 | −$1 |
+| V3.1 script rules | $150 | 3,064 | 33.9 | 0.98 | −$2,984 | $14,056 | −$6 |
+| V3.1 + Lucid rules | $150 | 3,502 | 42.6 | 0.93 | −$9,134 | $15,086 | −$18 |
+
+* **V4.1 as written:**
+  * Lost $25k in 2015–2017. In those years NQ was cheaper and the opening ranges were small.
+  * Made money in 2018 and every year from 2020 to 2025; 2019 was flat. Its strongest stretch was 2021–2024, at
+    PF 1.13–1.51.
+  * The 10–100 point range filter is in today's NQ points. It was probably set with recent prices in mind, which
+    flatters recent years.
+* **The 1-hour cap breaks it:** V4.1 needs time to reach 2R. Most trades under the Lucid 1-hour cap end on time,
+  not at target.
+* **Lucid drawdown:** even in the best years, every version's drawdown went past $1,000.
+
+## Ranking (net P&L, highest first) – `rank_scripts.py`, chart `results/ranking.png`
+| # | Script | Version | Risk | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| 1 | TradeX QuantORB | V4.1 as written | $500 | +$26,798 | $29,128 |
+| 2 | TradeX QuantORB | V4.1 script rules | $150 | +$2,754 | $7,792 |
+| 3 | TradeX QuantORB | V3.1 as written | $500 | −$386 | $46,530 |
+| 4 | TradeX QuantORB | V3.1 script rules | $150 | −$2,984 | $14,056 |
+| 5 | TradeX QuantORB | V4.1 Lucid rules | $150 | −$5,912 | $10,734 |
+| 6 | TradeAxis DOL | as written (clogs, few trades) | $150 | −$7,261 | $7,261 |
+| 7 | TradeX QuantORB | V3.1 Lucid rules | $150 | −$9,134 | $15,086 |
+| 8 | iFVG Ultimate+ | script lines | $150 | −$14,216 | $15,182 |
+| 9 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
+| 10 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
+| 11 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
+| 12 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |

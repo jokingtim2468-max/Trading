@@ -381,3 +381,62 @@ FAMILIES = {
     # added after the first 7 were evaluated (documented in the report)
     "INTRADAY_MOM": (s_intraday_mom, dict(rmin=0.0, entry=925, stop_atr=2.0, max_trades=1)),
 }
+
+
+def run_day_mgmt(rec, sigs, sym, news, max_trades, rules=RULES, be_r=None):
+    """Market-entry executor for scripts that manage their own trade: stop, take-profit
+    and an optional break-even move (stop -> signal price once price reaches be_r x R;
+    effective from the next minute). Same fills/costs/day-lock as run_day."""
+    tick, pv = SPEC[sym]["tick"], SPEC[sym]["pv"]
+    slip, comm = tick * rules["slip"], rules["comm"]
+    T, M = rec["m1_t"], rec["m1"]
+    idx = {int(t): i for i, t in enumerate(T)}
+    flat_t = rules["flat"]
+    flatten_at = [ev - 2 for ev, _, _ in news]
+    trades, free_t, losses, dpnl = [], 0, 0, 0.0
+    for s in sorted(sigs, key=lambda x: x["t"]):
+        if len(trades) >= max_trades or losses >= rules["max_losses"] or dpnl <= rules["max_day_loss"]:
+            break
+        if s["t"] < free_t or s["t"] >= flat_t - 5 or s["t"] not in idx:
+            continue
+        side, px, stop, tp = s["side"], s["px"], s["stop"], s["tp"]
+        if side * (px - stop) <= 0 or side * (tp - px) <= 0:
+            continue
+        risk = abs(px - stop)
+        n = min(rules["max_micros"], int(math.floor(rules["risk"] / ((risk + 2 * slip) * pv + comm))))
+        if n < 1:
+            continue
+        k = idx[s["t"]]
+        te = int(T[k])
+        if any(a <= te < b for _, a, b in news):
+            continue
+        entry = M[k, 0] + side * slip
+        be_px = px + side * be_r * risk if be_r else None
+        moved = False
+        deadline = min([te + rules["max_hold"], flat_t] + [f for f in flatten_at if f > te])
+        exit_px, why = None, None
+        while k < len(T):
+            o, h, l, c = M[k]
+            if T[k] >= deadline:
+                exit_px, why = o - side * slip, "time"
+                break
+            if (l <= stop) if side > 0 else (h >= stop):
+                exit_px = (min(stop, o) if side > 0 else max(stop, o)) - side * slip
+                why = "breakeven" if moved else "stop"
+                break
+            if (h >= tp + tick) if side > 0 else (l <= tp - tick):
+                exit_px, why = (max(tp, o) if side > 0 else min(tp, o)), "tp"
+                break
+            if be_px is not None and not moved and ((h >= be_px) if side > 0 else (l <= be_px)):
+                stop, moved = px, True
+            k += 1
+        if exit_px is None:
+            k = len(T) - 1
+            exit_px, why = M[k, 3] - side * slip, "eod"
+        pnl = side * (exit_px - entry) * pv * n - comm * n
+        trades.append(dict(t_in=te, t_out=int(T[k]), side=side, n=n, entry=entry, exit=exit_px, stop=s["stop"], tp=tp,
+                           pnl=pnl, why=why, be_moved=moved, tag=s.get("tag", "")))
+        dpnl += pnl
+        losses += pnl < 0
+        free_t = int(T[k]) + 1
+    return trades
