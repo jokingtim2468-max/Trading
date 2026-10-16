@@ -183,8 +183,25 @@ cell(int r, string k, string v, color vc) =>
     table.cell(panel, 0, r, k, text_color=cMuted, text_size=size.small, text_halign=text.align_left)
     table.cell(panel, 1, r, v, text_color=vc, text_size=size.small, text_halign=text.align_right)
 
+// Next opening of the entry window (New York time), skipping weekends
+nextWindow() =>
+    int eh = int(str.tonumber(str.substring(entrySess, 0, 2)))
+    int em = int(str.tonumber(str.substring(entrySess, 2, 4)))
+    int t = timestamp(TZ, year(timenow, TZ), month(timenow, TZ), dayofmonth(timenow, TZ), eh, em)
+    if timenow >= t
+        t += 86400000
+    if dayofweek(t, TZ) == dayofweek.saturday
+        t += 2 * 86400000
+    else if dayofweek(t, TZ) == dayofweek.sunday
+        t += 86400000
+    t
+countdown(int ms) =>
+    int mins = int(math.max(0, ms) / 60000)
+    str.tostring(int(mins / 60)) + "h " + str.tostring(mins % 60) + "m"
+
 if showPanel and barstate.islast
-    string status = strategy.position_size > 0 ? "In a long" : strategy.position_size < 0 ? "In a short" : inRange ? "Building London range" : rReady and rDate == nyDate and not doneToday ? (inEntry ? "Watching for a breakout" : "Waiting for 08:30 NY") : doneToday and rDate == nyDate ? "Done for today" : "Waiting for London"
+    string nextIn = "next window " + str.substring(entrySess, 0, 2) + ":" + str.substring(entrySess, 2, 4) + " NY in " + countdown(nextWindow() - timenow)
+    string status = strategy.position_size > 0 ? "In a long" : strategy.position_size < 0 ? "In a short" : inEntry and rReady and rDate == nyDate and not doneToday ? "Watching for a breakout" : inRange ? "Building London range, " + nextIn : doneToday and rDate == nyDate ? "Done for today, " + nextIn : "Waiting, " + nextIn
     float wr = strategy.closedtrades > 0 ? float(strategy.wintrades) / strategy.closedtrades * 100 : 0
     float pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0
     cell(0, "QB Gold London-NY", "", cText)
