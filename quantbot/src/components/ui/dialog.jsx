@@ -33,7 +33,7 @@ const DialogContent = React.forwardRef(({ className, children, ...props }, ref) 
     <DialogPrimitive.Content
       aria-describedby={undefined}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border glass-modal p-6 sm:rounded-2xl", CENTERED,
+        "fixed left-[50%] top-[50%] z-50 grid grid-cols-[minmax(0,1fr)] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border glass-modal p-6 sm:rounded-2xl", CENTERED,
         className
       )}
       {...props}

@@ -67,9 +67,9 @@ export default function ScriptDialog({ script, config, onClose, onSaved, onDelet
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader><DialogTitle>{script ? 'Edit script' : 'Add script'}</DialogTitle></DialogHeader>
-        <form onSubmit={save} className="space-y-3">
+        <form onSubmit={save} className="space-y-3 min-w-0">
           <Field label="Name"><Input autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Gold London-NY breakout" /></Field>
           <Field label="Language">
             <Select value={form.language} onValueChange={(v) => set('language', v)}>
