@@ -11,7 +11,7 @@ for (const [from, label] of [['2023-01-02', '2023-2026'], ['2026-01-01', '2026 s
   const tr = raw.filter((t) => t.entryTime >= Date.parse(from));
   const weeks = [...new Set(tr.map((t) => week(t.entryTime)))];
   console.log(`${label} (${weeks.length} trading weeks):`);
-  for (const budget of [100, 200, 300, 500, 750]) {
+  for (const budget of [100, 150, 200, 300, 500, 750]) {
     const byWeek = new Map(weeks.map((w) => [w, 0]));
     for (const t of tr) { const n = Math.min(40, Math.floor(budget / (Math.abs(t.entry - t.sl0) * 10))); if (n) byWeek.set(week(t.entryTime), byWeek.get(week(t.entryTime)) + n * t.pnl); }
     const v = [...byWeek.values()], avg = v.reduce((a, b) => a + b, 0) / v.length;
