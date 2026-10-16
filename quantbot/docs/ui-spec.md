@@ -115,6 +115,57 @@ Everything that opens from a click uses one motion.
   trades... 42% of 45,120 bars"). The Strategy Tester's **Run test** button turns into an outline **Stop** button
   (square icon) while it runs, like the Converter's; Stop ends the test at once with no error shown.
 
+## Copy trading page
+
+- **Layout:** header "Copy trading". On wide screens a 300 px **Scripts** column (sticky) sits left of the accounts;
+  on phones it stacks on top.
+- **Scripts panel:** card with a trophy icon (chart-4 yellow), "Add script" outline button, and the scripts ranked by
+  XP (1, 2, 3... in muted numbers). Each row: rank picture (40 px), name, "<tier> · <xp> XP · <n> trades · <P&L>"
+  (P&L green / red), "Trading <groups>" or "Not on a group", a pencil and a grip. Rows are dragged onto a group.
+- **Group overview** (selected group tab): title "<group>: n accounts", and on the right the **script slot**, a
+  rounded box with a dashed border reading "Drag a script here" (file icon). While a script is dragged the slot's
+  border turns primary; hovering it shows a 2 px primary ring and a primary/10 fill. With a script it shows the
+  script's picture, name, tier and XP and an X to take it off.
+- **Three stat cards** (rounded-xl, background/60, small uppercase muted labels):
+  - **P&L:** profit (green `+$`) over loss (red) in small type on the left, the total large on the right (green if up,
+    red if down).
+  - **Trades:** "made/max" large with the max muted ("20/100"), a 6 px primary progress bar, a small Max field and
+    "Start count again".
+  - **Accounts:** three columns, Passed (green), Failed (red), Current (text color).
+- **Members:** 30 px rank picture, trader name, the account name muted, tier name in tier color, balance, a status pill
+  (Current muted, Passed green border, Failed red border) and "Risk $300" or a Qty field.
+- **Latest trades:** up to 8 rows: trader, "Buy 7 MGC1!" (green) / "Sell..." (red), entry -> exit, P&L, "+50 XP".
+- **Account cards:** 46 px rank picture, random trader name (e.g. "Crimson Falcon") in medium weight, then
+  "<account name> · <login> on <server>", then "<tier> · into/need XP"; balance with the change since the start, and a
+  Passed / Failed pill.
+- **Add account dialog:** 56 px picture, "Trader name" field with a dice button (new random name and picture),
+  then name, login (optional for TradingView), platform, and a "Copy trading" box: Account rules (LucidPro 25K / 50K /
+  100K / 150K, Custom, Just track it), Risk per trade, Order URL.
+- **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. Tabs the dragged
+  item can't go to fade to 40%.
+
+### Rank pictures and tier rings
+
+QuantBot's own design (not copied from any other app). A round picture made from the account's seed: a two-color
+diagonal gradient with a white 5 x 5 mirrored pattern, inside a 6-unit ring. The ring's faint track is the tier color
+at 25%; the bright arc fills clockwise from the top with progress to the next level. A small pill under the picture
+shows the level in black on the tier color. Three levels per tier (I, II, III); Legend counts on (Legend 4, 5...).
+
+| Tier | Levels | Hex | Ornaments |
+|---|---|---|---|
+| Unranked | 0 | `#6B7280` | none |
+| Iron | 1-3 | `#8B8F98` | none |
+| Bronze | 4-6 | `#C27C4E` | 4 studs |
+| Silver | 7-9 | `#C9D1DC` | studs + top crest |
+| Gold | 10-12 | `#F2C14E` | studs + crest |
+| Platinum | 13-15 | `#5EE0C8` | studs + crest + side wings |
+| Diamond | 16-18 | `#6FA8FF` | bigger studs + crest + wings |
+| Master | 19-21 | `#B57BFF` | studs + wings + crown |
+| Legend | 22+ | `#FF5D73` | studs + wings + crown + soft red glow |
+
+XP: 10 for a closed trade of $5 or less (losses too), 20 up to $10, 30 up to $20, 50 above. Accounts level up at 100
+XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
+
 ## Market data
 
 - Built-in markets: XAUUSD (1-minute bars from May 2003, daily from 1999), US100 (1-minute bars from Sept 2011,

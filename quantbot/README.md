@@ -2,7 +2,8 @@
 
 AI quant developer for MT5 and Pine Script: chat that writes Expert Advisors and Pine strategies, a Strategy Tester
 that backtests the newest script in a chat, a Strategy Converter that converts any strategy to MT5 or Pine and tests it
-on data the bot has never seen, test history, a PnL calendar and trading-account / copy-group management.
+on data the bot has never seen, test history, a PnL calendar and a copy-trading page that runs your scripts on
+groups of accounts.
 
 Built-in market data: XAUUSD (from 2003), US100 and NQ (from 2011 intraday, 1990 daily), downloaded free from
 Dukascopy by the desktop app the first time a range is used (Dukascopy now only serves real browsers behind Amazon's bot
@@ -25,7 +26,20 @@ same PC (allow that address under Tools > Options > Expert Advisors > Allow WebR
 from its own servers, so the desktop app can open a public link through Cloudflare's free quick tunnel (`cloudflared`,
 downloaded from Cloudflare's GitHub releases the first time you turn it on; the address changes each time it starts).
 TradingView webhooks need a paid TradingView plan with two-factor login. Only `/hook/<key>` answers through the public
-link. QuantBot doesn't place orders: Lucid and other prop accounts can't be traded through Tradovate's API.
+link. QuantBot doesn't place orders itself: Lucid and other prop accounts can't be traded through Tradovate's API.
+
+Copy trading (the Copy trading page, `/accounts`): add your scripts, add accounts, make groups, then drag a script onto
+a group. Each script has its own webhook address, `/hook/<key>/s/<script id>` (alerts to the plain address are matched
+by the strategy name). Every buy / sell is copied to each active account in the script's groups, on paper at the
+alert's price: sized so the stop risks the account's "risk per trade" (default 15% of the plan's max loss, $300 on a
+Lucid 50K), else the script's quantity x the account's Qty. Set SL / TP moves follow, and a close (or the opposite
+signal) settles the trade. An account with an order URL (e.g. a TradersPost webhook) also gets each order sent there
+in TradersPost's JSON format, which is how the trades reach a real account. Account plans (LucidPro 25K-150K or
+custom) pass an account at the profit target and fail it at the max loss, which trails the best end-of-day balance and
+locks at start + $100 for Lucid. A group stops copying when it reaches its max trades (the overview shows e.g. 20/100).
+XP per closed trade: 10 for a profit of $5 or less (losses included), 20 up to $10, 30 up to $20, 50 above. Accounts
+rank up at 100 XP, then 200 more, 300 more...; scripts at 1,000, then 2,000 more... Logic: `server/copier.js`,
+`server/lib/copyRules.js` (shared with the app).
 
 Both testers translate the script into JavaScript for the bar-by-bar simulator (`src/lib/backtest/engine.js`), which
 runs in a worker and shows how far it has got. Test code that would take more than two minutes (usually code that
@@ -88,6 +102,6 @@ The end-to-end run uses Playwright's Chromium (`npx playwright install chromium`
 
 ## Not included yet
 
-- Copy trading: the MT5 / Tradovate copier engine lived in a separate desktop app repo. Accounts and copy groups can
-  be managed here, but connecting and copying stay off until the engine is added.
+- Direct broker connections: copy trading fills on paper at the alert price; real orders go through each account's
+  order URL (TradersPost or similar), not straight to Tradovate or MT5.
 - Login: there are no accounts. One trader per PC.
