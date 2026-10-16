@@ -7,9 +7,10 @@ import path from 'node:path';
 import { createCipher } from '../../server/crypto.js';
 import { createBackend, entityDefaults } from '../../server/backend.js';
 import { createCopier, orderMessage } from '../../server/copier.js';
+import { createChatTools } from '../../server/lib/chatTools.js';
 import { startServer } from '../../server/index.js';
 import {
-  xpForTrade, levelFromXp, tierOf, pointValue, randomName, applyClose, nyDay, PLANS, ACCOUNT_STEP, SCRIPT_STEP,
+  xpForTrade, levelFromXp, tierOf, pointValue, randomName, applyClose, nyDay, evaluate, PLANS, ACCOUNT_STEP, SCRIPT_STEP,
 } from '../../server/lib/copyRules.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'quantbot-copy-'));
@@ -17,7 +18,7 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'quantbot-copy-'));
 function dbIn(dir) {
   const c = createCipher(dir);
   const be = createBackend({ dataDir: dir, encrypt: c.encrypt, decrypt: c.decrypt, userName: 'Copy', defaults: entityDefaults(path.resolve('server/entities')) });
-  return { run: async (...a) => be.handle('entity', ...a) };
+  return { run: async (...a) => be.handle('entity', ...a), sync: { run: (...a) => be.handle('entity', ...a) } };
 }
 
 const lucid50 = (extra = {}) => {
@@ -37,6 +38,16 @@ describe('copy trading rules', () => {
     assert.equal(tierOf(0).name, 'Unranked');
     assert.deepEqual([1, 3, 4, 12, 21].map((l) => `${tierOf(l).name} ${tierOf(l).division}`), ['Iron I', 'Iron III', 'Bronze I', 'Gold III', 'Master III']);
     assert.equal(`${tierOf(25).name} ${tierOf(25).division}`, 'Legend 4');
+  });
+
+  test('evaluation of closed trades', () => {
+    const t = (pnl, closed, extra = {}) => ({ status: 'closed', pnl, side: 'long', opened_at: '2026-03-02T14:00:00Z', closed_at: closed, reason: pnl > 0 ? 'tp' : 'sl', xp: xpForTrade(pnl), ...extra });
+    const e = evaluate([t(300, '2026-03-02T15:00:00Z'), t(-200, '2026-03-03T15:00:00Z'), t(-100, '2026-03-04T15:00:00Z'), t(500, '2026-03-05T15:00:00Z', { side: 'short' }), { status: 'open', pnl: 0 }]);
+    assert.deepEqual([e.trades, e.open, e.wins, e.losses, e.net, e.avgWin, e.avgLoss, e.maxDrawdown, e.best, e.worst, e.longs, e.shorts], [4, 1, 2, 2, 500, 400, -150, 300, 500, -200, 3, 1]);
+    assert.equal(e.profitFactor, 800 / 300);
+    assert.equal(e.expectancy, 125);
+    assert.deepEqual(e.reasons, { tp: 2, sl: 2 });
+    assert.equal(e.xp, 120);
   });
 
   test('contract sizes and names', () => {
@@ -64,10 +75,11 @@ describe('copy trading rules', () => {
 
 describe('copier', () => {
   let db, sent, copier, script, group, accounts;
+  const lines = [];
   before(async () => {
     db = dbIn(tmp());
     sent = [];
-    copier = createCopier({ db, forward: async (url, body) => { sent.push({ url, body }); return 200; } });
+    copier = createCopier({ db, log: (l) => lines.push(l), forward: async (url, body) => { sent.push({ url, body }); return 200; } });
     script = await db.run('Script', 'create', { name: 'QB Gold London-NY', language: 'Pine', code: '//@version=5' });
     group = await db.run('CopyGroup', 'create', { name: 'Gold squad', platform: 'Futures', script_id: script.id, max_trades: 2 });
     accounts = [
@@ -118,6 +130,20 @@ describe('copier', () => {
     assert.equal(a[1].status, 'open');
   });
 
+  test('every step is in the activity log and the log file', async () => {
+    const ev = await db.run('CopyEvent', 'filter', {}, 'created_date');
+    const kinds = new Set(ev.map((e) => e.kind));
+    for (const k of ['signal', 'open', 'move', 'close', 'order', 'limit']) assert.ok(kinds.has(k), `no ${k} event`);
+    const open = ev.find((e) => e.kind === 'open' && e.account_id === accounts[0].id);
+    assert.match(open.message, /Crimson Falcon bought 7 MGC1! @ 2400 SL 2396 TP 2406 \(risk \$300 \/ \(4 stop x \$10\) = 7; risking \$280\.00\) - group trade 1\/2/);
+    assert.equal(open.data.risk, 280);
+    const close = ev.find((e) => e.kind === 'close' && e.account_id === accounts[0].id && e.data?.pnl === 420);
+    assert.match(close.message, /closed long 7 MGC1! 2400 -> 2406 \(tp\): \+\$420\.00, \+50 XP, balance \$50,420\.00/);
+    assert.match(ev.find((e) => e.kind === 'limit').message, /Gold squad is at its max of 2 trades: buy not copied/);
+    assert.match(ev.find((e) => e.kind === 'move').message, /SL 2396 -> 2400/);
+    assert.ok(lines.some((l) => l.startsWith('copy open: Crimson Falcon bought 7')));
+  });
+
   test('a failed account takes no more trades; unknown scripts are ignored', async () => {
     await db.run('CopyGroup', 'update', group.id, { max_trades: 10 });
     await copier.onSignal(sig({ event: 'close', price: 2700, trade_id: 'T2' }));
@@ -127,6 +153,23 @@ describe('copier', () => {
     assert.equal((await trades(accounts[0].id)).length, 2);
     assert.deepEqual(await copier.onSignal(sig({ event: 'buy', price: 1, strategy: 'Nobody' })), { script: null, accounts: 0 });
     assert.deepEqual(orderMessage('close', { price: 5 }, { symbol: 'X' }), { ticker: 'X', action: 'exit', price: 5 });
+    const ev = await db.run('CopyEvent', 'filter', {}, '-created_date');
+    assert.ok(ev.some((e) => e.kind === 'status' && /Crimson Falcon FAILED: balance .* hit the max loss floor \$48,000\.00/.test(e.message)));
+    assert.ok(ev.some((e) => e.kind === 'skip' && /Crimson Falcon skipped: account failed/.test(e.message)));
+    assert.ok(ev.some((e) => e.kind === 'ignore' && /no script has that name/.test(e.message)));
+  });
+
+  test('the chat reads the copy trading summary, log and trades', async () => {
+    const tools = createChatTools({ db: db.sync, market: null });
+    const sum = JSON.parse(await tools.run('copy_trading_summary', {}));
+    assert.equal(sum.scripts[0].name, 'QB Gold London-NY');
+    assert.equal(sum.accounts.find((a) => a.trader === 'Crimson Falcon').status, 'failed');
+    assert.ok(sum.overall.trades >= 3);
+    const log = JSON.parse(await tools.run('copy_trading_log', { account: 'crimson falcon', problems_only: true }));
+    assert.ok(log.events.length && log.events.every((e) => e.level !== 'info'));
+    const tr = JSON.parse(await tools.run('copy_trading_trades', { account: 'Silent Wolf' }));
+    assert.equal(tr.trades[0].pnl, 120);
+    assert.match(JSON.parse(await tools.run('copy_trading_log', { script: 'nope' })).error, /No "nope"\. Known: QB Gold London-NY/);
   });
 });
 

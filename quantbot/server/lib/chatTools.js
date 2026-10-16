@@ -2,6 +2,7 @@
 // advice is based on real numbers instead of guesses. Every tool only reads; nothing is changed or traded.
 import { INSTRUMENTS, TIMEFRAMES, MAX_RANGE_DAYS, firstDate } from '../market/instruments.js';
 import { marketStats } from '../../src/lib/backtest/marketStats.js';
+import { evaluate, levelFromXp, tierOf, ACCOUNT_STEP, SCRIPT_STEP } from './copyRules.js';
 
 const MAX_RESULT = 60000; // characters per tool result, so a big answer can't crowd out the conversation
 const MAX_BARS = 1500;
@@ -73,6 +74,39 @@ export const TOOL_DEFS = [
         to: { type: 'string', description: 'Last day, YYYY-MM-DD.' },
       },
       required: ['symbol', 'timeframe', 'from', 'to'],
+    },
+  },
+  {
+    name: 'copy_trading_summary',
+    description: 'Copy trading (paper accounts that copy script alerts): every script, group and account with balance, status (active / passed / failed), rules, risk per trade, XP and rank, and an evaluation of the copied trades per script, per account, per group and per exit reason (trades, win rate, net, avg win / loss, profit factor, P&L per trade, max drawdown). Use it to judge how a script does across accounts.',
+    parameters: { type: 'object', properties: { group: { type: 'string', description: 'Only this group (name). Leave out for all.' } } },
+  },
+  {
+    name: 'copy_trading_log',
+    description: 'The copy trading activity log, newest first: each signal received, how every account sized its trade, skips and warnings (paused group, max trades reached, failed account, 1 contract over the risk), fills, SL / TP moves, closes with P&L and XP, max-loss floor moves, rank-ups, pass / fail, orders sent to order URLs, and setup changes made in the app.',
+    parameters: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['signal', 'open', 'skip', 'move', 'close', 'rank', 'status', 'floor', 'order', 'limit', 'ignore', 'setup'], description: 'Only this kind of event.' },
+        account: { type: 'string', description: 'Only this account (trader name or account name).' },
+        script: { type: 'string', description: 'Only this script (name).' },
+        problems_only: { type: 'boolean', description: 'Only warnings and errors.' },
+        limit: { type: 'integer', description: 'Most events (default 100, max 400).' },
+        offset: { type: 'integer', description: 'Skip this many of the newest events.' },
+      },
+    },
+  },
+  {
+    name: 'copy_trading_trades',
+    description: 'Copied trades (one row per account per script trade), oldest first: account, script, symbol, side, quantity, entry, stop, target, exit, points, P&L, XP, exit reason, open / close time, order URL result.',
+    parameters: {
+      type: 'object',
+      properties: {
+        account: { type: 'string', description: 'Only this account (trader name or account name).' },
+        script: { type: 'string', description: 'Only this script (name).' },
+        offset: { type: 'integer' },
+        limit: { type: 'integer', description: 'Default 100, max 300.' },
+      },
     },
   },
 ];
@@ -150,7 +184,81 @@ export function createChatTools({ db, market }) {
   };
   const csv = (bars, k) => [new Date(bars.time[k]).toISOString().slice(0, 16).replace('T', ' '), bars.open[k], bars.high[k], bars.low[k], bars.close[k], bars.volume[k], bars.spread[k]].join(',');
 
+  // Copy trading lookups by name
+  const copyData = () => ({
+    scripts: list('Script', {}, { limit: 500 }), groups: list('CopyGroup', {}, { limit: 500 }),
+    accounts: list('TradingAccount', {}, { limit: 1000 }), trades: list('AccountTrade', {}, { sort: 'opened_at', limit: 100000 }),
+  });
+  const findIn = (rows, name, keys) => {
+    if (!name) return null;
+    const n = String(name).trim().toLowerCase();
+    const hit = rows.find((r) => keys.some((k) => String(r[k] || '').toLowerCase() === n));
+    if (!hit) throw new Error(`No "${name}". Known: ${rows.map((r) => r[keys[0]] || r[keys[1]]).join(', ') || 'none yet'}`);
+    return hit;
+  };
+  const evalOut = (e) => ({
+    trades: e.trades, open: e.open, wins: e.wins, losses: e.losses, win_rate: r2(e.winRate * 100), net: e.net, avg_win: e.avgWin, avg_loss: e.avgLoss,
+    profit_factor: e.profitFactor === Infinity ? 'infinite' : r2(e.profitFactor), per_trade: e.expectancy, max_drawdown: e.maxDrawdown,
+    best: e.best, worst: e.worst, avg_hold_minutes: e.avgHoldMin, longs: e.longs, shorts: e.shorts, xp: e.xp,
+  });
+  const rank = (xp, step) => { const l = levelFromXp(Number(xp) || 0, step); const t = tierOf(l.level); return `${t.name}${t.division ? ` ${t.division}` : ''} (level ${l.level}, ${l.into}/${l.need} XP to next)`; };
+
   const tools = {
+    copy_trading_summary({ group } = {}) {
+      const d = copyData();
+      const g = findIn(d.groups, group, ['name']);
+      const trades = g ? d.trades.filter((t) => t.group_id === g.id) : d.trades;
+      const accounts = g ? d.accounts.filter((a) => a.group_id === g.id) : d.accounts;
+      const name = (rows, id) => rows.find((r) => r.id === id)?.name || null;
+      return {
+        note: 'Paper copies: each account fills at the alert price, sized from its risk per trade. Amounts in dollars.',
+        overall: evalOut(evaluate(trades)),
+        scripts: d.scripts.map((s) => ({ name: s.name, language: s.language, xp: s.xp || 0, rank: rank(s.xp, SCRIPT_STEP), groups: d.groups.filter((x) => x.script_id === s.id).map((x) => x.name), results: evalOut(evaluate(trades.filter((t) => t.script_id === s.id))) })),
+        groups: (g ? [g] : d.groups).map((x) => ({ name: x.name, script: name(d.scripts, x.script_id), paused: x.enabled === false, trades_made: x.trades_made || 0, max_trades: x.max_trades || 100, accounts: d.accounts.filter((a) => a.group_id === x.id).length, results: evalOut(evaluate(d.trades.filter((t) => t.group_id === x.id))) })),
+        accounts: accounts.map((a) => ({
+          trader: a.display_name, account: a.label, platform: a.platform, group: name(d.groups, a.group_id), status: a.status || 'active',
+          plan: a.plan, start_balance: a.start_balance, balance: a.balance, target: a.target, max_loss: a.max_loss, max_loss_floor: a.floor, trailing: a.trailing,
+          risk_per_trade: a.risk_usd, order_url: a.forward_url ? 'set' : 'none', xp: a.xp || 0, rank: rank(a.xp, ACCOUNT_STEP),
+          results: evalOut(evaluate(trades.filter((t) => t.account_id === a.id))),
+        })),
+        by_exit: Object.fromEntries([...new Set(trades.filter((t) => t.status === 'closed').map((t) => t.reason || 'signal'))].map((r) => [r, evalOut(evaluate(trades.filter((t) => t.status === 'closed' && (t.reason || 'signal') === r)))])),
+      };
+    },
+
+    copy_trading_log({ kind, account, script, problems_only, limit = 100, offset = 0 } = {}) {
+      const d = copyData();
+      const a = findIn(d.accounts, account, ['display_name', 'label']);
+      const s = findIn(d.scripts, script, ['name']);
+      const q = { ...(kind ? { kind } : {}), ...(a ? { account_id: a.id } : {}), ...(s ? { script_id: s.id } : {}) };
+      let rows = list('CopyEvent', q, { sort: '-created_date', limit: 20000 });
+      if (problems_only) rows = rows.filter((e) => e.level !== 'info');
+      const from = Math.max(0, Number(offset) || 0), n = Math.min(400, Math.max(1, Number(limit) || 100));
+      return {
+        total: rows.length, offset: from,
+        events: rows.slice(from, from + n).map((e) => ({ time: day(e.created_date), kind: e.kind, level: e.level, message: e.message, ...(e.data ? { data: e.data } : {}) })),
+        more: Math.max(0, rows.length - from - n),
+      };
+    },
+
+    copy_trading_trades({ account, script, offset = 0, limit = 100 } = {}) {
+      const d = copyData();
+      const a = findIn(d.accounts, account, ['display_name', 'label']);
+      const s = findIn(d.scripts, script, ['name']);
+      const rows = d.trades.filter((t) => (!a || t.account_id === a.id) && (!s || t.script_id === s.id));
+      const from = Math.max(0, Number(offset) || 0), n = Math.min(300, Math.max(1, Number(limit) || 100));
+      const acc = (id) => d.accounts.find((x) => x.id === id);
+      return {
+        total: rows.length, results: evalOut(evaluate(rows)), offset: from,
+        trades: rows.slice(from, from + n).map((t) => ({
+          account: acc(t.account_id)?.display_name || acc(t.account_id)?.label || 'removed', script: d.scripts.find((x) => x.id === t.script_id)?.name, trade_id: t.trade_id,
+          symbol: t.symbol, side: t.side, qty: t.qty, entry: t.entry, sl: t.sl, tp: t.tp, exit: t.exit,
+          points: t.exit != null ? r2((t.exit - t.entry) * (t.side === 'long' ? 1 : -1)) : null, pnl: t.pnl, xp: t.xp, reason: t.reason, status: t.status,
+          opened: day(t.opened_at), closed: day(t.closed_at), order: t.forwarded || null,
+        })),
+        more: Math.max(0, rows.length - from - n),
+      };
+    },
+
     list_markets() {
       return {
         markets: Object.values(INSTRUMENTS).map((i) => ({

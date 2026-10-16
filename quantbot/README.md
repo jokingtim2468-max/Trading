@@ -41,6 +41,18 @@ XP per closed trade: 10 for a profit of $5 or less (losses included), 20 up to $
 rank up at 100 XP, then 200 more, 300 more...; scripts at 1,000, then 2,000 more... Logic: `server/copier.js`,
 `server/lib/copyRules.js` (shared with the app).
 
+Everything copy trading does goes into an activity log (`CopyEvent`, the newest 20,000 kept) and the log file as
+`copy <kind>: ...` lines: each signal and the groups it went to, how every account sized its trade
+(`risk $300 / (4 stop x $10) = 7; risking $280.00`), skips and why (group paused, max trades reached, account failed,
+one contract over the risk, no open trade to close, event types that aren't copied), fills, SL / TP moves, closes with
+P&L, XP and balance, max-loss floor moves, rank-ups, pass / fail, orders sent to order URLs (and failures), and setup
+done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Below the accounts,
+**Activity log** filters it (trades, signals, skips & warnings, ranks & pass / fail, orders, setup, by account, script
+or text; click a line for its details) and **Evaluate** shows net P&L, win rate, profit factor, P&L per trade, average
+win / loss, max drawdown, best / worst, average hold and an equity curve, with tables by script, account, group, exit
+reason and side. Both export CSV. The chat can read all of it too (`copy_trading_summary`, `copy_trading_log`,
+`copy_trading_trades`).
+
 Both testers translate the script into JavaScript for the bar-by-bar simulator (`src/lib/backtest/engine.js`), which
 runs in a worker and shows how far it has got. Test code that would take more than two minutes (usually code that
 rescans the whole chart on every bar, common in ICT scripts) is stopped early and the Strategy Tester asks the model

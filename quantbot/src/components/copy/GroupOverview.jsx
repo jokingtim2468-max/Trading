@@ -2,6 +2,7 @@ import { X, RotateCcw, FileCode2 } from 'lucide-react';
 import { client } from '@/api/client';
 import { Input } from '@/components/ui/input';
 import { groupMembers } from '@/lib/accounts';
+import { logSetup } from '@/lib/copy';
 import { SCRIPT_STEP, groupStats, money, signedMoney } from '@/lib/copy';
 import RankAvatar, { RankName } from './RankAvatar';
 
@@ -29,8 +30,17 @@ export default function GroupOverview({ group, accounts, trades, scripts, onChan
   const futures = group.platform !== 'MT5';
   const total = members.reduce((s, a) => s + (Number(a.copy_qty) || 1), 0);
   const nameOf = (id) => { const a = accounts.find((x) => x.id === id); return a?.display_name || a?.label || 'Removed account'; };
-  const update = async (data) => { await client.entities.CopyGroup.update(group.id, data); onChanged(); };
-  const setQty = async (a, v) => { await client.entities.TradingAccount.update(a.id, { copy_qty: Math.max(1, Math.round(Number(v) || 1)) }); onChanged(); };
+  const update = async (data, message) => {
+    await client.entities.CopyGroup.update(group.id, data);
+    await logSetup(`${group.name}: ${message}`, { group_id: group.id }, data);
+    onChanged();
+  };
+  const setQty = async (a, v) => {
+    const qty = Math.max(1, Math.round(Number(v) || 1));
+    await client.entities.TradingAccount.update(a.id, { copy_qty: qty });
+    await logSetup(`${a.display_name || a.label}: quantity ${a.copy_qty || 1} -> ${qty}`, { account_id: a.id, group_id: group.id });
+    onChanged();
+  };
 
   return (
     <div className="rounded-xl border border-border/70 p-4 space-y-4" data-testid="group-panel">
@@ -76,9 +86,9 @@ export default function GroupOverview({ group, accounts, trades, scripts, onChan
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <label className="flex items-center gap-1">Max
               <Input type="number" min={1} defaultValue={st.max} key={st.max} aria-label="Max trades" className="h-6 w-16 text-[11px]"
-                onBlur={(e) => Number(e.target.value) !== st.max && update({ max_trades: Math.max(1, Math.round(Number(e.target.value) || 100)) })} />
+                onBlur={(e) => Number(e.target.value) !== st.max && update({ max_trades: Math.max(1, Math.round(Number(e.target.value) || 100)) }, `max trades ${st.max} -> ${Math.max(1, Math.round(Number(e.target.value) || 100))}`)} />
             </label>
-            {st.made > 0 && <button type="button" onClick={() => update({ trades_made: 0 })} className="ml-auto flex items-center gap-1 hover:text-foreground"><RotateCcw className="w-3 h-3" />Start count again</button>}
+            {st.made > 0 && <button type="button" onClick={() => update({ trades_made: 0 }, `trade count started again (was ${st.made}/${st.max})`)} className="ml-auto flex items-center gap-1 hover:text-foreground"><RotateCcw className="w-3 h-3" />Start count again</button>}
           </div>
         </Stat>
         <Stat label="Accounts" testId="group-accounts">

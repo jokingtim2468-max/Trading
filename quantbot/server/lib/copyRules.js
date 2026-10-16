@@ -83,3 +83,29 @@ export function applyClose(acc, pnl, xp, day) {
   const status = maxLoss && balance <= floor ? 'failed' : target && balance >= start + target ? 'passed' : (acc.status || 'active');
   return { balance, peak_eod: peak, floor, day_key: day, xp: (Number(acc.xp) || 0) + xp, status };
 }
+
+// Evaluation of closed copied trades: win rate, profit factor, expectancy, drawdown, best / worst, average hold
+export function evaluate(trades) {
+  const closed = trades.filter((t) => t.status === 'closed').sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)));
+  const wins = closed.filter((t) => t.pnl > 0), losses = closed.filter((t) => t.pnl < 0);
+  const gross = wins.reduce((s, t) => s + t.pnl, 0), lost = losses.reduce((s, t) => s + t.pnl, 0);
+  let equity = 0, peak = 0, maxDd = 0;
+  for (const t of closed) { equity += t.pnl; peak = Math.max(peak, equity); maxDd = Math.max(maxDd, peak - equity); }
+  const holds = closed.map((t) => (Date.parse(t.closed_at) - Date.parse(t.opened_at)) / 60000).filter((m) => Number.isFinite(m) && m >= 0);
+  const reasons = {};
+  for (const t of closed) reasons[t.reason || 'signal'] = (reasons[t.reason || 'signal'] || 0) + 1;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  return {
+    trades: closed.length, open: trades.length - closed.length, wins: wins.length, losses: losses.length,
+    winRate: closed.length ? wins.length / closed.length : 0,
+    net: r2(gross + lost), grossProfit: r2(gross), grossLoss: r2(lost),
+    avgWin: wins.length ? r2(gross / wins.length) : 0, avgLoss: losses.length ? r2(lost / losses.length) : 0,
+    profitFactor: lost ? gross / -lost : gross > 0 ? Infinity : 0,
+    expectancy: closed.length ? r2((gross + lost) / closed.length) : 0,
+    maxDrawdown: r2(maxDd),
+    best: closed.length ? Math.max(...closed.map((t) => t.pnl)) : 0, worst: closed.length ? Math.min(...closed.map((t) => t.pnl)) : 0,
+    avgHoldMin: holds.length ? Math.round(holds.reduce((s, m) => s + m, 0) / holds.length) : 0,
+    longs: closed.filter((t) => t.side === 'long').length, shorts: closed.filter((t) => t.side === 'short').length,
+    xp: closed.reduce((s, t) => s + (t.xp || 0), 0), reasons,
+  };
+}

@@ -141,6 +141,14 @@ Everything that opens from a click uses one motion.
 - **Add account dialog:** 56 px picture, "Trader name" field with a dice button (new random name and picture),
   then name, login (optional for TradingView), platform, and a "Copy trading" box: Account rules (LucidPro 25K / 50K /
   100K / 150K, Custom, Just track it), Risk per trade, Order URL.
+- **Activity log / Evaluate** (card under the accounts, tabs on the left, "<group> only" or "All groups" muted):
+  - Activity: filter chips (All, Trades, Signals, Skips & warnings, Ranks & pass / fail, Orders, Setup) with counts,
+    a search field, account and script selects, an outline **Export CSV** button. Lines: time (muted, tabular),
+    a small uppercase kind pill (signal primary, open green, move / skip / limit chart-4 yellow, rank violet, order sky,
+    others muted) and the message (yellow for warnings, red for errors). Clicking a line opens its details as JSON.
+  - Evaluate: 8 stat tiles, 4 per row (Net P&L, Win rate, Profit factor, Per trade, Avg win / loss, Max drawdown,
+    Best / worst, Avg hold), a 180 px primary equity area chart, then tables By script, By account, By group, By exit
+    and Longs vs shorts; **Export trades CSV** top right.
 - **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. Tabs the dragged
   item can't go to fade to 40%.
 

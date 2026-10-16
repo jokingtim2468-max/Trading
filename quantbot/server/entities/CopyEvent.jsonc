@@ -1,0 +1,17 @@
+{
+  "name": "CopyEvent",
+  "type": "object",
+  "description": "Copy trading activity log: every signal, sizing decision, skip, fill, stop move, close, rank-up, pass/fail and order",
+  "properties": {
+    "kind": { "type": "string", "enum": ["signal", "open", "skip", "move", "close", "rank", "status", "floor", "order", "limit", "ignore", "setup"] },
+    "level": { "type": "string", "enum": ["info", "warn", "error"], "default": "info" },
+    "message": { "type": "string" },
+    "account_id": { "type": "string" },
+    "group_id": { "type": "string" },
+    "script_id": { "type": "string" },
+    "signal_id": { "type": "string" },
+    "trade_id": { "type": "string", "description": "AccountTrade id" },
+    "data": { "type": "object" }
+  },
+  "required": ["kind", "message"]
+}

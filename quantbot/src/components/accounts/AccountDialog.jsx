@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PLATFORMS, detectPlatform, familyOf } from '@/lib/accounts';
-import { PLANS, planRisk, randomName, randomSeed } from '@/lib/copy';
+import { PLANS, planRisk, randomName, randomSeed, logSetup } from '@/lib/copy';
 import RankAvatar from '@/components/copy/RankAvatar';
 import Field from './Field';
 import Mt5Fields from './Mt5Fields';
@@ -58,8 +58,16 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
       const group = groups.find((g) => g.id === account?.group_id);
       if (group && (group.platform === 'MT5' ? 'MT5' : 'Futures') !== familyOf(platform)) data.group_id = '';
       const { TradingAccount } = client.entities;
-      if (account) await TradingAccount.update(account.id, data);
-      else await TradingAccount.create({ ...data, group_id: '' });
+      const rules = `${PLANS[data.plan]?.label || data.plan}, start $${start.toLocaleString()}${data.risk_usd ? `, risk $${data.risk_usd}/trade` : ''}${data.forward_url ? ', order URL set' : ''}`;
+      if (account) {
+        await TradingAccount.update(account.id, data);
+        const reset = data.balance != null ? `${startOver ? 'started over' : 'reset by new rules'} at $${start.toLocaleString()} (was $${Number(account.balance ?? start).toLocaleString()}, ${account.status || 'active'})` : '';
+        const changed = ['plan', 'risk_usd', 'forward_url', 'target', 'max_loss'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
+        if (reset || changed.length) await logSetup(`${data.display_name}: ${[reset, changed.length ? `changed ${changed.join(', ')} (${rules})` : ''].filter(Boolean).join('; ')}`, { account_id: account.id, group_id: account.group_id || '' }, { rules: data });
+      } else {
+        const made = await TradingAccount.create({ ...data, group_id: '' });
+        await logSetup(`${data.display_name} added: ${data.label} on ${platform} (${rules})`, { account_id: made.id });
+      }
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -71,6 +79,7 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
     if (!window.confirm(`Remove ${account.label}? Its journal trades stay.`)) return;
     setBusy(true);
     await client.entities.TradingAccount.delete(account.id);
+    await logSetup(`${account.display_name || account.label} removed (balance $${Number(account.balance ?? 0).toLocaleString()}, ${account.status || 'active'})`, { account_id: account.id });
     onSaved();
   };
 

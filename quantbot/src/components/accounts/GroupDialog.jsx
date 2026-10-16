@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FAMILIES } from '@/lib/accounts';
+import { logSetup } from '@/lib/copy';
 import Field from './Field';
 
 export default function GroupDialog({ group, family: initialFamily = 'Futures', onClose, onSaved }) {
@@ -19,7 +20,9 @@ export default function GroupDialog({ group, family: initialFamily = 'Futures', 
       await CopyGroup.update(group.id, { name: name.trim() });
       onSaved(null);
     } else {
-      onSaved(await CopyGroup.create({ name: name.trim(), platform: family, enabled: true }));
+      const g = await CopyGroup.create({ name: name.trim(), platform: family, enabled: true });
+      await logSetup(`Group ${g.name} created (${family === 'MT5' ? 'MT5' : 'futures'})`, { group_id: g.id });
+      onSaved(g);
     }
   };
 

@@ -1,6 +1,6 @@
 // Copy trading in the app: the same XP, rank, plan and name rules the server's copier uses, plus overview sums
 export {
-  XP_TABLE, xpForTrade, ACCOUNT_STEP, SCRIPT_STEP, levelFromXp, TIERS, tierOf, PLANS, pointValue, randomName, randomSeed,
+  XP_TABLE, xpForTrade, ACCOUNT_STEP, SCRIPT_STEP, levelFromXp, TIERS, tierOf, PLANS, pointValue, randomName, randomSeed, evaluate,
 } from '../../server/lib/copyRules.js';
 
 export const money = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -33,3 +33,23 @@ export function scriptHooks(config, scriptId) {
 
 // Suggested risk per trade for a plan: 15% of its max loss ($300 on a Lucid 50K)
 export const planRisk = (plan) => (plan?.maxLoss ? Math.round(plan.maxLoss * 0.15) : '');
+
+// Something done in the app (script dropped on a group, account moved, reset...) for the activity log
+export async function logSetup(message, refs = {}, data = undefined) {
+  const { client } = await import('@/api/client');
+  try { await client.entities.CopyEvent.create({ kind: 'setup', level: 'info', message, ...refs, ...(data ? { data } : {}) }); } catch { /* the log never blocks the action */ }
+}
+
+// CSV text from rows and [header, value(row)] columns; Excel-safe quoting
+export function toCsv(rows, columns) {
+  const cell = (v) => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  return [columns.map(([h]) => cell(h)).join(','), ...rows.map((r) => columns.map(([, f]) => cell(f(r))).join(','))].join('\n');
+}
+
+export function downloadText(name, text, type = 'text/csv') {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}

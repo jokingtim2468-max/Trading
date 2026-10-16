@@ -673,6 +673,32 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.locator('tr[data-trade="closed"]').first().getByText('+50 XP').waitFor();
   await page.locator('[data-script="Gold Breakout"]').getByText(/100 XP · 2 trades/).waitFor();
   await snap('copy-trading');
+  // The activity log has every step: setup, the signal, each account's sizing and fill, the close and the pass
+  const log = page.getByTestId('activity-log');
+  await log.locator('li[data-event="setup"]').filter({ hasText: 'Lucid squad now trades Gold Breakout' }).waitFor();
+  await log.locator('li[data-event="signal"]').filter({ hasText: 'Gold Breakout: buy MGC1! @ 2400 SL 2396 TP 2450' }).waitFor();
+  await log.locator('li[data-event="open"]').filter({ hasText: /bought 7 MGC1! @ 2400 .*risk \$300 \/ \(4 stop x \$10\) = 7/ }).first().waitFor();
+  await log.locator('li[data-event="status"]').filter({ hasText: /PASSED: balance \$53,500\.00 reached the target/ }).first().waitFor();
+  await page.getByRole('tab', { name: /^Ranks & pass \/ fail/ }).click();
+  await expectCount(log.locator('li[data-event]'), 2);
+  await log.locator('li[data-event="status"]').first().click();
+  await log.locator('pre').filter({ hasText: '"status": "passed"' }).waitFor();
+  await page.getByRole('tablist', { name: 'Activity filter' }).getByRole('tab', { name: /^All/ }).click();
+  await log.scrollIntoViewIfNeeded();
+  await snap('copy-activity');
+  // Evaluate: totals and a row per script and account
+  await page.getByRole('tab', { name: 'Evaluate' }).click();
+  const ev = page.getByTestId('evaluate');
+  await ev.locator('[data-eval-row="Gold Breakout"]').getByText('+$7,000.00').waitFor();
+  await ev.locator('tr[data-eval-row]').filter({ hasText: 'Lucid 50K #3' }).getByText('+$3,500.00').first().waitFor();
+  await ev.locator('[data-eval-row="tp"]').waitFor();
+  const download = page.waitForEvent('download');
+  await ev.getByRole('button', { name: 'Export trades CSV' }).click();
+  const csv = fs.readFileSync(await (await download).path(), 'utf8');
+  expect(csv.split('\n').length === 3 && /,Gold Breakout,G-1,MGC1!,long,7,2400,2396,2450,2450,50,10,3500,50,tp,closed/.test(csv), `trades CSV:\n${csv}`);
+  await ev.scrollIntoViewIfNeeded();
+  await snap('copy-evaluate');
+  await page.getByRole('tab', { name: 'Activity log' }).click();
   // Max trades: at the max the group stops copying
   const max = page.getByLabel('Max trades');
   await max.fill('1');

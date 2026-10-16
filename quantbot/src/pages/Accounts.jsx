@@ -4,6 +4,7 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import { client } from '@/api/client';
 import useAccounts from '@/hooks/useAccounts';
+import { logSetup } from '@/lib/copy';
 import usePointerDrop from '@/hooks/usePointerDrop';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -14,6 +15,7 @@ import GroupDialog from '@/components/accounts/GroupDialog';
 import GroupOverview from '@/components/copy/GroupOverview';
 import ScriptsPanel from '@/components/copy/ScriptsPanel';
 import ScriptDialog from '@/components/copy/ScriptDialog';
+import CopyInsights from '@/components/copy/CopyInsights';
 import AccountCard from '@/components/accounts/AccountCard';
 import AccountDialog from '@/components/accounts/AccountDialog';
 import ChartLoader from '@/components/quant/ChartLoader';
@@ -74,7 +76,11 @@ export default function Accounts() {
     }
     if (acc.group_id !== g.id) data.moveAccount(acc.id, g.id);
   };
-  const toggle = async (g) => { await client.entities.CopyGroup.update(g.id, { enabled: g.enabled === false }); data.reload(); };
+  const toggle = async (g) => {
+    await client.entities.CopyGroup.update(g.id, { enabled: g.enabled === false });
+    await logSetup(`${g.name} ${g.enabled === false ? 'resumed: copying again' : 'paused: signals are not copied'}`, { group_id: g.id });
+    data.reload();
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -136,6 +142,7 @@ export default function Accounts() {
               </p>
             )}
           </section>
+          <CopyInsights data={data} scope={activeTab} />
           </div>
         </div>
         </DragDropContext>

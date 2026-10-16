@@ -101,7 +101,10 @@ async function handleApi(req, res, { backend, market, app, signals, port }, url)
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'JSON required' });
     const { kind, args } = JSON.parse((await readBody(req, MAX_JSON)).toString('utf8') || '{}');
     if (kind === 'file') return send(res, 400, { error: 'Upload files through /api/files' });
-    const result = await backend.handle(kind, ...(Array.isArray(args) ? args : []));
+    const list = Array.isArray(args) ? args : [];
+    const result = await backend.handle(kind, ...list);
+    // Copy trading actions taken in the app (script dropped on a group, account moved, reset...) also go in the log file
+    if (kind === 'entity' && list[0] === 'CopyEvent' && list[1] === 'create' && list[2]?.message) app?.log?.(`copy ${list[2].kind || 'setup'}: ${list[2].message}`);
     return send(res, 200, { result: result === undefined ? null : result });
   }
 

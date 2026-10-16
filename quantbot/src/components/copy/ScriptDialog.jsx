@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { client } from '@/api/client';
 import { latestScript } from '@/lib/chatScript';
-import { scriptHooks } from '@/lib/copy';
+import { scriptHooks, logSetup } from '@/lib/copy';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,8 @@ export default function ScriptDialog({ script, config, onClose, onSaved, onDelet
     setBusy(true);
     const data = { name: form.name.trim(), language: form.language, code: form.code, chat_id: form.chat_id || '' };
     const saved = script ? await client.entities.Script.update(script.id, data) : await client.entities.Script.create(data);
+    if (!script) await logSetup(`Script ${saved.name} added (${saved.language}${saved.code ? `, ${saved.code.split('\n').length} lines` : ''})`, { script_id: saved.id });
+    else if (script.name !== saved.name || script.code !== saved.code) await logSetup(`Script ${saved.name} edited${script.name !== saved.name ? ` (was ${script.name})` : ''}`, { script_id: saved.id });
     onSaved(saved, !script);
   };
 
