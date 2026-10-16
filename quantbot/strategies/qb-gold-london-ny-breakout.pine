@@ -133,7 +133,7 @@ if upBreak or dnBreak
             qbSend("sell", close, sl, tp, q, "", tradeId)
             lastEvent := "SELL " + str.tostring(close, format.mintick)
         if showTrades
-            int b2 = bar_index + math.max(1, math.round(maxHoldMin / (timeframe.in_seconds() / 60)))
+            int b2 = bar_index + math.max(1, math.round(float(maxHoldMin) * 60.0 / timeframe.in_seconds()))
             box.new(bar_index, close, b2, sl, border_color=na, bgcolor=color.new(cRed, 85))
             box.new(bar_index, close, b2, tp, border_color=na, bgcolor=color.new(cGreen, 85))
             line.new(bar_index, close, b2, close, color=color.new(cText, 10), width=1)
@@ -185,7 +185,7 @@ cell(int r, string k, string v, color vc) =>
 
 if showPanel and barstate.islast
     string status = strategy.position_size > 0 ? "In a long" : strategy.position_size < 0 ? "In a short" : inRange ? "Building London range" : rReady and rDate == nyDate and not doneToday ? (inEntry ? "Watching for a breakout" : "Waiting for 08:30 NY") : doneToday and rDate == nyDate ? "Done for today" : "Waiting for London"
-    float wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0
+    float wr = strategy.closedtrades > 0 ? float(strategy.wintrades) / strategy.closedtrades * 100 : 0
     float pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0
     cell(0, "QB Gold London-NY", "", cText)
     cell(1, "Status", status, cAmber)
