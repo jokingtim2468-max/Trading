@@ -1,0 +1,193 @@
+// Script: QB Supertrend ADX M5
+//@version=6
+strategy("QB Supertrend ADX M5", overlay=true, initial_capital=25000, default_qty_type=strategy.fixed, default_qty_value=1, pyramiding=0, process_orders_on_close=false, calc_on_every_tick=false, max_lines_count=500, max_labels_count=500, commission_type=strategy.commission.cash_per_contract, commission_value=0.62, slippage=2)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Winner of the US100 5-minute strategy test (18 months, tuned on the first 70%,
+// checked on the last 30%): Supertrend(10, 3) flip, taken only while ADX(14) < 20
+// (a new trend starting out of a quiet market). Stop 1 x ATR(14), no fixed target:
+// exit on the opposite flip, after 54 bars (4.5 h), or flat at 16:35 New York.
+// Built for futures prop accounts (MNQ / NQ, MGC / GC) that must be flat by 16:45 NY.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const string TZ  = "America/New_York"
+const string G_S = "Strategy"
+const string G_R = "Risk"
+const string G_T = "Sessions"
+const string G_V = "Visuals"
+const string G_Q = "QuantBot"
+const color  C_RED   = #ef4343
+const color  C_GREEN = #22c55e
+const color  C_GREY  = #6b7280
+
+// ───────────────────────────── Inputs ───────────────────────────────────────
+float  iStFactor = input.float(3.0, "Supertrend factor", minval = 0.5, step = 0.1, group = G_S)
+int    iStLen    = input.int(10, "Supertrend ATR length", minval = 1, group = G_S)
+int    iAdxLen   = input.int(14, "ADX length", minval = 1, group = G_S)
+float  iAdxMax   = input.float(20, "Only trade while ADX is below", minval = 1, step = 1, group = G_S)
+int    iAtrLen   = input.int(14, "Stop ATR length", minval = 1, group = G_S)
+float  iSlAtr    = input.float(1.0, "Stop loss (x ATR)", minval = 0.1, step = 0.1, group = G_S)
+int    iMaxBars  = input.int(54, "Time stop (bars; 54 = 4.5 h on 5m)", minval = 1, group = G_S)
+
+float  iQty      = input.float(1, "Contracts per trade", minval = 0.01, step = 1, group = G_R, tooltip = "Whole contracts on futures. 1 MNQ = $2 per point.")
+int    iMaxDay   = input.int(4, "Max trades per day", minval = 1, group = G_R)
+float  iDayStop  = input.float(0, "Stop for the day after losing $ (0 = off)", minval = 0, step = 50, group = G_R)
+float  iDdStop   = input.float(0, "Stop trading if drawdown from peak reaches $ (0 = off)", minval = 0, step = 100, group = G_R, tooltip = "Set just under your prop firm's max loss limit, e.g. 900 on a $1,000 limit.")
+
+string iEntrySes = input.session("0930-1530", "Entry window (NY)", group = G_T)
+int    iFlatH    = input.int(16, "Flat by (NY hour)", minval = 0, maxval = 23, inline = "flat", group = G_T)
+int    iFlatM    = input.int(35, ":", minval = 0, maxval = 59, inline = "flat", group = G_T)
+
+bool   iShowSt   = input.bool(true, "Supertrend line", group = G_V)
+bool   iShowSess = input.bool(true, "Entry window background", group = G_V)
+bool   iShowTr   = input.bool(true, "Trade labels and stop line", group = G_V)
+bool   iShowDash = input.bool(true, "Dashboard", group = G_V)
+
+bool   iQbOn   = input.bool(true, "Send QuantBot alerts", group = G_Q)
+string iQbName = input.string("QB Supertrend ADX M5", "QuantBot strategy name", group = G_Q)
+string qbName  = str.replace_all(iQbName, "\"", "'")
+
+// ───────────────────────────── Helpers ──────────────────────────────────────
+jNum(string k, float v) =>
+    na(v) ? "" : ",\"" + k + "\":" + str.tostring(math.round_to_mintick(v))
+
+qbSend(string ev, float px, float sl, float q, string rsn, string tid) =>
+    string m = "{\"qb\":1,\"event\":\"" + ev + "\",\"symbol\":\"" + syminfo.ticker + "\",\"tf\":\"" + timeframe.period + "\""
+    m += jNum("price", px) + jNum("sl", sl) + (na(q) ? "" : ",\"qty\":" + str.tostring(math.round(q, 2)))
+    m += ",\"trade_id\":\"" + tid + "\",\"reason\":\"" + rsn + "\",\"strategy\":\"" + qbName + "\",\"source\":\"tradingview\",\"time\":" + str.tostring(time) + "}"
+    if iQbOn
+        alert(m, alert.freq_once_per_bar_close)
+    ev + (rsn != "" ? " (" + rsn + ")" : "") + " " + str.format_time(time, "MM-dd HH:mm", TZ)
+
+money(float p) =>
+    (p >= 0 ? "+$" : "-$") + str.tostring(math.abs(p), "#,##0.00")
+
+// ───────────────────────────── Indicators ───────────────────────────────────
+[st, dir] = ta.supertrend(iStFactor, iStLen)
+[diP, diM, adx] = ta.dmi(iAdxLen, iAdxLen)
+float atr    = ta.atr(iAtrLen)
+bool  flipUp = dir < 0 and dir[1] > 0      // dir < 0 = uptrend
+bool  flipDn = dir > 0 and dir[1] < 0
+
+// ───────────────────────────── Time (New York) ──────────────────────────────
+int  nxtMin  = hour(time_close, TZ) * 60 + minute(time_close, TZ)     // next bar opens here
+int  entS    = int(str.tonumber(str.substring(iEntrySes, 0, 2))) * 60 + int(str.tonumber(str.substring(iEntrySes, 2, 4)))
+int  entE    = int(str.tonumber(str.substring(iEntrySes, 5, 7))) * 60 + int(str.tonumber(str.substring(iEntrySes, 7, 9)))
+int  dowC    = dayofweek(time_close, TZ)
+// signal bar must CLOSE inside the window, Monday to Friday (the order fills at the next open)
+bool inEntry = dowC != dayofweek.saturday and dowC != dayofweek.sunday and nxtMin >= entS and nxtMin < entE
+bool flatNow = nxtMin >= iFlatH * 60 + iFlatM and nxtMin < 18 * 60    // next bar opens at/after the flat time
+// trading day rolls at 18:00 NY (futures session)
+int  tday    = dayofmonth(time + 6 * 3600000, TZ)
+bool newTday = tday != tday[1]
+
+// ───────────────────────────── State ────────────────────────────────────────
+var int    tradesToday = 0
+var float  dayStartNet = 0.0
+var bool   dayHalt     = false
+var bool   ddHalt      = false
+var float  peakEq      = strategy.initial_capital
+var float  maxDd       = 0.0
+var int    lastClosed  = 0
+var int    entryBar    = na
+var float  plannedSl   = na
+var string tradeId     = ""
+var string lastEvt     = "none"
+var line   slLn        = na
+
+bool evBuy   = false
+bool evSell  = false
+bool evClose = false
+
+if barstate.isconfirmed
+    if newTday
+        tradesToday := 0
+        dayStartNet := strategy.netprofit
+        dayHalt     := false
+
+    // a trade closed (stop, time, flip, flat)
+    if strategy.closedtrades > lastClosed
+        int    ci  = strategy.closedtrades - 1
+        string cm  = strategy.closedtrades.exit_comment(ci)
+        float  pnl = strategy.closedtrades.profit(ci)
+        string rsn = cm == "SL" ? "sl" : str.lower(cm)
+        if cm == "SL"
+            // stop orders fill inside the bar; strategy.close exits were already reported when sent
+            lastEvt := qbSend("close", strategy.closedtrades.exit_price(ci), na, math.abs(strategy.closedtrades.size(ci)), "sl", tradeId)
+            evClose := true
+        if iShowTr
+            label.new(strategy.closedtrades.exit_bar_index(ci), strategy.closedtrades.exit_price(ci), cm + " " + money(pnl), style = label.style_label_left, color = color.new(pnl >= 0 ? C_GREEN : C_RED, 15), textcolor = color.white, size = size.small)
+            if not na(slLn)
+                line.set_x2(slLn, strategy.closedtrades.exit_bar_index(ci))
+        lastClosed := strategy.closedtrades
+
+    // guards
+    peakEq := math.max(peakEq, strategy.equity)
+    float dd = peakEq - strategy.equity
+    maxDd := math.max(maxDd, dd)
+    if iDdStop > 0 and dd >= iDdStop and not ddHalt
+        ddHalt := true
+        label.new(bar_index, high, "MAX DRAWDOWN STOP", style = label.style_label_down, color = C_RED, textcolor = color.white)
+    float todayPnl = strategy.netprofit - dayStartNet + strategy.openprofit
+    if iDayStop > 0 and todayPnl <= -iDayStop
+        dayHalt := true
+
+    // manage the open trade: opposite flip, time stop, flat time, risk guards
+    bool closing = false
+    if strategy.position_size != 0
+        bool   isLong = strategy.position_size > 0
+        string eid    = isLong ? "L" : "S"
+        string why    = flatNow ? "EOD" : (isLong ? flipDn : flipUp) ? "FLIP" : bar_index - entryBar + 1 >= iMaxBars ? "TIME" : dayHalt or ddHalt ? "GUARD" : ""
+        if why != ""
+            strategy.close(eid, comment = why)
+            lastEvt := qbSend("close", close, na, math.abs(strategy.position_size), str.lower(why), tradeId)
+            evClose := true
+            closing := true
+        else if iShowTr and not na(slLn)
+            line.set_x2(slLn, bar_index)
+
+    // new entries: a flip while ADX is low, inside the entry window, when flat
+    int d = flipUp ? 1 : flipDn ? -1 : 0
+    if d != 0 and strategy.position_size == 0 and not closing and inEntry and not flatNow and adx < iAdxMax and tradesToday < iMaxDay and not dayHalt and not ddHalt and not na(atr)
+        float risk = iSlAtr * atr
+        string eid = d == 1 ? "L" : "S"
+        strategy.entry(eid, d == 1 ? strategy.long : strategy.short, qty = iQty)
+        strategy.exit(d == 1 ? "XL" : "XS", from_entry = eid, loss = risk / syminfo.mintick, comment_loss = "SL")
+        entryBar  := bar_index + 1
+        plannedSl := close - d * risk
+        tradeId   := qbName + "-" + str.tostring(time)
+        tradesToday += 1
+        lastEvt := qbSend(d == 1 ? "buy" : "sell", close, plannedSl, iQty, "", tradeId)
+        evBuy  := d == 1
+        evSell := d == -1
+        if iShowTr
+            label.new(bar_index, d == 1 ? low : high, d == 1 ? "BUY" : "SELL", style = d == 1 ? label.style_label_up : label.style_label_down, color = d == 1 ? C_GREEN : C_RED, textcolor = color.white, size = size.small)
+            slLn := line.new(bar_index + 1, plannedSl, bar_index + 1, plannedSl, color = C_RED, style = line.style_dashed, width = 1)
+
+// ───────────────────────────── Plots ────────────────────────────────────────
+plot(iShowSt ? st : na, "Supertrend", color = dir < 0 ? color.new(C_GREEN, 30) : color.new(C_RED, 30), linewidth = 1, style = plot.style_linebr)
+bgcolor(iShowSess and inEntry ? color.new(#f59e0b, 94) : na, title = "Entry window")
+plotshape(evBuy, "QB buy", shape.triangleup, location.belowbar, C_GREEN, size = size.tiny, display = display.data_window)
+plotshape(evSell, "QB sell", shape.triangledown, location.abovebar, C_RED, size = size.tiny, display = display.data_window)
+plotshape(evClose, "QB close", shape.square, location.abovebar, color.white, size = size.tiny, display = display.data_window)
+
+// ───────────────────────────── Dashboard ────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 10, bgcolor = color.new(#0b1220, 8), frame_color = #334155, frame_width = 1, border_color = #1e293b, border_width = 1)
+
+dRow(int r, string k, string v, color vc) =>
+    table.cell(dash, 0, r, k, text_color = #94a3b8, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, r, v, text_color = vc, text_size = size.small, text_halign = text.align_right)
+
+if iShowDash and barstate.islast
+    float wr = strategy.closedtrades > 0 ? float(strategy.wintrades) / strategy.closedtrades * 100 : na
+    float pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : na
+    dRow(0, qbName, syminfo.ticker + " " + timeframe.period + (timeframe.period != "5" ? " (use 5m!)" : ""), color.white)
+    dRow(1, "Trend / ADX", (dir < 0 ? "UP" : "DOWN") + " / " + str.tostring(adx, "0.0") + (adx < iAdxMax ? " (can trade)" : " (too high)"), adx < iAdxMax ? C_GREEN : C_GREY)
+    dRow(2, "Entry window", inEntry ? "OPEN" : "CLOSED", inEntry ? C_GREEN : C_GREY)
+    dRow(3, "Trades today", str.tostring(tradesToday) + " / " + str.tostring(iMaxDay), color.white)
+    dRow(4, "Net P&L", money(strategy.netprofit), strategy.netprofit >= 0 ? C_GREEN : C_RED)
+    dRow(5, "Profit factor", na(pf) ? "-" : str.tostring(pf, "0.00"), na(pf) ? color.white : pf >= 1.3 ? C_GREEN : C_RED)
+    dRow(6, "Win rate", na(wr) ? "-" : str.tostring(wr, "0.0") + "% (" + str.tostring(strategy.closedtrades) + ")", color.white)
+    dRow(7, "Max drawdown", money(-maxDd), maxDd > 0 ? C_RED : color.white)
+    dRow(8, "Status", ddHalt ? "DRAWDOWN STOP" : dayHalt ? "DAILY STOP" : "ACTIVE", ddHalt or dayHalt ? C_RED : C_GREEN)
+    dRow(9, "Last QuantBot event", lastEvt, #38bdf8)
