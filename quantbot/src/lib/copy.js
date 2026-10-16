@@ -1,6 +1,7 @@
 // Copy trading in the app: the same XP, rank, plan and name rules the server's copier uses, plus overview sums
 export {
   XP_TABLE, xpForTrade, ACCOUNT_STEP, SCRIPT_STEP, levelFromXp, TIERS, tierOf, PLANS, pointValue, randomName, randomSeed, evaluate,
+  groupScriptIds,
 } from '../../server/lib/copyRules.js';
 
 export const money = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

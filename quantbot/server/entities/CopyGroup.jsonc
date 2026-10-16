@@ -24,7 +24,7 @@
     },
     "script_id": {
       "type": "string",
-      "description": "Script whose signals this group trades"
+      "description": "Older single script; read together with script_ids"
     },
     "max_trades": {
       "type": "number",
@@ -34,6 +34,13 @@
     "trades_made": {
       "type": "number",
       "default": 0
+    },
+    "script_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Scripts whose signals this group trades (script_id is the single-script field from before)"
     }
   },
   "required": [

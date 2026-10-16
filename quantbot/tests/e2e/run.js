@@ -58,14 +58,6 @@ const meta = (label, value) => page.locator(`[data-meta="${label}"]`).filter({ h
 // The "Tested on" fact of a report version ("v1")
 const testedOn = (version) => page.locator('dl', { has: page.locator('[data-meta="Version"]', { hasText: new RegExp(`^${version}$`) }) }).locator('[data-meta="Tested on"]');
 const pick = async (combo, option) => { await combo.click(); await page.getByRole('option', { name: option, exact: true }).click(); };
-// Where a centered dialog grows from, in page coordinates ("calc(50% ± Xpx) calc(50% ± Ypx)")
-function centeredPoint(origin) {
-  const m = [...origin.matchAll(/calc\(50% ([+-]) ([\d.]+)px\)/g)].map(([, sign, v]) => (sign === '-' ? -1 : 1) * parseFloat(v));
-  if (m.length !== 2) throw new Error(`not a click origin: ${origin}`);
-  const { width, height } = page.viewportSize();
-  return { x: width / 2 + m[0], y: height / 2 + m[1] };
-}
-const near = (p, box) => Math.abs(p.x - (box.x + box.width / 2)) < 20 && Math.abs(p.y - (box.y + box.height / 2)) < 20;
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 // The arrow back to the chat (Settings has a text link instead of a header)
 const back = () => page.getByRole('link', { name: 'Back to chat' }).or(page.locator('header a').first()).first().click();
@@ -88,18 +80,17 @@ await step('Chat without a key explains what to do', async () => {
   await snap('no-key-toast');
 });
 
-await step('Settings: page grows from the middle of the window', async () => {
+await step('Settings: pages fade and slide', async () => {
   const btn = page.getByTitle('Settings');
   await btn.click();
-  // The chat page shrinks away first, then Settings grows out of the middle of the window
-  await page.waitForTimeout(420);
-  await snap('page-transition-mid');
-  const origin = await page.evaluate(() => [...document.querySelectorAll('div[style]')].map((d) => d.style.transformOrigin).find((o) => o && o.endsWith('px')));
-  expect(origin, 'no page origin set');
-  const [x, y] = origin.split(' ').map(parseFloat);
-  const mid = await page.evaluate(() => [window.innerWidth / 2, window.innerHeight / 2]);
-  expect(Math.abs(x - mid[0]) < 2 && Math.abs(y - mid[1]) < 2, `page origin ${origin} is not the middle of the window`);
+  // The chat page fades out, then Settings fades in sliding up a little
+  await page.waitForTimeout(60);
+  const fading = await page.evaluate(() => [...document.querySelectorAll('[data-page]')].some((d) => Number(getComputedStyle(d).opacity) < 1));
+  expect(fading, 'no page fading during the change');
   await page.getByRole('heading', { name: 'Settings' }).waitFor();
+  await page.waitForTimeout(450);
+  const settled = await page.locator('[data-page]').evaluate((d) => ({ o: getComputedStyle(d).opacity, t: getComputedStyle(d).transform }));
+  expect(settled.o === '1' && /^(none|matrix\(1, 0, 0, 1, 0, 0\))$/.test(settled.t), `page did not settle: ${JSON.stringify(settled)}`);
 });
 
 await step('Settings: Anthropic key is validated, saved encrypted, shown as last 4', async () => {
@@ -131,8 +122,6 @@ await step('Settings: default Claude model offers the 5.5 family', async () => {
   for (const m of ['Claude Opus 5.5', 'Claude Sonnet 5.5', 'Claude Haiku 5.5']) await page.getByRole('option', { name: m }).waitFor();
   await page.waitForTimeout(120);
   await snap('select-open');
-  const origin = await page.locator('[role=listbox]').evaluate((el) => getComputedStyle(el).transformOrigin);
-  expect(origin && origin !== '50% 50%', `select origin ${origin}`);
   await page.getByRole('option', { name: 'Claude Sonnet 5.5' }).click();
   await card.getByText('Saved').waitFor();
 });
@@ -228,7 +217,7 @@ await step('Chat: rename, move to Pine, filter by project, export .md', async ()
   expect(md.includes('// Script: Gold Breakout'), 'export missing the script');
 });
 
-await step('Chat: delete confirmation grows from the trash icon, then deletes', async () => {
+await step('Chat: delete confirmation fades in, then deletes', async () => {
   await page.getByRole('button', { name: 'New chat' }).click();
   await page.getByPlaceholder('Reply to QuantBot...').fill('temporary question');
   await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
@@ -238,13 +227,10 @@ await step('Chat: delete confirmation grows from the trash icon, then deletes', 
   await item.waitFor();
   await item.hover();
   const trash = item.getByLabel('Delete chat');
-  const box = await trash.boundingBox();
   await trash.click();
   const dlg = page.getByRole('alertdialog');
   await dlg.waitFor();
-  const origin = await dlg.evaluate((el) => el.style.transformOrigin);
-  expect(near(centeredPoint(origin), box), `confirmation grows from ${origin}, not the trash icon`);
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(300);
   await snap('delete-confirm');
   await dlg.getByRole('button', { name: 'Delete' }).click();
   await item.waitFor({ state: 'detached' });
@@ -590,14 +576,15 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid copies');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  await page.getByRole('button', { name: /Lucid copies/ }).waitFor();
+  await page.getByTestId('group-title').filter({ hasText: 'Lucid copies' }).waitFor();
   await menu();
   await page.getByRole('menuitem', { name: 'Pause copying' }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await menu();
   await page.getByRole('menuitem', { name: 'Resume copying' }).waitFor();
   await page.getByRole('menuitem', { name: 'Delete group' }).click();
-  await page.getByRole('button', { name: /Lucid copies/ }).waitFor({ state: 'detached' });
+  await page.getByTestId('groups-overview').waitFor();
+  await page.locator('[data-group-card="Lucid copies"]').waitFor({ state: 'detached' });
   await snap('accounts');
   // Sorting by platform puts MT5 first
   await page.getByRole('combobox', { name: 'Sort accounts' }).click();
@@ -613,6 +600,11 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.getByRole('heading', { name: 'Copy trading' }).waitFor();
   // Dragging with the mouse the way a person does: press, move in small steps, let go
   const drag = async (from, to) => {
+    // a dialog that just closed hands the page back to the mouse a moment later
+    await page.waitForFunction(() => getComputedStyle(document.body).pointerEvents !== 'none', null, { timeout: 5000 });
+    // the target in the middle of the window (clear of the sticky header and the drag auto-scroll edges)
+    await to.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(100);
     const a = await from.boundingBox(), b = await to.boundingBox();
     await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
     await page.mouse.down();
@@ -651,14 +643,16 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid squad');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
-  const tab = page.locator('[data-drop^="tab:"]').filter({ hasText: 'Lucid squad' }).getByRole('button').first();
+  // The new group opens; accounts dropped anywhere on it join it
+  const panel = page.getByTestId('group-panel');
+  await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
   await page.getByRole('button', { name: /^All accounts/ }).click();
-  await drag(page.locator('[data-account="Lucid 50K #2"]'), tab);
-  await drag(page.locator('[data-account="Lucid 50K #3"]'), tab);
-  await tab.click();
+  await drag(page.locator('[data-account="Lucid 50K #2"]'), panel);
+  await drag(page.locator('[data-account="Lucid 50K #3"]'), panel);
   await page.locator('[data-member]').nth(1).waitFor();
   await drag(page.locator('[data-script="Gold Breakout"]'), page.getByTestId('script-slot'));
-  await page.getByTestId('script-slot').getByText('Gold Breakout').waitFor();
+  await panel.locator('[data-group-script="Gold Breakout"]').waitFor();
+  await page.locator('[data-account="Lucid 50K #3"]').getByTestId('account-script').getByText('Gold Breakout').waitFor();
   await page.locator('[data-script="Gold Breakout"]').getByText('Trading Lucid squad').waitFor();
   // The script's alerts: a buy on micro gold sized to $300 risk (7 contracts), then a close that passes both accounts
   const send = (m) => fetch(local.replace('127.0.0.1', new URL(base()).hostname), { method: 'POST', body: JSON.stringify({ qb: 1, symbol: 'MGC1!', strategy: 'Gold Breakout', trade_id: 'G-1', ...m }) });
@@ -671,7 +665,8 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.getByTestId('group-pnl').getByTitle('2 winning trades').waitFor();
   await page.getByTestId('group-accounts').locator('p.text-emerald-400', { hasText: /^2$/ }).waitFor(); // both passed the $3,000 target
   await page.locator('tr[data-trade="closed"]').first().getByText('+50 XP').waitFor();
-  await page.locator('[data-script="Gold Breakout"]').getByText(/100 XP · 2 trades/).waitFor();
+  await page.locator('[data-script="Gold Breakout"]').getByText(/· 100 XP/).waitFor();
+  await page.locator('[data-script="Gold Breakout"]').getByText(/^2 trades ·/).waitFor();
   await snap('copy-trading');
   // The activity log has every step: setup, the signal, each account's sizing and fill, the close and the pass
   const log = page.getByTestId('activity-log');
@@ -704,6 +699,33 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await max.fill('1');
   await max.blur();
   await page.getByTestId('group-trades').getByText('1/1').waitFor();
+  // One script per account: dropping another asks first; Keep leaves it, Yes replaces it
+  await page.getByRole('button', { name: 'Add script' }).click();
+  await page.getByRole('dialog').getByPlaceholder('e.g. Gold London-NY breakout').fill('Silver Scalper');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByText("This script's webhook").waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await drag(page.locator('[data-script="Silver Scalper"]'), page.getByTestId('script-slot'));
+  const ask = page.getByTestId('replace-dialog');
+  await ask.getByText('There is already one on this account').waitFor();
+  await snap('copy-replace');
+  await ask.getByRole('button', { name: 'Keep Gold Breakout' }).click();
+  await ask.waitFor({ state: 'detached' });
+  await panel.locator('[data-group-script="Gold Breakout"]').waitFor();
+  await drag(page.locator('[data-script="Silver Scalper"]'), page.getByTestId('script-slot'));
+  await ask.getByRole('button', { name: 'Yes, replace it' }).click();
+  await panel.locator('[data-group-script="Silver Scalper"]').waitFor();
+  expect(!(await panel.locator('[data-group-script="Gold Breakout"]').count()), 'old script still on the group');
+  // Back to the overview: the group shrinks back into its card, which shows its script and numbers
+  await panel.getByRole('button', { name: 'All groups' }).click();
+  const card = page.locator('[data-group-card="Lucid squad"]');
+  await card.getByTestId('card-scripts').getByText('Silver Scalper').waitFor();
+  await card.getByText('+$7,000.00').waitFor();
+  await page.waitForTimeout(500);
+  await snap('copy-overview');
+  await card.click();
+  await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
 });
 
 await step('Unknown page shows 404', async () => {
@@ -711,23 +733,20 @@ await step('Unknown page shows 404', async () => {
   await text('Page Not Found').waitFor();
 });
 
-await step('Phone layout: sidebar grows from the menu tap and shrinks back', async () => {
+await step('Phone layout: sidebar slides in from the left and back out', async () => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base());
-  await page.waitForTimeout(500); // let the page finish growing in before measuring the button
+  await page.waitForTimeout(500); // let the page finish fading in
   const aside = page.locator('aside');
   expect((await aside.evaluate((el) => getComputedStyle(el).opacity)) === '0', 'sidebar visible before tap');
   const menu = page.locator('header button').first();
-  const box = await menu.boundingBox();
   await menu.click();
-  await page.waitForTimeout(650);
-  const style = await aside.evaluate((el) => ({ origin: el.style.transformOrigin, opacity: getComputedStyle(el).opacity }));
-  expect(style.opacity === '1', 'sidebar did not open');
-  const [x] = style.origin.split(' ').map(parseFloat);
-  expect(Math.abs(x - (box.x + box.width / 2)) < 20, `sidebar origin ${style.origin}`);
+  await page.waitForTimeout(450);
+  const style = await aside.evaluate((el) => ({ opacity: getComputedStyle(el).opacity, left: el.getBoundingClientRect().left }));
+  expect(style.opacity === '1' && Math.abs(style.left) < 1, `sidebar did not slide in: ${JSON.stringify(style)}`);
   await snap('mobile-sidebar');
   await page.mouse.click(370, 400);
-  await page.waitForTimeout(650); // the 400 ms close animation, plus a margin
+  await page.waitForTimeout(450); // the 200 ms close animation, plus a margin
   expect((await aside.evaluate((el) => getComputedStyle(el).opacity)) === '0', 'sidebar did not close');
   await page.setViewportSize({ width: 1360, height: 900 });
 });

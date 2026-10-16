@@ -2,7 +2,7 @@
 // on. Accounts are traded on paper at the signal's price; an account with an order URL (e.g. TradersPost) also gets
 // the order sent there. Closed trades earn XP for the account and the script, and move the account to passed / failed.
 // Everything that happens is written to the activity log (CopyEvent) and the log file, so a run can be evaluated.
-import { pointValue, xpForTrade, applyClose, nyDay, levelFromXp, tierOf, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
+import { pointValue, xpForTrade, applyClose, nyDay, levelFromXp, tierOf, groupScriptIds, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
 
 const KEEP = 20000;
 const usd = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -110,7 +110,7 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
     }
     const refs = { script_id: script.id, signal_id: sig.id };
     const at = sig.created_date || new Date().toISOString();
-    const all = await run('CopyGroup', 'filter', { script_id: script.id });
+    const all = (await run('CopyGroup', 'filter', {})).filter((g) => groupScriptIds(g).includes(script.id));
     const groups = all.filter((g) => g.enabled !== false);
     await note('signal', `${script.name}: ${sigText} -> ${groups.length ? groups.map((g) => g.name).join(', ') : 'no group'}`, refs, { signal: sig, groups: groups.map((g) => g.id) });
     for (const g of all.filter((x) => x.enabled === false)) await note('skip', `${g.name} is paused: ${sig.event} not copied`, { ...refs, group_id: g.id }, null, 'warn');
@@ -142,6 +142,13 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
             await close(a, script, t, sig.price, 'reverse', at, gr);
           }
           if ((a.status || 'active') !== 'active') continue;
+          // One trade per account: an open trade from another script means this one is skipped
+          const other = (await run('AccountTrade', 'filter', { account_id: a.id, status: 'open' })).find((t) => t.script_id !== script.id);
+          if (other) {
+            const by = (await run('Script', 'filter', {})).find((x) => x.id === other.script_id);
+            await note('skip', `${who(a)} skipped ${sig.event} ${sig.symbol}: there is already a ${by?.name || 'another script'} ${other.side} on ${other.symbol} on this account (one trade per account)`, ar, { other_trade: other.id, other_script: other.script_id }, 'warn');
+            continue;
+          }
           const stop = sig.sl != null ? Math.abs(sig.price - sig.sl) : 0;
           const byRisk = a.risk_usd > 0 && stop > 0;
           const qty = byRisk ? Math.floor(a.risk_usd / (stop * pv)) : (sig.qty || 1) * (a.copy_qty || 1);

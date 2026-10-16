@@ -86,12 +86,12 @@ module.exports = {
   				}
   			}
   		},
-  		// The app's one open/close motion (lib/clickOrigin.js); also used as the animation easing
+  		// The app's open/close motion (lib/clickOrigin.js): a 200 ms fade and short slide
   		transitionTimingFunction: {
-  			pop: 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+  			pop: 'cubic-bezier(0.25, 0.1, 0.25, 1)'
   		},
   		transitionDuration: {
-  			pop: '400ms'
+  			pop: '200ms'
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',

@@ -3,7 +3,7 @@ import * as ToastPrimitives from "@radix-ui/react-toast";
 import { cva } from "class-variance-authority";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { POP, originWithin, originRef } from "@/lib/clickOrigin";
+import { TOAST } from "@/lib/clickOrigin";
 
 const ToastProvider = ToastPrimitives.Provider;
 
@@ -35,12 +35,12 @@ const toastVariants = cva(
   }
 );
 
-// Grows out of the spot clicked just before it appeared and shrinks back there when it closes
+// Slides up and fades in; slides right and fades out
 const Toast = React.forwardRef(({ className, variant, ...props }, ref) => {
   return (
     <ToastPrimitives.Root
-      ref={originRef(ref, (el) => originWithin(el.getBoundingClientRect()))}
-      className={cn(toastVariants({ variant }), POP, className)}
+      ref={ref}
+      className={cn(toastVariants({ variant }), TOAST, className)}
       {...props}
     />
   );

@@ -22,7 +22,7 @@ const AlertDialogOverlay = React.forwardRef(({ className, ...props }, ref) => (
 ))
 AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName
 
-// Grows out of the clicked spot and shrinks back into it (see lib/clickOrigin)
+// Fades in rising slightly, fades out (see lib/clickOrigin)
 const AlertDialogContent = React.forwardRef(({ className, ...props }, ref) => {
   return (
   <AlertDialogPortal>

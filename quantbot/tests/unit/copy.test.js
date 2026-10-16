@@ -197,3 +197,23 @@ describe('copy trading webhook', () => {
     assert.equal((await invoke('CopyGroup', 'get', group.id)).trades_made, 1);
   });
 });
+
+describe('one trade per account', () => {
+  test("a second script's signal is skipped while the account holds the first script's trade", async () => {
+    const db = dbIn(tmp());
+    const copier = createCopier({ db });
+    const a = await db.run('Script', 'create', { name: 'A', language: 'Pine' });
+    const b = await db.run('Script', 'create', { name: 'B', language: 'Pine' });
+    const g1 = await db.run('CopyGroup', 'create', { name: 'G1', platform: 'Futures', script_ids: [a.id] });
+    const g2 = await db.run('CopyGroup', 'create', { name: 'G2', platform: 'Futures', script_ids: [b.id] });
+    const acc = await db.run('TradingAccount', 'create', lucid50({ label: 'X', display_name: 'Swift Fox', group_id: g1.id }));
+    await copier.onSignal({ event: 'buy', symbol: 'MGC1!', price: 2400, sl: 2396, strategy: 'A' });
+    // the account moved to B's group but kept A's open trade
+    await db.run('TradingAccount', 'update', acc.id, { group_id: g2.id });
+    const r = await copier.onSignal({ event: 'sell', symbol: 'MNQ1!', price: 20000, sl: 20010, strategy: 'B' });
+    assert.equal(r.accounts, 0);
+    assert.equal((await db.run('AccountTrade', 'filter', { account_id: acc.id })).length, 1);
+    const skip = (await db.run('CopyEvent', 'filter', { kind: 'skip' }))[0];
+    assert.match(skip.message, /Swift Fox skipped sell MNQ1!: there is already a A long on MGC1! on this account \(one trade per account\)/);
+  });
+});

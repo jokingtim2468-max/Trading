@@ -1,7 +1,7 @@
 import { Droppable, Draggable } from '@hello-pangea/dnd';
 import { Plus, Pencil, GripVertical, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SCRIPT_STEP, money } from '@/lib/copy';
+import { SCRIPT_STEP, money, groupScriptIds } from '@/lib/copy';
 import RankAvatar, { RankName } from './RankAvatar';
 
 // Your scripts, best first (by XP): drag one onto a group to have every account in it trade its signals
@@ -19,7 +19,7 @@ export default function ScriptsPanel({ scripts, groups, onAdd, onEdit }) {
         {(provided) => (
           <ol ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
             {ranked.map((s, i) => {
-              const on = groups.filter((g) => g.script_id === s.id);
+              const on = groups.filter((g) => groupScriptIds(g).includes(s.id));
               return (
                 <Draggable key={s.id} draggableId={`script:${s.id}`} index={i}>
                   {(p, snap) => (
@@ -29,9 +29,9 @@ export default function ScriptsPanel({ scripts, groups, onAdd, onEdit }) {
                       <RankAvatar seed={s.id} xp={s.xp} step={SCRIPT_STEP} size={40} label={s.name} />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{s.name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate"><RankName xp={s.xp} step={SCRIPT_STEP} /> · {s.xp || 0} XP</p>
                         <p className="text-[11px] text-muted-foreground truncate">
-                          <RankName xp={s.xp} step={SCRIPT_STEP} /> · {s.xp || 0} XP · {s.trades || 0} trades ·{' '}
-                          <span className={(s.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{money(s.pnl || 0)}</span>
+                          {s.trades || 0} trade{s.trades === 1 ? '' : 's'} · <span className={(s.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}>{money(s.pnl || 0)}</span>
                         </p>
                         <p className="text-[11px] text-muted-foreground truncate">{on.length ? `Trading ${on.map((g) => g.name).join(', ')}` : 'Not on a group'}</p>
                       </div>

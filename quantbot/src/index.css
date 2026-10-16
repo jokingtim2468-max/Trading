@@ -109,13 +109,13 @@
   .quant-md blockquote { @apply border-l-2 border-primary pl-4 text-muted-foreground; }
 }
 
-/* Every button dips down when pressed, then springs back */
+/* Buttons fade a little while pressed */
 button, [role="button"], a[href] {
-  transition: transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1), background-color 0.15s, color 0.15s, opacity 0.15s;
+  transition: background-color 0.15s, color 0.15s, opacity 0.15s;
 }
 button:active:not(:disabled), [role="button"]:active, a[href]:active {
-  transform: translateY(2px) scale(0.95);
-  transition-duration: 0.06s;
+  opacity: 0.75;
+  transition-duration: 0.05s;
 }
 
 /* Dark thin scrollbars */
@@ -185,8 +185,8 @@ html.desktop-frame .sticky.top-0:not(thead) { top: var(--titlebar); }
 .app-drag { -webkit-app-region: drag; }
 .app-no-drag { -webkit-app-region: no-drag; }
 
-/* Desktop app opening (desktop/main.mjs adds html.app-opening as the window appears): the page zooms out of the
-   middle of the window while the window fades in. Transform and opacity only, so it stays smooth. */
-@keyframes app-open { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
-html.app-opening #root { animation: app-open 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: 50% 50vh; }
+/* Desktop app opening (desktop/main.mjs adds html.app-opening as the window appears): the page fades in while
+   sliding up a little. Transform and opacity only, so it stays smooth. */
+@keyframes app-open { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+html.app-opening #root { animation: app-open 300ms cubic-bezier(0.25, 0.1, 0.25, 1) both; }
 html.app-opening.motion-reduced #root { animation: none; }

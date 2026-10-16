@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '@/api/client';
-import { logSetup } from '@/lib/copy';
+import { logSetup, groupScriptIds } from '@/lib/copy';
 
 const { TradingAccount, CopyGroup, Script, AccountTrade, CopyEvent } = client.entities;
 const POLL_MS = 3000;
@@ -48,13 +48,36 @@ export default function useAccounts() {
       { account_id: id, group_id: groupId || from?.id || '' });
   };
 
-  const setGroupScript = async (groupId, scriptId) => {
+  // One script per group, so an account never holds trades from two scripts. Replacing a script clears the old
+  // one's open trades from the group's accounts.
+  const openTradesOf = (query) => AccountTrade.filter({ ...query, status: 'open' });
+  const setScript = async (groupId, scriptId) => {
+    const g = groups.find((x) => x.id === groupId), sc = scripts.find((x) => x.id === scriptId);
+    if (!g) return;
+    const old = groupScriptIds(g).filter((id) => id !== scriptId);
+    let cleared = 0;
+    for (const id of old) {
+      const open = await openTradesOf({ group_id: g.id, script_id: id });
+      if (open.length) await AccountTrade.deleteMany({ id: { $in: open.map((t) => t.id) } });
+      cleared += open.length;
+    }
+    const oldNames = old.map((id) => scripts.find((x) => x.id === id)?.name || 'a deleted script').join(', ');
+    setGroups((list) => list.map((x) => (x.id === g.id ? { ...x, script_ids: scriptId ? [scriptId] : [], script_id: '' } : x)));
+    await CopyGroup.update(g.id, { script_ids: scriptId ? [scriptId] : [], script_id: '' });
+    await logSetup(sc ? `${g.name} now trades ${sc.name}${old.length ? ` (replaced ${oldNames}${cleared ? `, cleared ${cleared} open trade${cleared === 1 ? '' : 's'}` : ''})` : ''}`
+      : `${oldNames} taken off ${g.name}${cleared ? ` (cleared ${cleared} open trade${cleared === 1 ? '' : 's'})` : ''}`, { group_id: g.id, script_id: scriptId || old[0] || '' });
+    reload();
+  };
+  // Open trades an account would carry into a group whose script is different (asked about before a move)
+  const conflictsFor = async (accountId, groupId) => {
     const g = groups.find((x) => x.id === groupId);
-    const before = scripts.find((x) => x.id === g?.script_id), after = scripts.find((x) => x.id === scriptId);
-    setGroups((list) => list.map((x) => (x.id === groupId ? { ...x, script_id: scriptId } : x)));
-    await CopyGroup.update(groupId, { script_id: scriptId });
-    await logSetup(after ? `${g?.name} now trades ${after.name}${before ? ` (was ${before.name})` : ''}` : `${before?.name || 'Script'} taken off ${g?.name}`,
-      { group_id: groupId, script_id: scriptId || before?.id || '' });
+    const keep = new Set(g ? groupScriptIds(g) : []);
+    return (await openTradesOf({ account_id: accountId })).filter((t) => !keep.has(t.script_id));
+  };
+  const clearTrades = async (list, why) => {
+    if (!list.length) return;
+    await AccountTrade.deleteMany({ id: { $in: list.map((t) => t.id) } });
+    await logSetup(why, { account_id: list[0].account_id, script_id: list[0].script_id });
   };
 
   // Deleting a group stops copying for its accounts; the accounts stay
@@ -68,11 +91,11 @@ export default function useAccounts() {
 
   // Deleting a script takes it off its groups; trades it made stay in the history
   const deleteScript = async (script) => {
-    for (const g of groups.filter((x) => x.script_id === script.id)) await CopyGroup.update(g.id, { script_id: '' });
+    for (const g of groups.filter((x) => groupScriptIds(x).includes(script.id))) await setScript(g.id, '');
     await Script.delete(script.id);
     await logSetup(`Script ${script.name} deleted`, { script_id: script.id });
     reload();
   };
 
-  return { accounts, groups, scripts, trades, events, config, reload, moveAccount, setGroupScript, deleteGroup, deleteScript, pause: (on) => { paused.current = on; } };
+  return { accounts, groups, scripts, trades, events, config, reload, moveAccount, setScript, conflictsFor, clearTrades, deleteGroup, deleteScript, pause: (on) => { paused.current = on; } };
 }

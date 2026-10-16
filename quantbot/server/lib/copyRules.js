@@ -4,6 +4,9 @@
 export const XP_TABLE = [[5, 10], [10, 20], [20, 30], [Infinity, 50]];
 export const xpForTrade = (pnl) => XP_TABLE.find(([upTo]) => pnl <= upTo)[1];
 
+// Scripts a group trades: script_ids, plus script_id from groups made before groups could hold several
+export const groupScriptIds = (g) => [...new Set([...(Array.isArray(g?.script_ids) ? g.script_ids : []), g?.script_id].filter(Boolean))];
+
 // Rank steps: the first rank-up costs one step, each next one a step more (100, 200, 300 ... for accounts)
 export const ACCOUNT_STEP = 100;
 export const SCRIPT_STEP = 1000;

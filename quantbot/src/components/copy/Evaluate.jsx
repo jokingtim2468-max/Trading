@@ -13,7 +13,7 @@ const tone = (v) => (v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : '');
 function Tile({ label, value, className = '', hint }) {
   return (
     <div className="rounded-xl border border-border/70 bg-background/60 px-3 py-2" title={hint}>
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap truncate">{label}</p>
       <p className={`text-base font-semibold tabular-nums truncate ${className}`}>{value}</p>
     </div>
   );
@@ -25,7 +25,7 @@ function Table({ title, rows }) {
     <div className="space-y-1.5">
       <p className="text-xs font-medium">{title}</p>
       <div className="overflow-x-auto rounded-xl border border-border/70">
-        <table className="w-full text-xs tabular-nums">
+        <table className="w-full text-xs tabular-nums whitespace-nowrap">
           <thead className="text-muted-foreground text-[11px]">
             <tr className="text-right">
               <th className="text-left font-normal px-3 py-1.5">Name</th><th className="font-normal px-2">Trades</th><th className="font-normal px-2">Win %</th>
@@ -88,14 +88,16 @@ export default function Evaluate({ trades, accounts, groups, scripts, scope }) {
         <p className="text-xs text-muted-foreground flex-1">{all.trades} closed trade{all.trades === 1 ? '' : 's'}{all.open ? `, ${all.open} open` : ''}; amounts are summed across accounts.</p>
         <Button size="sm" variant="outline" className="h-8" onClick={exportTrades}><Download className="w-3.5 h-3.5 mr-1" />Export trades CSV</Button>
       </div>
-      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4">
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-5">
         <Tile label="Net P&L" value={signedMoney(all.net)} className={tone(all.net)} />
         <Tile label="Win rate" value={all.trades ? pct(all.winRate) : '-'} hint={`${all.wins} wins, ${all.losses} losses`} />
         <Tile label="Profit factor" value={all.trades ? pf(all.profitFactor) : '-'} hint="Gross profit / gross loss" />
         <Tile label="Per trade" value={signedMoney(all.expectancy)} className={tone(all.expectancy)} hint="Average P&L per closed trade" />
-        <Tile label="Avg win / loss" value={`${money(all.avgWin)} / ${money(-all.avgLoss)}`} />
         <Tile label="Max drawdown" value={money(-all.maxDrawdown)} className={all.maxDrawdown ? 'text-red-400' : ''} hint="Biggest drop from a high, trade by trade" />
-        <Tile label="Best / worst" value={`${signedMoney(all.best)} / ${signedMoney(all.worst)}`} />
+        <Tile label="Avg win" value={all.wins ? money(all.avgWin) : '-'} className="text-emerald-400" />
+        <Tile label="Avg loss" value={all.losses ? money(all.avgLoss) : '-'} className={all.losses ? 'text-red-400' : ''} />
+        <Tile label="Best trade" value={all.trades ? signedMoney(all.best) : '-'} className={tone(all.best)} />
+        <Tile label="Worst trade" value={all.trades ? signedMoney(all.worst) : '-'} className={tone(all.worst)} />
         <Tile label="Avg hold" value={hold(all.avgHoldMin)} />
       </div>
       {curve.length > 1 && (

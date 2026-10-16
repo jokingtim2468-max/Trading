@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { getMotion, setMotion } from '@/lib/motionPref';
 
 const OPTIONS = [
-  { value: 'full', title: 'Full animations', text: 'Windows and pop-ups grow from where you click, numbers count up and charts draw in.' },
+  { value: 'full', title: 'Full animations', text: 'Windows and pop-ups fade and slide in, numbers count up and charts draw in.' },
   { value: 'reduced', title: 'Reduced', text: 'Everything appears straight away. For anyone who gets motion sickness.' },
 ];
 

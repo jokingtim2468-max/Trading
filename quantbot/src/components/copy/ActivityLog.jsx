@@ -78,9 +78,9 @@ export default function ActivityLog({ events, accounts, groups, scripts, scope }
           {shown.slice(0, 500).map((e) => (
             <li key={e.id} data-event={e.kind}>
               <button type="button" onClick={() => setOpen(open === e.id ? null : e.id)} className="w-full text-left flex items-start gap-2 px-3 py-1.5 hover:bg-accent/50">
-                <span className="tabular-nums text-muted-foreground shrink-0 w-28">{time(e.created_date)}</span>
+                <span className="tabular-nums text-muted-foreground shrink-0 w-28 whitespace-nowrap">{time(e.created_date)}</span>
                 <span className={`shrink-0 w-14 text-center rounded-full border px-1.5 text-[10px] uppercase tracking-wide ${KIND[e.kind] || ''}`}>{e.kind}</span>
-                <span className={`flex-1 min-w-0 ${LEVEL[e.level] || ''}`}>{e.message}</span>
+                <span className={`flex-1 min-w-0 ${open === e.id ? 'whitespace-normal' : 'truncate'} ${LEVEL[e.level] || ''}`} title={e.message}>{e.message}</span>
               </button>
               {open === e.id && (
                 <pre className="mx-3 mb-2 p-2 rounded-lg bg-background border border-border text-[11px] overflow-x-auto">{JSON.stringify({

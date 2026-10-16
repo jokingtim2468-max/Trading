@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
+// The innermost drop target under a point that takes the dragged item (a disabled one passes to the one around it)
 const targetAt = (x, y) => {
-  const el = x == null ? null : document.elementFromPoint(x, y)?.closest('[data-drop]');
-  return el && !el.hasAttribute('data-drop-disabled') ? el.getAttribute('data-drop') : null;
+  let el = x == null ? null : document.elementFromPoint(x, y)?.closest('[data-drop]');
+  while (el && el.hasAttribute('data-drop-disabled')) el = el.parentElement?.closest('[data-drop]');
+  return el ? el.getAttribute('data-drop') : null;
 };
 
 // While something is dragged, the drop target under the pointer: the nearest element with data-drop="<id>"
@@ -21,9 +23,16 @@ export default function usePointerDrop(active) {
       point.current = { x: p.clientX, y: p.clientY };
       if (live.current) set(targetAt(p.clientX, p.clientY));
     };
+    // The page can scroll under a still pointer (auto-scroll while dragging): look again at the same spot
+    const scrolled = () => { if (live.current) set(targetAt(point.current.x, point.current.y)); };
     window.addEventListener('mousemove', move, true);
     window.addEventListener('touchmove', move, true);
-    return () => { window.removeEventListener('mousemove', move, true); window.removeEventListener('touchmove', move, true); };
+    window.addEventListener('scroll', scrolled, true);
+    return () => {
+      window.removeEventListener('mousemove', move, true);
+      window.removeEventListener('touchmove', move, true);
+      window.removeEventListener('scroll', scrolled, true);
+    };
   }, []);
 
   useEffect(() => {

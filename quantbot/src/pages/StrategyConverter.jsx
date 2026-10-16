@@ -60,7 +60,7 @@ export default function StrategyConverter() {
         )}
         {lab.error && <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">{lab.error}</div>}
         {lab.chatId && !lab.running && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 animate-in fade-in zoom-in-95 duration-pop ease-pop calm:animate-none">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 animate-in fade-in slide-in-from-top-2 duration-pop ease-pop calm:animate-none">
             <MessageSquare className="w-5 h-5 text-primary shrink-0" />
             <div className="flex-1 min-w-[200px] text-sm">
               <div className="font-medium">Chat ready to fine-tune {cfg.botName}</div>

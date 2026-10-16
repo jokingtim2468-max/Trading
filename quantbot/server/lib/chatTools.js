@@ -2,7 +2,7 @@
 // advice is based on real numbers instead of guesses. Every tool only reads; nothing is changed or traded.
 import { INSTRUMENTS, TIMEFRAMES, MAX_RANGE_DAYS, firstDate } from '../market/instruments.js';
 import { marketStats } from '../../src/lib/backtest/marketStats.js';
-import { evaluate, levelFromXp, tierOf, ACCOUNT_STEP, SCRIPT_STEP } from './copyRules.js';
+import { evaluate, levelFromXp, tierOf, groupScriptIds, ACCOUNT_STEP, SCRIPT_STEP } from './copyRules.js';
 
 const MAX_RESULT = 60000; // characters per tool result, so a big answer can't crowd out the conversation
 const MAX_BARS = 1500;
@@ -213,8 +213,8 @@ export function createChatTools({ db, market }) {
       return {
         note: 'Paper copies: each account fills at the alert price, sized from its risk per trade. Amounts in dollars.',
         overall: evalOut(evaluate(trades)),
-        scripts: d.scripts.map((s) => ({ name: s.name, language: s.language, xp: s.xp || 0, rank: rank(s.xp, SCRIPT_STEP), groups: d.groups.filter((x) => x.script_id === s.id).map((x) => x.name), results: evalOut(evaluate(trades.filter((t) => t.script_id === s.id))) })),
-        groups: (g ? [g] : d.groups).map((x) => ({ name: x.name, script: name(d.scripts, x.script_id), paused: x.enabled === false, trades_made: x.trades_made || 0, max_trades: x.max_trades || 100, accounts: d.accounts.filter((a) => a.group_id === x.id).length, results: evalOut(evaluate(d.trades.filter((t) => t.group_id === x.id))) })),
+        scripts: d.scripts.map((s) => ({ name: s.name, language: s.language, xp: s.xp || 0, rank: rank(s.xp, SCRIPT_STEP), groups: d.groups.filter((x) => groupScriptIds(x).includes(s.id)).map((x) => x.name), results: evalOut(evaluate(trades.filter((t) => t.script_id === s.id))) })),
+        groups: (g ? [g] : d.groups).map((x) => ({ name: x.name, scripts: groupScriptIds(x).map((id) => name(d.scripts, id)).filter(Boolean), paused: x.enabled === false, trades_made: x.trades_made || 0, max_trades: x.max_trades || 100, accounts: d.accounts.filter((a) => a.group_id === x.id).length, results: evalOut(evaluate(d.trades.filter((t) => t.group_id === x.id))) })),
         accounts: accounts.map((a) => ({
           trader: a.display_name, account: a.label, platform: a.platform, group: name(d.groups, a.group_id), status: a.status || 'active',
           plan: a.plan, start_balance: a.start_balance, balance: a.balance, target: a.target, max_loss: a.max_loss, max_loss_floor: a.floor, trailing: a.trailing,
