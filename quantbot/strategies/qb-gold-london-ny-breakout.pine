@@ -2,7 +2,9 @@
 //@version=5
 // XAUUSD M5. London range = 02:00-05:00 New York. From 08:30 to 11:00 NY the first 5-minute close outside the range
 // enters (one breakout per day). Stop at the middle of the range, taken only when that is at least $4 away; target
-// 1.5R; out after 2 hours. Same rules as QuantBot's backtest (scripts/xau-london-ny.sim.js). The draw-on-liquidity line
+// 1.5R; out after 2 hours. Same rules as QuantBot's backtest (scripts/xau-london-ny.sim.js). Lucid mode sizes whole
+// MGC/GC contracts from a share of the max loss limit (smaller as the balance nears the trailing floor), stops at the
+// evaluation target and the daily loss limit, and is always flat long before 4:45 PM ET. The draw-on-liquidity line
 // (where price is likely heading next) is drawn alongside and does not change the trades.
 strategy("QB Gold London-NY Breakout", overlay=true, initial_capital=10000, pyramiding=0,
      process_orders_on_close=false, calc_on_every_tick=false,
@@ -19,6 +21,12 @@ maxHoldMin = input.int(120, "Max time in a trade (minutes)", minval=5, group=G_S
 flatHour   = input.int(16, "Flat by (New York hour)", minval=0, maxval=23, group=G_S)
 G_R = "Risk"
 riskPct    = input.float(1.0, "Risk per trade (% of equity)", minval=0.05, step=0.05, group=G_R)
+G_L = "Lucid Trading"
+lucidOn    = input.bool(true, "Lucid rules and sizing (trade MGC1! or GC1!)", group=G_L)
+lucidSize  = input.string("50K", "LucidPro account", options=["25K", "50K", "100K", "150K"], group=G_L)
+lucidStage = input.string("Evaluation", "Stage", options=["Evaluation", "Funded"], group=G_L)
+lucidRisk  = input.float(15, "Risk per trade (% of the max loss limit)", minval=1, maxval=50, step=1, group=G_L)
+newsSkip   = input.bool(false, "Skip the 08:30 and 10:00 ET news bars (needed on LucidDaily)", group=G_L)
 G_V = "Visuals"
 showBg     = input.bool(true, "Shade the range and entry window", group=G_V)
 showRange  = input.bool(true, "London range box and levels", group=G_V)
@@ -97,16 +105,47 @@ if not inRange and inRange[1] and not na(rHi)
         label.new(bar_index + 72, rHi, "LONDON HIGH " + str.tostring(rHi, format.mintick), style=label.style_none, textcolor=cGreen, size=size.tiny)
         label.new(bar_index + 72, rLo, "LONDON LOW " + str.tostring(rLo, format.mintick), style=label.style_none, textcolor=cRed, size=size.tiny)
 
+// ---------- Lucid account: plan limits, end-of-day trailing max loss limit, daily loss limit, target
+lSize   = lucidSize == "25K" ? 25000.0 : lucidSize == "50K" ? 50000.0 : lucidSize == "100K" ? 100000.0 : 150000.0
+lMll    = lucidSize == "25K" ? 1000.0 : lucidSize == "50K" ? 2000.0 : lucidSize == "100K" ? 3000.0 : 4500.0
+lTarget = lucidSize == "25K" ? 1250.0 : lucidSize == "50K" ? 3000.0 : lucidSize == "100K" ? 6000.0 : 9000.0
+lDll    = lucidSize == "25K" ? (lucidStage == "Funded" ? 600.0 : na) : lucidSize == "50K" ? 1200.0 : lucidSize == "100K" ? 1800.0 : 2700.0
+lMicros = lucidSize == "25K" ? 20 : lucidSize == "50K" ? 40 : lucidSize == "100K" ? 60 : 100
+lBal = lSize + strategy.netprofit
+var float lPeak = na
+var float lFloor = na
+var float lDayStart = na
+if na(lPeak)
+    lPeak := lSize
+    lFloor := lSize - lMll
+    lDayStart := lSize
+if nyDate != nyDate[1]
+    // End of the previous day: the trailing floor follows the best closing balance, and locks at the start + $100
+    lPeak := math.max(lPeak, lBal)
+    lFloor := math.min(lPeak - lMll, lSize + 100)
+    lDayStart := lBal
+lTargetHit = lucidStage == "Evaluation" and lBal >= lSize + lTarget
+lDllHit = not na(lDll) and lBal - lDayStart <= -lDll
+lRoom = lBal - lFloor
+lBudget = math.min(lucidRisk / 100 * lMll, 0.9 * lRoom)
+lucidOk = not lucidOn or (not lTargetHit and not lDllHit and lBudget > 0)
+newsBar = newsSkip and ((nyHour == 8 and minute(time, TZ) >= 25 and minute(time, TZ) < 40) or (nyHour == 9 and minute(time, TZ) >= 55) or (nyHour == 10 and minute(time, TZ) < 10))
+
 // ---------- Entries
 rMid = (rHi + rLo) / 2
-canTrade = rReady and rDate == nyDate and not doneToday and inEntry and weekday and strategy.position_size == 0 and barstate.isconfirmed
+canTrade = rReady and rDate == nyDate and not doneToday and inEntry and weekday and strategy.position_size == 0 and barstate.isconfirmed and lucidOk and not newsBar
 upBreak = canTrade and close > rHi
 dnBreak = canTrade and close < rLo
 
 qtyFor(float stopDist) =>
-    float riskMoney = strategy.equity * riskPct / 100
-    float raw = riskMoney / (stopDist * syminfo.pointvalue)
-    syminfo.type == "futures" ? float(math.max(1, math.floor(raw))) : math.max(0.01, math.floor(raw * 100) / 100)
+    float q = na
+    if lucidOn
+        int cap = syminfo.pointvalue <= 10 ? lMicros : int(lMicros / 10)
+        q := math.min(cap, math.floor(lBudget / (stopDist * syminfo.pointvalue)))
+    else
+        float raw = strategy.equity * riskPct / 100 / (stopDist * syminfo.pointvalue)
+        q := syminfo.type == "futures" ? float(math.max(1, math.floor(raw))) : math.max(0.01, math.floor(raw * 100) / 100)
+    q
 
 bool longSig = false
 bool shortSig = false
@@ -116,8 +155,8 @@ var string tradeId = ""
 if upBreak or dnBreak
     doneToday := true
     float risk = math.abs(close - rMid)
-    if risk >= minStop and (maxStop == 0 or risk <= maxStop)
-        float q = qtyFor(risk)
+    float q = qtyFor(risk)
+    if risk >= minStop and (maxStop == 0 or risk <= maxStop) and q > 0
         float sl = rMid
         float tp = upBreak ? close + tpR * risk : close - tpR * risk
         tradeId := qbName + "-" + str.tostring(time)
@@ -142,7 +181,7 @@ if upBreak or dnBreak
             line.new(bar_index, tp, b2, tp, color=cGreen, width=1)
             label.new(bar_index, sl, (upBreak ? "LONG" : "SHORT") + " @ " + str.tostring(close, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\n" + str.tostring(tpR) + "R  qty " + str.tostring(q), style=upBreak ? label.style_label_up : label.style_label_down, color=color.new(upBreak ? cGreen : cRed, 20), textcolor=color.white, size=size.tiny)
     else if showTrades
-        label.new(bar_index, close, risk < minStop ? "SKIP: stop under " + str.tostring(minStop) : "SKIP: stop over " + str.tostring(maxStop), style=label.style_label_left, color=color.new(cMuted, 40), textcolor=color.white, size=size.tiny)
+        label.new(bar_index, close, risk < minStop ? "SKIP: stop under " + str.tostring(minStop) : q <= 0 ? "SKIP: 1 contract risks over $" + str.tostring(lBudget, "#") : "SKIP: stop over " + str.tostring(maxStop), style=label.style_label_left, color=color.new(cMuted, 40), textcolor=color.white, size=size.tiny)
 
 plotshape(longSig, "BUY", shape.triangleup, location.belowbar, cGreen, text="BUY", textcolor=cGreen, size=size.small)
 plotshape(shortSig, "SELL", shape.triangledown, location.abovebar, cRed, text="SELL", textcolor=cRed, size=size.small)
@@ -378,7 +417,7 @@ if showDol and barstate.islast
         dolText := "no target in range (" + biasTxt + ")"
 
 // ---------- Dashboard
-var table panel = table.new(position.top_right, 2, 10, bgcolor=color.new(#111318, 10), border_color=color.new(#2a2d35, 0), border_width=1)
+var table panel = table.new(position.top_right, 2, 13, bgcolor=color.new(#111318, 10), border_color=color.new(#2a2d35, 0), border_width=1)
 cell(int r, string k, string v, color vc) =>
     table.cell(panel, 0, r, k, text_color=cMuted, text_size=size.small, text_halign=text.align_left)
     table.cell(panel, 1, r, v, text_color=vc, text_size=size.small, text_halign=text.align_right)
@@ -414,3 +453,7 @@ if showPanel and barstate.islast
     cell(7, "Max drawdown", "$" + str.tostring(strategy.max_drawdown, "#,###.##"), cRed)
     cell(8, "Last signal", lastEvent, cText)
     cell(9, "Draw on liquidity", showDol ? dolText : "off", cBlue)
+    if lucidOn
+        cell(10, "Lucid " + lucidSize + " " + lucidStage, lTargetHit ? "TARGET HIT, stopped" : lDllHit ? "Daily loss limit hit" : "Risk $" + str.tostring(math.max(0, lBudget), "#") + " per trade", lTargetHit ? cGreen : lDllHit ? cRed : cText)
+        cell(11, "Balance / loss floor", "$" + str.tostring(lBal, "#,###") + " / $" + str.tostring(lFloor, "#,###"), lRoom > lucidRisk / 100 * lMll ? cText : cRed)
+        cell(12, "To target", lucidStage == "Evaluation" ? "$" + str.tostring(math.max(0, lSize + lTarget - lBal), "#,###") + " left" : "funded", cText)
