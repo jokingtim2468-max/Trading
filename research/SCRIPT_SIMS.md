@@ -100,3 +100,23 @@ instead fills at the next 1-minute open and checks exits minute by minute.
 | 10 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
 | 11 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
 | 12 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
+
+## QuantORB on the newest week: 2026-10-05 → 2026-10-09 – `orb_week.py`
+Data: real NQ=F 1-minute bars from Yahoo Finance (CME), saved in `results/orb_week/`. Each day has a full 390-bar
+regular session and there are no bad jumps. Same port, fills and costs as the 10-year run.
+
+| Version | Trades | Week P&L | Max drawdown |
+|---|---|---|---|
+| V4.1 as written ($500) | 2 | −$429.96 | $429.96 |
+| V4.1 script rules ($150) | 0 | $0 | $0 |
+| V4.1 Lucid rules ($150) | 0 | $0 | $0 |
+| V3.1 as written ($500) | 2 | −$352.20 | $352.20 |
+| V3.1 script rules / Lucid ($150) | 2 | −$129.73 | $129.73 |
+
+* **Range filter:** opening ranges were 167, 109, 126, 79.5 and 158 points. The fixed 10–100 point filter allowed only
+  Thursday. With NQ near 31,000, 100 points is just 0.32%, so the filter now blocks most days.
+* **Thursday Oct 8:**
+  * The short at 09:55 was stopped at the range high (−$426).
+  * The long at 10:20 went to break-even (−$3).
+  * At $150 risk the V4.1 stop (~106 points = $212 per micro) is larger than the risk budget, so it was skipped.
+* **Sample size:** two trades in one week say nothing statistically about the strategy either way.
