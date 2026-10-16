@@ -367,7 +367,6 @@ if showDol and barstate.islast
     string biasTxt = dolBull ? "bullish" : dolBear ? "bearish" : "neutral"
     if not na(t1)
         bool goingUp = t1 > close
-        color dc = goingUp ? cGreen : cRed
         dolPath := line.new(bar_index, close, bar_index + 20, t1, color=cBlue, width=2, style=line.style_arrow_right)
         dolLevel := line.new(bar_index - 40, t1, bar_index + 40, t1, color=cBlue, width=1, style=line.style_dashed)
         dolLabel := label.new(bar_index + 20, t1, "DOL " + (goingUp ? "▲ " : "▼ ") + n1 + "  " + str.tostring(t1, format.mintick) + "  (" + (goingUp ? "+" : "") + str.tostring(t1 - close, format.mintick) + ")", style=label.style_label_left, color=color.new(cBlue, 15), textcolor=color.white, size=size.small)
