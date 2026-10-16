@@ -2,7 +2,8 @@
 //@version=5
 // XAUUSD M5. London range = 02:00-05:00 New York. From 08:30 to 11:00 NY the first 5-minute close outside the range
 // enters (one breakout per day). Stop at the middle of the range, taken only when that is at least $4 away; target
-// 1.5R; out after 2 hours. Same rules as QuantBot's backtest (scripts/xau-london-ny.sim.js).
+// 1.5R; out after 2 hours. Same rules as QuantBot's backtest (scripts/xau-london-ny.sim.js). The draw-on-liquidity line
+// (where price is likely heading next) is drawn alongside and does not change the trades.
 strategy("QB Gold London-NY Breakout", overlay=true, initial_capital=10000, pyramiding=0,
      process_orders_on_close=false, calc_on_every_tick=false,
      max_boxes_count=500, max_lines_count=500, max_labels_count=500)
@@ -177,8 +178,208 @@ plotshape(tpHit, "TP", shape.circle, location.abovebar, cGreen, text="TP", textc
 plotshape(slHit, "SL", shape.xcross, location.abovebar, cRed, text="SL", textcolor=cRed, size=size.tiny)
 plotshape(timeHit, "CLOSE", shape.square, location.abovebar, cMuted, text="TIME", textcolor=cMuted, size=size.tiny)
 
+// ---------- Draw on liquidity (a visual guide only: it does not change the backtested trades)
+// Liquidity = where stops rest: previous day/week highs and lows, the Asia and London ranges, and untaken swing highs
+// and lows (equal highs/lows marked). The 1-hour trend picks the side; the nearest untaken level on that side at least
+// "Ignore targets closer than" away is the draw on liquidity. The line redraws on every new bar.
+G_D = "Draw on liquidity"
+showDol  = input.bool(true, "Show the draw-on-liquidity line", group=G_D)
+dolHtf   = input.timeframe("60", "Bias timeframe", group=G_D)
+pivLen   = input.int(5, "Swing size (bars each side)", minval=2, group=G_D)
+eqTol    = input.float(0.6, "Equal highs/lows tolerance (price)", minval=0, step=0.1, group=G_D)
+minDist  = input.float(3.0, "Ignore targets closer than (price)", minval=0, step=0.5, group=G_D)
+asiaSess = input.session("2000-0000", "Asia range (New York time)", group=G_D)
+
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[hClose, hFast, hSlow] = request.security(syminfo.tickerid, dolHtf, [close[1], ta.ema(close, 50)[1], ta.ema(close, 200)[1]], lookahead=barmerge.lookahead_on)
+dolBull = hClose > hFast and hFast > hSlow
+dolBear = hClose < hFast and hFast < hSlow
+
+// Today's and this week's high/low so far (a previous day/week level is taken once price trades through it)
+var float dHi = na
+var float dLo = na
+if ta.change(time("D")) != 0
+    dHi := high
+    dLo := low
+else
+    dHi := math.max(nz(dHi, high), high)
+    dLo := math.min(nz(dLo, low), low)
+var float wHi = na
+var float wLo = na
+if ta.change(time("W")) != 0
+    wHi := high
+    wLo := low
+else
+    wHi := math.max(nz(wHi, high), high)
+    wLo := math.min(nz(wLo, low), low)
+
+// Asia range, and how far price has gone since it closed
+inAsia = not na(time(timeframe.period, asiaSess, TZ))
+var float aHi = na
+var float aLo = na
+var float aPostHi = na
+var float aPostLo = na
+if inAsia and not inAsia[1]
+    aHi := high
+    aLo := low
+    aPostHi := na
+    aPostLo := na
+else if inAsia
+    aHi := math.max(aHi, high)
+    aLo := math.min(aLo, low)
+else if not na(aHi)
+    aPostHi := math.max(nz(aPostHi, high), high)
+    aPostLo := math.min(nz(aPostLo, low), low)
+
+// How far price has gone since the London range closed
+var float lPostHi = na
+var float lPostLo = na
+if inRange
+    lPostHi := na
+    lPostLo := na
+else if rReady
+    lPostHi := math.max(nz(lPostHi, high), high)
+    lPostLo := math.min(nz(lPostLo, low), low)
+
+// Untaken swing highs and lows (newest 10 of each); two within the tolerance are equal highs / equal lows
+var float[] swH = array.new_float()
+var string[] swHn = array.new_string()
+var float[] swL = array.new_float()
+var string[] swLn = array.new_string()
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+if not na(ph)
+    string nm = "SWING HIGH"
+    if array.size(swH) > 0
+        for j = 0 to array.size(swH) - 1
+            if math.abs(array.get(swH, j) - ph) <= eqTol
+                nm := "EQUAL HIGHS"
+                array.set(swHn, j, "EQUAL HIGHS")
+    array.push(swH, ph)
+    array.push(swHn, nm)
+    if array.size(swH) > 10
+        array.shift(swH)
+        array.shift(swHn)
+if not na(pl)
+    string nm = "SWING LOW"
+    if array.size(swL) > 0
+        for j = 0 to array.size(swL) - 1
+            if math.abs(array.get(swL, j) - pl) <= eqTol
+                nm := "EQUAL LOWS"
+                array.set(swLn, j, "EQUAL LOWS")
+    array.push(swL, pl)
+    array.push(swLn, nm)
+    if array.size(swL) > 10
+        array.shift(swL)
+        array.shift(swLn)
+// A swing level is taken (removed) once price trades through it
+if array.size(swH) > 0
+    for j = array.size(swH) - 1 to 0
+        if high > array.get(swH, j)
+            array.remove(swH, j)
+            array.remove(swHn, j)
+if array.size(swL) > 0
+    for j = array.size(swL) - 1 to 0
+        if low < array.get(swL, j)
+            array.remove(swL, j)
+            array.remove(swLn, j)
+
+addLevel(float[] ps, string[] ns, float p, string n, bool ok) =>
+    if ok and not na(p)
+        array.push(ps, p)
+        array.push(ns, n)
+
+// The nearest two levels at least minDist from price, above (buy-side) or below (sell-side)
+pick(float[] ps, string[] ns, bool above) =>
+    float p1 = na
+    string n1 = ""
+    float p2 = na
+    string n2 = ""
+    if array.size(ps) > 0
+        for j = 0 to array.size(ps) - 1
+            float p = array.get(ps, j)
+            float d = above ? p - close : close - p
+            if d >= minDist
+                if na(p1) or d < math.abs(p1 - close)
+                    p2 := p1
+                    n2 := n1
+                    p1 := p
+                    n1 := array.get(ns, j)
+                else if na(p2) or d < math.abs(p2 - close)
+                    p2 := p
+                    n2 := array.get(ns, j)
+    [p1, n1, p2, n2]
+
+var line dolPath = na
+var line dolLevel = na
+var label dolLabel = na
+var line dol2Level = na
+var label dol2Label = na
+var string dolText = "-"
+
+if showDol and barstate.islast
+    float[] hp = array.new_float()
+    string[] hn = array.new_string()
+    float[] lp = array.new_float()
+    string[] ln = array.new_string()
+    addLevel(hp, hn, pdh, "PREV DAY HIGH", dHi <= pdh)
+    addLevel(lp, ln, pdl, "PREV DAY LOW", dLo >= pdl)
+    addLevel(hp, hn, pwh, "PREV WEEK HIGH", wHi <= pwh)
+    addLevel(lp, ln, pwl, "PREV WEEK LOW", wLo >= pwl)
+    addLevel(hp, hn, aHi, "ASIA HIGH", not inAsia and (na(aPostHi) or aPostHi <= aHi))
+    addLevel(lp, ln, aLo, "ASIA LOW", not inAsia and (na(aPostLo) or aPostLo >= aLo))
+    addLevel(hp, hn, rHi, "LONDON HIGH", rReady and not inRange and (na(lPostHi) or lPostHi <= rHi))
+    addLevel(lp, ln, rLo, "LONDON LOW", rReady and not inRange and (na(lPostLo) or lPostLo >= rLo))
+    if array.size(swH) > 0
+        for j = 0 to array.size(swH) - 1
+            addLevel(hp, hn, array.get(swH, j), array.get(swHn, j), true)
+    if array.size(swL) > 0
+        for j = 0 to array.size(swL) - 1
+            addLevel(lp, ln, array.get(swL, j), array.get(swLn, j), true)
+    [up1, upN1, up2, upN2] = pick(hp, hn, true)
+    [dn1, dnN1, dn2, dnN2] = pick(lp, ln, false)
+    float t1 = na
+    string n1 = ""
+    float t2 = na
+    string n2 = ""
+    if dolBull
+        t1 := up1
+        n1 := upN1
+        t2 := up2
+        n2 := upN2
+    else if dolBear
+        t1 := dn1
+        n1 := dnN1
+        t2 := dn2
+        n2 := dnN2
+    else
+        bool upNearer = not na(up1) and (na(dn1) or up1 - close <= close - dn1)
+        t1 := upNearer ? up1 : dn1
+        n1 := upNearer ? upN1 : dnN1
+        t2 := upNearer ? dn1 : up1
+        n2 := upNearer ? dnN1 : upN1
+    line.delete(dolPath)
+    line.delete(dolLevel)
+    label.delete(dolLabel)
+    line.delete(dol2Level)
+    label.delete(dol2Label)
+    string biasTxt = dolBull ? "bullish" : dolBear ? "bearish" : "neutral"
+    if not na(t1)
+        bool goingUp = t1 > close
+        color dc = goingUp ? cGreen : cRed
+        dolPath := line.new(bar_index, close, bar_index + 20, t1, color=cBlue, width=2, style=line.style_arrow_right)
+        dolLevel := line.new(bar_index - 40, t1, bar_index + 40, t1, color=cBlue, width=1, style=line.style_dashed)
+        dolLabel := label.new(bar_index + 20, t1, "DOL " + (goingUp ? "▲ " : "▼ ") + n1 + "  " + str.tostring(t1, format.mintick) + "  (" + (goingUp ? "+" : "") + str.tostring(t1 - close, format.mintick) + ")", style=label.style_label_left, color=color.new(cBlue, 15), textcolor=color.white, size=size.small)
+        dolText := (goingUp ? "▲ " : "▼ ") + n1 + " " + str.tostring(t1, format.mintick) + " (" + biasTxt + ")"
+        if not na(t2)
+            dol2Level := line.new(bar_index - 40, t2, bar_index + 40, t2, color=color.new(cBlue, 55), width=1, style=line.style_dotted)
+            dol2Label := label.new(bar_index + 40, t2, "DOL 2  " + n2 + "  " + str.tostring(t2, format.mintick), style=label.style_label_left, color=color.new(cBlue, 60), textcolor=color.white, size=size.tiny)
+    else
+        dolText := "no target in range (" + biasTxt + ")"
+
 // ---------- Dashboard
-var table panel = table.new(position.top_right, 2, 9, bgcolor=color.new(#111318, 10), border_color=color.new(#2a2d35, 0), border_width=1)
+var table panel = table.new(position.top_right, 2, 10, bgcolor=color.new(#111318, 10), border_color=color.new(#2a2d35, 0), border_width=1)
 cell(int r, string k, string v, color vc) =>
     table.cell(panel, 0, r, k, text_color=cMuted, text_size=size.small, text_halign=text.align_left)
     table.cell(panel, 1, r, v, text_color=vc, text_size=size.small, text_halign=text.align_right)
@@ -213,3 +414,4 @@ if showPanel and barstate.islast
     cell(6, "Net P&L", (strategy.netprofit >= 0 ? "+$" : "-$") + str.tostring(math.abs(strategy.netprofit), "#,###.##"), strategy.netprofit >= 0 ? cGreen : cRed)
     cell(7, "Max drawdown", "$" + str.tostring(strategy.max_drawdown, "#,###.##"), cRed)
     cell(8, "Last signal", lastEvent, cText)
+    cell(9, "Draw on liquidity", showDol ? dolText : "off", cBlue)
