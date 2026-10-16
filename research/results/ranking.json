@@ -181,6 +181,18 @@
  },
  {
   "rank": 16,
+  "script": "SUPER INDIBOT Ribbon",
+  "version": "A: BUY to SELL arrow, script rules",
+  "risk": "$150",
+  "trades": 6363,
+  "win": 29.3,
+  "pf": 0.93,
+  "net": -38882,
+  "maxdd": 50088,
+  "per_week": -74.9
+ },
+ {
+  "rank": 17,
   "script": "TBR Sessions",
   "version": "B: sweep reversal",
   "risk": "$150",
@@ -192,7 +204,7 @@
   "per_week": -78.9
  },
  {
-  "rank": 17,
+  "rank": 18,
   "script": "TBR Sessions",
   "version": "A: 0.618 Fib line",
   "risk": "$150",
@@ -204,7 +216,43 @@
   "per_week": -79.1
  },
  {
-  "rank": 18,
+  "rank": 19,
+  "script": "SUPER INDIBOT Ribbon",
+  "version": "A: BUY to SELL arrow, Lucid rules",
+  "risk": "$150",
+  "trades": 5856,
+  "win": 40.2,
+  "pf": 0.89,
+  "net": -42458,
+  "maxdd": 50665,
+  "per_week": -81.8
+ },
+ {
+  "rank": 20,
+  "script": "SUPER INDIBOT Ribbon",
+  "version": "B: exit when ribbon unaligns, Lucid rules",
+  "risk": "$150",
+  "trades": 5893,
+  "win": 36.1,
+  "pf": 0.87,
+  "net": -45052,
+  "maxdd": 50547,
+  "per_week": -86.8
+ },
+ {
+  "rank": 21,
+  "script": "SUPER INDIBOT Ribbon",
+  "version": "B: exit when ribbon unaligns, script rules",
+  "risk": "$150",
+  "trades": 9125,
+  "win": 31.0,
+  "pf": 0.87,
+  "net": -76391,
+  "maxdd": 82759,
+  "per_week": -147.1
+ },
+ {
+  "rank": 22,
   "script": "TradeAxis DOL",
   "version": "dead-level bug fixed",
   "risk": "$150",

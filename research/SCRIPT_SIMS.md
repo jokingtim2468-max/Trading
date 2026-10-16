@@ -103,9 +103,13 @@ instead fills at the next 1-minute open and checks exits minute by minute.
 | 13 | TradeX QuantORB | V3.1 Lucid rules (1h cap) | $150 | −$9,134 | $15,086 |
 | 14 | iFVG Ultimate+ | script lines (BE, no target) | $150 | −$14,216 | $15,182 |
 | 15 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
-| 16 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
-| 17 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
-| 18 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
+| 16 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, script rules | $150 | −$38,882 | $50,088 |
+| 17 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
+| 18 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
+| 19 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, Lucid rules | $150 | −$42,458 | $50,665 |
+| 20 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, Lucid rules | $150 | −$45,052 | $50,547 |
+| 21 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, script rules | $150 | −$76,391 | $82,759 |
+| 22 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
 
 ## QuantORB on the newest week: 2026-10-05 → 2026-10-09 – `orb_week.py`
 Data: real NQ=F 1-minute bars from Yahoo Finance (CME), saved in `results/orb_week/`. Each day has a full 390-bar
@@ -149,3 +153,22 @@ Quirks of the script, kept in the port:
 * **Filters leave few trades:** the bias and HTF-FVG filters allow about 50–75 regular-hours trades per year.
 * **No edge:** every model is flat to negative over 10 years. The best, Model 3 under Lucid rules, made +$122 in total.
 * **Drawdowns:** every version had drawdowns well above the $1,000 Lucid limit.
+
+## SUPER INDIBOT – EMA Ribbon Trend – `ribbon_sim.py`
+Port: EMAs 5/11/15/18/21/24/28/34 on the 24h 5-minute close. BUY when all 7 adjacent pairs turn bullish, SELL is the
+mirror; this matches the script's wasBull/wasBear flip logic. The script has no stop or exit, so two readings were
+tested (regular-hours arrows only):
+* **A – arrow to arrow:** hold until the opposite arrow, then reverse.
+* **B – strong trend only:** exit as soon as the ribbon is no longer fully aligned.
+
+Stop for sizing = EMA 34 ± 0.25 ATR, $150 risk on MNQ.
+
+| Version | Trades | Win % | PF | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| A: arrow to arrow, script rules | 6,363 | 29.3 | 0.93 | −$38,882 | $50,088 |
+| A: arrow to arrow, Lucid rules | 5,856 | 40.2 | 0.89 | −$42,458 | $50,665 |
+| B: strong trend only, script rules | 9,125 | 31.0 | 0.87 | −$76,391 | $82,759 |
+| B: strong trend only, Lucid rules | 5,893 | 36.1 | 0.87 | −$45,052 | $50,547 |
+
+* **Too many trades:** the 5-minute ribbon flips several times a day, so costs and whipsaws dominate.
+* **Stops come first:** the EMA-34 stop is usually hit long before the opposite arrow appears.

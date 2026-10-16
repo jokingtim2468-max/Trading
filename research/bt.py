@@ -399,8 +399,8 @@ def run_day_mgmt(rec, sigs, sym, news, max_trades, rules=RULES, be_r=None):
             break
         if s["t"] < free_t or s["t"] >= flat_t - 5 or s["t"] not in idx:
             continue
-        side, px, stop, tp = s["side"], s["px"], s["stop"], s["tp"]
-        if side * (px - stop) <= 0 or side * (tp - px) <= 0:
+        side, px, stop, tp = s["side"], s["px"], s["stop"], s.get("tp")
+        if side * (px - stop) <= 0 or (tp is not None and side * (tp - px) <= 0):
             continue
         risk = abs(px - stop)
         n = min(rules["max_micros"], int(math.floor(rules["risk"] / ((risk + 2 * slip) * pv + comm))))
@@ -413,18 +413,21 @@ def run_day_mgmt(rec, sigs, sym, news, max_trades, rules=RULES, be_r=None):
         entry = M[k, 0] + side * slip
         be_px = px + side * be_r * risk if be_r else None
         moved = False
-        deadline = min([te + rules["max_hold"], flat_t] + [f for f in flatten_at if f > te])
+        exit_t = s.get("exit_t")  # optional forced exit (e.g. the script's own exit signal)
+        deadline = min([te + rules["max_hold"], flat_t] + [f for f in flatten_at if f > te] +
+                       ([exit_t] if exit_t is not None and exit_t > te else []))
         exit_px, why = None, None
         while k < len(T):
             o, h, l, c = M[k]
             if T[k] >= deadline:
-                exit_px, why = o - side * slip, "time"
+                exit_px = o - side * slip
+                why = "signal" if exit_t is not None and T[k] == exit_t and exit_t < te + rules["max_hold"] else "time"
                 break
             if (l <= stop) if side > 0 else (h >= stop):
                 exit_px = (min(stop, o) if side > 0 else max(stop, o)) - side * slip
                 why = "breakeven" if moved else "stop"
                 break
-            if (h >= tp + tick) if side > 0 else (l <= tp - tick):
+            if tp is not None and ((h >= tp + tick) if side > 0 else (l <= tp - tick)):
                 exit_px, why = (max(tp, o) if side > 0 else min(tp, o)), "tp"
                 break
             if be_px is not None and not moved and ((h >= be_px) if side > 0 else (l <= be_px)):
@@ -438,5 +441,5 @@ def run_day_mgmt(rec, sigs, sym, news, max_trades, rules=RULES, be_r=None):
                            pnl=pnl, why=why, be_moved=moved, tag=s.get("tag", "")))
         dpnl += pnl
         losses += pnl < 0
-        free_t = int(T[k]) + 1
+        free_t = int(T[k]) + (0 if why == "signal" else 1)  # a signal exit can reverse on the same bar
     return trades
