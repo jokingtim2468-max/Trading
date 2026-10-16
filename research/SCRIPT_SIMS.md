@@ -103,13 +103,17 @@ instead fills at the next 1-minute open and checks exits minute by minute.
 | 13 | TradeX QuantORB | V3.1 Lucid rules (1h cap) | $150 | −$9,134 | $15,086 |
 | 14 | iFVG Ultimate+ | script lines (BE, no target) | $150 | −$14,216 | $15,182 |
 | 15 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
-| 16 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, script rules | $150 | −$38,882 | $50,088 |
-| 17 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
-| 18 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
-| 19 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, Lucid rules | $150 | −$42,458 | $50,665 |
-| 20 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, Lucid rules | $150 | −$45,052 | $50,547 |
-| 21 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, script rules | $150 | −$76,391 | $82,759 |
-| 22 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
+| 16 | Liquidity DOL Scoring | only PoT >= 60%, Lucid rules | $150 | −$22,305 | $25,192 |
+| 17 | Liquidity DOL Scoring | only PoT >= 60%, script rules | $150 | −$23,344 | $26,199 |
+| 18 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, script rules | $150 | −$38,882 | $50,088 |
+| 19 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
+| 20 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
+| 21 | SUPER INDIBOT Ribbon | A: BUY to SELL arrow, Lucid rules | $150 | −$42,458 | $50,665 |
+| 22 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, Lucid rules | $150 | −$45,052 | $50,547 |
+| 23 | SUPER INDIBOT Ribbon | B: exit when ribbon unaligns, script rules | $150 | −$76,391 | $82,759 |
+| 24 | Liquidity DOL Scoring | every new DOL, Lucid rules | $150 | −$93,643 | $97,011 |
+| 25 | Liquidity DOL Scoring | every new DOL, script rules | $150 | −$156,341 | $160,029 |
+| 26 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
 
 ## QuantORB on the newest week: 2026-10-05 → 2026-10-09 – `orb_week.py`
 Data: real NQ=F 1-minute bars from Yahoo Finance (CME), saved in `results/orb_week/`. Each day has a full 390-bar
@@ -172,3 +176,37 @@ Stop for sizing = EMA 34 ± 0.25 ATR, $150 risk on MNQ.
 
 * **Too many trades:** the 5-minute ribbon flips several times a day, so costs and whipsaws dominate.
 * **Stops come first:** the EMA-34 stop is usually hit long before the opposite arrow appears.
+
+## Liquidity DOL Scoring Engine – `liqdol_sim.py`
+Port (Day Trading mode):
+* Levels are 5-minute pivots (3/3), up to 15 tracked, and are retired on first touch.
+* Scoring is weighted 30/25/25/20: proximity, freshness (half-life 50 bars), confluence with PDH/PDL/daily open/EQ
+  (+20 if the 1H bias agrees) and density. PoT = min(95, score).
+* PDH/PDL and the daily open come from `lookahead_off` higher-timeframe calls, so on historical bars they are one
+  session older than the names suggest.
+* A new DOL = the best level's birth bar or price changes. Unlike TradeAxis DOL, there is no list-position bug.
+
+Traded like TradeAxis DOL: on a new regular-hours DOL, trade toward it. Target = the level, stop = the same distance
+on the other side (1:1), skip levels closer than 0.5 ATR, $150 risk.
+
+| Version | Trades | Win % | PF | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| every new DOL, script rules | 17,547 | 49.9 | 0.85 | −$156,341 | $160,029 |
+| every new DOL, Lucid rules | 10,029 | 49.4 | 0.84 | −$93,643 | $97,011 |
+| only PoT ≥ 60%, script rules | 1,677 | 49.8 | 0.79 | −$23,344 | $26,199 |
+| only PoT ≥ 60%, Lucid rules | 1,628 | 49.3 | 0.78 | −$22,305 | $25,192 |
+
+**Is the PoT % honest?** Touch within 60 minutes of a new regular-hours DOL:
+
+| Shown PoT | Events | Actual touch rate |
+|---|---|---|
+| 0–20% | 373 | 29% |
+| 20–40% | 15,861 | 36% |
+| 40–60% | 31,026 | 60% |
+| 60–80% | 2,390 | 68% |
+| 80–95% | 30 | 83% |
+
+* **The PoT is roughly honest, even slightly conservative.** But it measures touch, not direction.
+* **No direction edge:** price reached the level before an equal-distance stop only ~50% of the time. After costs
+  that is a loss.
+* **Too many trades:** the target changes ~20 times a day, so trading every new DOL multiplies the losses.

@@ -181,6 +181,30 @@
  },
  {
   "rank": 16,
+  "script": "Liquidity DOL Scoring",
+  "version": "only PoT >= 60%, Lucid rules",
+  "risk": "$150",
+  "trades": 1628,
+  "win": 49.3,
+  "pf": 0.78,
+  "net": -22305,
+  "maxdd": 25192,
+  "per_week": -43.0
+ },
+ {
+  "rank": 17,
+  "script": "Liquidity DOL Scoring",
+  "version": "only PoT >= 60%, script rules",
+  "risk": "$150",
+  "trades": 1677,
+  "win": 49.8,
+  "pf": 0.79,
+  "net": -23344,
+  "maxdd": 26199,
+  "per_week": -45.0
+ },
+ {
+  "rank": 18,
   "script": "SUPER INDIBOT Ribbon",
   "version": "A: BUY to SELL arrow, script rules",
   "risk": "$150",
@@ -192,7 +216,7 @@
   "per_week": -74.9
  },
  {
-  "rank": 17,
+  "rank": 19,
   "script": "TBR Sessions",
   "version": "B: sweep reversal",
   "risk": "$150",
@@ -204,7 +228,7 @@
   "per_week": -78.9
  },
  {
-  "rank": 18,
+  "rank": 20,
   "script": "TBR Sessions",
   "version": "A: 0.618 Fib line",
   "risk": "$150",
@@ -216,7 +240,7 @@
   "per_week": -79.1
  },
  {
-  "rank": 19,
+  "rank": 21,
   "script": "SUPER INDIBOT Ribbon",
   "version": "A: BUY to SELL arrow, Lucid rules",
   "risk": "$150",
@@ -228,7 +252,7 @@
   "per_week": -81.8
  },
  {
-  "rank": 20,
+  "rank": 22,
   "script": "SUPER INDIBOT Ribbon",
   "version": "B: exit when ribbon unaligns, Lucid rules",
   "risk": "$150",
@@ -240,7 +264,7 @@
   "per_week": -86.8
  },
  {
-  "rank": 21,
+  "rank": 23,
   "script": "SUPER INDIBOT Ribbon",
   "version": "B: exit when ribbon unaligns, script rules",
   "risk": "$150",
@@ -252,7 +276,31 @@
   "per_week": -147.1
  },
  {
-  "rank": 22,
+  "rank": 24,
+  "script": "Liquidity DOL Scoring",
+  "version": "every new DOL, Lucid rules",
+  "risk": "$150",
+  "trades": 10029,
+  "win": 49.4,
+  "pf": 0.84,
+  "net": -93643,
+  "maxdd": 97011,
+  "per_week": -180.4
+ },
+ {
+  "rank": 25,
+  "script": "Liquidity DOL Scoring",
+  "version": "every new DOL, script rules",
+  "risk": "$150",
+  "trades": 17547,
+  "win": 49.9,
+  "pf": 0.85,
+  "net": -156341,
+  "maxdd": 160029,
+  "per_week": -301.1
+ },
+ {
+  "rank": 26,
   "script": "TradeAxis DOL",
   "version": "dead-level bug fixed",
   "risk": "$150",

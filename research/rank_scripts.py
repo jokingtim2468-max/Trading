@@ -33,12 +33,17 @@ rib = j("ribbon/ribbon_summary.json")
 for m, nm in (("A arrow-to-arrow", "A: BUY to SELL arrow"), ("B strong-trend-only", "B: exit when ribbon unaligns")):
     for acct in ("script rules", "Lucid rules"):
         rows.append(("SUPER INDIBOT Ribbon", f"{nm}, {acct}", "$150", rib[f"{m} {acct}"]["overall"]))
+lq = j("liqdol/liqdol_summary.json")
+for v in ("all DOLs", "PoT>=60%"):
+    for acct in ("script rules", "Lucid rules"):
+        rows.append(("Liquidity DOL Scoring", f"{'every new DOL' if v == 'all DOLs' else 'only PoT >= 60%'}, {acct}",
+                     "$150", lq[f"{v} {acct}"]["overall"]))
 rows.sort(key=lambda r: -r[3]["net"])
 out = []
 for i, (s, v, risk, o) in enumerate(rows, 1):
     out.append(dict(rank=i, script=s, version=v, risk=risk, trades=o["trades"], win=round(o["win"], 1),
                     pf=round(o["pf"], 2), net=round(o["net"]), maxdd=round(o["maxdd"]), per_week=round(o["per_week"], 1)))
-    print(f"{i:2d}. {s:20s} {v:42s} risk {risk:5s} net ${o['net']:>10,.0f}  maxDD ${o['maxdd']:>9,.0f}  "
+    print(f"{i:2d}. {s:22s} {v:42s} risk {risk:5s} net ${o['net']:>10,.0f}  maxDD ${o['maxdd']:>9,.0f}  "
           f"PF {o['pf']:.2f}  trades {o['trades']}")
 json.dump(out, open(os.path.join(R, "ranking.json"), "w"), indent=1)
 
@@ -51,7 +56,7 @@ BG, GRID, TXT, MUTED = "#131722", "#2a2e39", "#d1d4dc", "#787b86"
 plt.rcParams.update({"axes.facecolor": BG, "figure.facecolor": BG, "axes.edgecolor": GRID, "axes.labelcolor": TXT,
                      "xtick.color": MUTED, "ytick.color": MUTED, "text.color": TXT, "grid.color": GRID,
                      "font.size": 10, "text.parse_math": False})
-fig, ax = plt.subplots(figsize=(13, 10.5))
+fig, ax = plt.subplots(figsize=(13, 12))
 labels = [f"#{r['rank']}  {r['script']} - {r['version']}  ({r['risk']} risk)" for r in out][::-1]
 vals = [r["net"] for r in out][::-1]
 cols = ["#089981" if v > 0 else "#F23645" for v in vals]
