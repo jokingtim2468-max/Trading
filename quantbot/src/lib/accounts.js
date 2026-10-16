@@ -48,6 +48,7 @@ export const SORTS = [
   { id: 'platform', label: 'Platform' },
   { id: 'group', label: 'Group' },
   { id: 'newest', label: 'Newest first' },
+  { id: 'rank', label: 'Rank' },
 ];
 export function sortAccounts(list, sort, groups = []) {
   const groupName = (a) => groups.find((g) => g.id === a.group_id)?.name || '~';
@@ -56,6 +57,7 @@ export function sortAccounts(list, sort, groups = []) {
     platform: (a, b) => a.platform.localeCompare(b.platform) || a.label.localeCompare(b.label),
     group: (a, b) => groupName(a).localeCompare(groupName(b)) || a.label.localeCompare(b.label),
     newest: (a, b) => String(b.created_date).localeCompare(String(a.created_date)),
+    rank: (a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0) || a.label.localeCompare(b.label),
   }[sort] || (() => 0);
   return [...list].sort(by);
 }

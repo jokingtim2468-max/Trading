@@ -1,19 +1,29 @@
 import { useState } from 'react';
-import { Wand2 } from 'lucide-react';
+import { Wand2, Dices } from 'lucide-react';
 import { client } from '@/api/client';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PLATFORMS, detectPlatform, familyOf } from '@/lib/accounts';
+import { PLANS, planRisk, randomName, randomSeed } from '@/lib/copy';
+import RankAvatar from '@/components/copy/RankAvatar';
 import Field from './Field';
 import Mt5Fields from './Mt5Fields';
 import TradovateFields from './TradovateFields';
 
-const BLANK = { label: '', login: '', server: '', environment: 'demo', firm: '', copy_qty: 1 };
+const BLANK = { label: '', login: '', server: '', environment: 'demo', firm: '', copy_qty: 1, plan: 'lucid50', forward_url: '' };
+const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 
 // Add or edit an account. The platform is detected from the account number / name; pick it by hand to override.
 export default function AccountDialog({ account, servers, groups, onClose, onSaved }) {
-  const [form, setForm] = useState({ ...BLANK, ...account });
+  const [form, setForm] = useState(() => {
+    const f = { ...BLANK, ...account };
+    if (!f.display_name) f.display_name = randomName();
+    if (!f.avatar_seed) f.avatar_seed = randomSeed();
+    if (!account) Object.assign(f, planFields('lucid50'));
+    return f;
+  });
   const [picked, setPicked] = useState(account?.platform || null); // chosen by hand
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -21,18 +31,29 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
   const detected = detectPlatform(form);
   const platform = picked || detected?.platform || null;
   const isMt5 = platform === 'MT5';
-  const missing = !form.label?.trim() || !form.login?.trim() || !platform || (isMt5 && !form.server?.trim());
+  // TradingView accounts trade on paper here, so they need no login
+  const missing = !form.label?.trim() || (!form.login?.trim() && platform !== 'TradingView') || !platform || (isMt5 && !form.server?.trim());
+  const pickPlan = (id) => setForm((f) => ({ ...f, ...planFields(id) }));
+  const plan = PLANS[form.plan] || PLANS.none;
 
-  const save = async (e) => {
-    e.preventDefault();
+  const save = async (e, startOver = false) => {
+    e?.preventDefault();
     setBusy(true);
     setError('');
     try {
+      const start = num(form.start_balance) ?? plan.start;
       const data = {
-        platform, label: form.label.trim(), login: form.login.trim(), copy_qty: Math.max(1, Number(form.copy_qty) || 1),
+        platform, label: form.label.trim(), login: (form.login || '').trim(), copy_qty: Math.max(1, Number(form.copy_qty) || 1),
         firm: (form.firm || detected?.firm || '').trim(),
         ...(isMt5 ? { server: form.server.trim(), environment: '' } : { server: '', environment: form.environment || 'demo' }),
+        display_name: form.display_name.trim() || randomName(), avatar_seed: form.avatar_seed,
+        plan: form.plan, start_balance: start, target: num(form.target), max_loss: num(form.max_loss), trailing: !!form.trailing,
+        risk_usd: num(form.risk_usd), forward_url: (form.forward_url || '').trim(),
       };
+      // A new account, a new plan or starting over begins again from the starting balance
+      if (!account || startOver || account.plan !== data.plan || account.start_balance !== start) {
+        Object.assign(data, { balance: start, peak_eod: start, floor: null, day_key: '', status: 'active' });
+      }
       // An account can't stay in a group of the other family (MT5 vs futures)
       const group = groups.find((g) => g.id === account?.group_id);
       if (group && (group.platform === 'MT5' ? 'MT5' : 'Futures') !== familyOf(platform)) data.group_id = '';
@@ -58,8 +79,20 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>{account ? 'Edit account' : 'Add account'}</DialogTitle></DialogHeader>
         <form onSubmit={save} className="space-y-3">
+          <div className="flex items-center gap-3">
+            <RankAvatar seed={form.avatar_seed} xp={form.xp || 0} size={56} label={form.display_name} />
+            <div className="flex-1 space-y-1.5">
+              <Field label="Trader name">
+                <div className="flex gap-1.5">
+                  <Input value={form.display_name} onChange={(e) => set('display_name', e.target.value)} aria-label="Trader name" />
+                  <Button type="button" variant="outline" size="icon" aria-label="New random name" title="New random name and picture"
+                    onClick={() => setForm((f) => ({ ...f, display_name: randomName(), avatar_seed: randomSeed() }))}><Dices className="w-4 h-4" /></Button>
+                </div>
+              </Field>
+            </div>
+          </div>
           <Field label="Name"><Input value={form.label} onChange={(e) => set('label', e.target.value)} placeholder="e.g. Lucid 50K #1" /></Field>
-          <Field label="Account number or name" hint="MT5: the login number. Tradovate / TradingView: the account name, e.g. LTT04821">
+          <Field label="Account number or name" hint="MT5: the login number. Tradovate: the account name, e.g. LTT04821. Optional for TradingView.">
             <Input value={form.login} onChange={(e) => set('login', e.target.value)} placeholder="e.g. LTT04821 or 5100123" />
           </Field>
           <Field label="Platform">
@@ -85,9 +118,35 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
               <Input value={form.firm || detected?.firm || ''} onChange={(e) => set('firm', e.target.value)} placeholder="e.g. Lucid Trading" />
             </Field>
           )}
+          {platform && (
+            <div className="rounded-xl border border-border p-3 space-y-3">
+              <p className="text-xs font-medium">Copy trading</p>
+              <Field label="Account rules" hint={plan.target ? `Passes at +$${plan.target.toLocaleString()}, fails at -$${plan.maxLoss.toLocaleString()}${plan.trailing ? ' (trails the best end-of-day balance, locks at start + $100)' : ''}.` : 'No target or max loss: the account just tracks its trades.'}>
+                <Select value={form.plan} onValueChange={pickPlan}>
+                  <SelectTrigger aria-label="Account rules"><SelectValue /></SelectTrigger>
+                  <SelectContent>{Object.entries(PLANS).map(([id, p]) => <SelectItem key={id} value={id}>{p.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              {form.plan === 'custom' && (
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Start $"><Input type="number" value={form.start_balance ?? ''} onChange={(e) => set('start_balance', e.target.value)} aria-label="Starting balance" /></Field>
+                  <Field label="Target $"><Input type="number" value={form.target ?? ''} onChange={(e) => set('target', e.target.value)} aria-label="Profit target" /></Field>
+                  <Field label="Max loss $"><Input type="number" value={form.max_loss ?? ''} onChange={(e) => set('max_loss', e.target.value)} aria-label="Max loss" /></Field>
+                </div>
+              )}
+              <Field label="Risk per trade ($)" hint="Each copied trade is sized so its stop loses about this much. Empty: the script's quantity x this account's Qty.">
+                <Input type="number" min={0} value={form.risk_usd ?? ''} onChange={(e) => set('risk_usd', e.target.value)} aria-label="Risk per trade" placeholder="e.g. 300" />
+              </Field>
+              <Field label="Order URL (optional)" hint="Trades are copied on paper at the alert price. Add a TradersPost (or similar) webhook to place them on the real account too.">
+                <Input value={form.forward_url || ''} onChange={(e) => set('forward_url', e.target.value)} aria-label="Order URL" placeholder="https://webhooks.traderspost.io/…" />
+              </Field>
+            </div>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           <DialogFooter className="gap-2">
             {account && <Button type="button" variant="ghost" className="text-destructive sm:mr-auto" onClick={remove} disabled={busy}>Remove</Button>}
+            {account && account.balance != null && <Button type="button" variant="outline" disabled={busy || missing}
+              onClick={() => window.confirm('Start this account over from its starting balance? Its rank stays.') && save(null, true)}>Start over</Button>}
             <Button type="submit" disabled={busy || missing}>{busy ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </form>
@@ -97,3 +156,9 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
 }
 
 const platformOfTitle = (id) => PLATFORMS.find((p) => p.id === id)?.title || id;
+
+// Form fields for an account rules preset
+function planFields(id) {
+  const p = PLANS[id] || PLANS.none;
+  return { plan: id, start_balance: p.start, target: p.target, max_loss: p.maxLoss, trailing: p.trailing, risk_usd: planRisk(p) };
+}

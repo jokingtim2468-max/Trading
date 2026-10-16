@@ -608,6 +608,78 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await card('FTMO 100K').waitFor({ state: 'detached' });
 });
 
+await step('Copy trading: add a script, drag accounts and the script onto a group, its alerts trade every account', async () => {
+  await page.goto(`${base()}/accounts`);
+  await page.getByRole('heading', { name: 'Copy trading' }).waitFor();
+  // Dragging with the mouse the way a person does: press, move in small steps, let go
+  const drag = async (from, to) => {
+    const a = await from.boundingBox(), b = await to.boundingBox();
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 5 });
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 20 });
+    await page.waitForTimeout(250);
+    await page.mouse.up();
+    // the card settles back before the next drag can start
+    await page.waitForFunction(() => !document.querySelector('[data-rfd-draggable-id][style*="position: fixed"]'));
+    await page.waitForTimeout(150);
+  };
+  // A new account gets a random trader name, a ranked picture and Lucid 50K rules with $300 risk
+  await page.getByRole('button', { name: 'Add account' }).click();
+  const d = page.getByRole('dialog');
+  const first = await d.getByLabel('Trader name').inputValue();
+  expect(/^[A-Z][a-z]+ [A-Z][a-z]+$/.test(first), `random name: ${first}`);
+  await d.getByRole('button', { name: 'New random name' }).click();
+  await d.getByPlaceholder('e.g. Lucid 50K #1').fill('Lucid 50K #3');
+  await d.getByRole('radio', { name: 'TradingView' }).click();
+  expect((await d.getByLabel('Risk per trade').inputValue()) === '300', 'Lucid 50K risk should default to $300');
+  await d.getByRole('button', { name: 'Save' }).click();
+  await d.waitFor({ state: 'detached' });
+  await page.locator('[data-account="Lucid 50K #3"] [data-tier="Unranked"]').waitFor();
+  // A script, with its own webhook address
+  await page.getByRole('button', { name: 'Add script' }).click();
+  await page.getByRole('dialog').getByPlaceholder('e.g. Gold London-NY breakout').fill('Gold Breakout');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByText("This script's webhook").waitFor();
+  const local = (await page.getByRole('dialog').getByLabel('MT5 / this PC', { exact: true }).textContent()).trim();
+  expect(/\/hook\/[0-9a-f]{32}\/s\/[A-Za-z0-9]+$/.test(local), `script webhook: ${local}`);
+  await page.keyboard.press('Escape');
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  await page.locator('[data-script="Gold Breakout"]').waitFor();
+  // A group; drag two accounts and the script onto it
+  await page.getByRole('button', { name: 'New group' }).click();
+  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid squad');
+  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  const tab = page.locator('[data-drop^="tab:"]').filter({ hasText: 'Lucid squad' }).getByRole('button').first();
+  await page.getByRole('button', { name: /^All accounts/ }).click();
+  await drag(page.locator('[data-account="Lucid 50K #2"]'), tab);
+  await drag(page.locator('[data-account="Lucid 50K #3"]'), tab);
+  await tab.click();
+  await page.locator('[data-member]').nth(1).waitFor();
+  await drag(page.locator('[data-script="Gold Breakout"]'), page.getByTestId('script-slot'));
+  await page.getByTestId('script-slot').getByText('Gold Breakout').waitFor();
+  await page.locator('[data-script="Gold Breakout"]').getByText('Trading Lucid squad').waitFor();
+  // The script's alerts: a buy on micro gold sized to $300 risk (7 contracts), then a close that passes both accounts
+  const send = (m) => fetch(local.replace('127.0.0.1', new URL(base()).hostname), { method: 'POST', body: JSON.stringify({ qb: 1, symbol: 'MGC1!', strategy: 'Gold Breakout', trade_id: 'G-1', ...m }) });
+  expect((await send({ event: 'buy', price: 2400, sl: 2396, tp: 2450 })).status === 200, 'buy refused');
+  await page.getByTestId('group-trades').getByText('1/100').waitFor();
+  await page.locator('tr[data-trade="open"]').nth(1).waitFor();
+  await page.locator('tr[data-trade="open"]').first().getByText('Buy 7 MGC1!').waitFor();
+  expect((await send({ event: 'close', price: 2450, reason: 'tp' })).status === 200, 'close refused');
+  await page.getByTestId('group-pnl').locator('p.text-2xl').getByText('+$7,000.00').waitFor(); // 2 accounts x 50 points x 7 x $10
+  await page.getByTestId('group-pnl').getByTitle('2 winning trades').waitFor();
+  await page.getByTestId('group-accounts').locator('p.text-emerald-400', { hasText: /^2$/ }).waitFor(); // both passed the $3,000 target
+  await page.locator('tr[data-trade="closed"]').first().getByText('+50 XP').waitFor();
+  await page.locator('[data-script="Gold Breakout"]').getByText(/100 XP · 2 trades/).waitFor();
+  await snap('copy-trading');
+  // Max trades: at the max the group stops copying
+  const max = page.getByLabel('Max trades');
+  await max.fill('1');
+  await max.blur();
+  await page.getByTestId('group-trades').getByText('1/1').waitFor();
+});
+
 await step('Unknown page shows 404', async () => {
   await page.goto(`${base()}/nope`);
   await text('Page Not Found').waitFor();

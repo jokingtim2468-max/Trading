@@ -5,7 +5,7 @@ import LogoMark from '@/components/quant/LogoMark';
 
 const PAGES = {
   '/': 'Chat', '/settings': 'Settings', '/strategy-tester': 'Strategy Tester', '/strategy-converter': 'Strategy Converter',
-  '/test-history': 'Test history', '/pnl': 'PnL calendar', '/accounts': 'Accounts',
+  '/test-history': 'Test history', '/pnl': 'PnL calendar', '/accounts': 'Copy trading',
 };
 
 // The desktop app's own title bar (the window has no Windows frame): logo, name, the page you're on, and window
