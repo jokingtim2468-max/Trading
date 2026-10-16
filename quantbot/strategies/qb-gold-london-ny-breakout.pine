@@ -1,0 +1,198 @@
+// Script: QB Gold London-NY Breakout
+//@version=5
+// XAUUSD M5. London range = 02:00-05:00 New York. From 08:30 to 11:00 NY the first 5-minute close outside the range
+// enters (one breakout per day). Stop at the middle of the range, taken only when that is at least $4 away; target
+// 1.5R; out after 2 hours. Same rules as QuantBot's backtest (scripts/xau-london-ny.sim.js).
+strategy("QB Gold London-NY Breakout", overlay=true, initial_capital=10000, pyramiding=0,
+     process_orders_on_close=false, calc_on_every_tick=false,
+     max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ---------- Inputs
+G_S = "Strategy"
+rangeSess  = input.session("0200-0500", "London range (New York time)", group=G_S)
+entrySess  = input.session("0830-1100", "Entry window (New York time)", group=G_S)
+tpR        = input.float(1.5, "Target (R)", minval=0.5, step=0.25, group=G_S)
+minStop    = input.float(4.0, "Minimum stop distance (price)", minval=0, step=0.5, group=G_S)
+maxStop    = input.float(0.0, "Maximum stop distance (price, 0 = off)", minval=0, step=1, group=G_S)
+maxHoldMin = input.int(120, "Max time in a trade (minutes)", minval=5, group=G_S)
+flatHour   = input.int(16, "Flat by (New York hour)", minval=0, maxval=23, group=G_S)
+G_R = "Risk"
+riskPct    = input.float(1.0, "Risk per trade (% of equity)", minval=0.05, step=0.05, group=G_R)
+G_V = "Visuals"
+showBg     = input.bool(true, "Shade the range and entry window", group=G_V)
+showRange  = input.bool(true, "London range box and levels", group=G_V)
+showTrades = input.bool(true, "Entry, SL and TP lines and boxes", group=G_V)
+showPanel  = input.bool(true, "Dashboard", group=G_V)
+G_Q = "QuantBot"
+qbOn       = input.bool(true, "Send QuantBot signals (alert)", group=G_Q)
+qbName     = input.string("QB Gold London-NY Breakout", "QuantBot strategy name", group=G_Q)
+
+// ---------- Colours
+cBlue  = #5fb7f2
+cAmber = #f59e0b
+cRed   = #ef4343
+cGreen = #22c55e
+cText  = #e5e7eb
+cMuted = #9ca3af
+
+// ---------- Time (New York, daylight saving handled by the time zone)
+TZ = "America/New_York"
+inRange  = not na(time(timeframe.period, rangeSess, TZ))
+inEntry  = not na(time(timeframe.period, entrySess, TZ))
+nyDow    = dayofweek(time, TZ)
+weekday  = nyDow >= dayofweek.monday and nyDow <= dayofweek.friday
+nyDate   = year(time, TZ) * 10000 + month(time, TZ) * 100 + dayofmonth(time, TZ)
+nyHour   = hour(time, TZ)
+
+bgcolor(showBg and inRange ? color.new(cBlue, 92) : showBg and inEntry ? color.new(cAmber, 94) : na)
+
+// ---------- QuantBot webhook messages (one alert on the script: "Any alert() function call")
+qbSend(string ev, float px, float sl, float tp, float qty, string reason, string tradeId) =>
+    string msg = '{"qb":1,"event":"' + ev + '","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","price":' + str.tostring(math.round_to_mintick(px))
+    if not na(sl)
+        msg := msg + ',"sl":' + str.tostring(math.round_to_mintick(sl))
+    if not na(tp)
+        msg := msg + ',"tp":' + str.tostring(math.round_to_mintick(tp))
+    if not na(qty)
+        msg := msg + ',"qty":' + str.tostring(qty)
+    msg := msg + ',"trade_id":"' + tradeId + '","reason":"' + reason + '","strategy":"' + qbName + '","source":"tradingview","time":' + str.tostring(time) + '}'
+    if qbOn
+        alert(msg, alert.freq_once_per_bar_close)
+
+// ---------- London range for today's New York date
+var float rHi = na
+var float rLo = na
+var int rDate = na
+var bool rReady = false
+var bool doneToday = false
+var box rBox = na
+var line hiLn = na
+var line loLn = na
+var line midLn = na
+
+if inRange and not inRange[1]
+    rHi := high
+    rLo := low
+    rDate := nyDate
+    rReady := false
+    doneToday := false
+    if showRange
+        rBox := box.new(bar_index, high, bar_index, low, border_color=color.new(cBlue, 30), bgcolor=color.new(cBlue, 85), text="LONDON RANGE", text_color=color.new(cBlue, 10), text_size=size.tiny, text_halign=text.align_left, text_valign=text.align_top)
+else if inRange
+    rHi := math.max(rHi, high)
+    rLo := math.min(rLo, low)
+    if showRange and not na(rBox)
+        box.set_right(rBox, bar_index)
+        box.set_top(rBox, rHi)
+        box.set_bottom(rBox, rLo)
+
+if not inRange and inRange[1] and not na(rHi)
+    rReady := true
+    if showRange
+        // Levels carried through the New York entry window (about 6 hours of 5-minute bars)
+        hiLn := line.new(bar_index, rHi, bar_index + 72, rHi, color=color.new(cGreen, 20), style=line.style_dotted, width=1)
+        loLn := line.new(bar_index, rLo, bar_index + 72, rLo, color=color.new(cRed, 20), style=line.style_dotted, width=1)
+        midLn := line.new(bar_index, (rHi + rLo) / 2, bar_index + 72, (rHi + rLo) / 2, color=color.new(cMuted, 30), style=line.style_dashed, width=1)
+        label.new(bar_index + 72, rHi, "LONDON HIGH " + str.tostring(rHi, format.mintick), style=label.style_none, textcolor=cGreen, size=size.tiny)
+        label.new(bar_index + 72, rLo, "LONDON LOW " + str.tostring(rLo, format.mintick), style=label.style_none, textcolor=cRed, size=size.tiny)
+
+// ---------- Entries
+rMid = (rHi + rLo) / 2
+canTrade = rReady and rDate == nyDate and not doneToday and inEntry and weekday and strategy.position_size == 0 and barstate.isconfirmed
+upBreak = canTrade and close > rHi
+dnBreak = canTrade and close < rLo
+
+qtyFor(float stopDist) =>
+    float riskMoney = strategy.equity * riskPct / 100
+    float raw = riskMoney / (stopDist * syminfo.pointvalue)
+    syminfo.type == "futures" ? float(math.max(1, math.floor(raw))) : math.max(0.01, math.floor(raw * 100) / 100)
+
+bool longSig = false
+bool shortSig = false
+var string lastEvent = "-"
+var string tradeId = ""
+
+if upBreak or dnBreak
+    doneToday := true
+    float risk = math.abs(close - rMid)
+    if risk >= minStop and (maxStop == 0 or risk <= maxStop)
+        float q = qtyFor(risk)
+        float sl = rMid
+        float tp = upBreak ? close + tpR * risk : close - tpR * risk
+        tradeId := qbName + "-" + str.tostring(time)
+        if upBreak
+            strategy.entry("BUY", strategy.long, qty=q)
+            strategy.exit("BUY X", "BUY", stop=sl, limit=tp, comment_loss="SL", comment_profit="TP")
+            longSig := true
+            qbSend("buy", close, sl, tp, q, "", tradeId)
+            lastEvent := "BUY " + str.tostring(close, format.mintick)
+        else
+            strategy.entry("SELL", strategy.short, qty=q)
+            strategy.exit("SELL X", "SELL", stop=sl, limit=tp, comment_loss="SL", comment_profit="TP")
+            shortSig := true
+            qbSend("sell", close, sl, tp, q, "", tradeId)
+            lastEvent := "SELL " + str.tostring(close, format.mintick)
+        if showTrades
+            int b2 = bar_index + math.max(1, math.round(maxHoldMin / (timeframe.in_seconds() / 60)))
+            box.new(bar_index, close, b2, sl, border_color=na, bgcolor=color.new(cRed, 85))
+            box.new(bar_index, close, b2, tp, border_color=na, bgcolor=color.new(cGreen, 85))
+            line.new(bar_index, close, b2, close, color=color.new(cText, 10), width=1)
+            line.new(bar_index, sl, b2, sl, color=cRed, width=1)
+            line.new(bar_index, tp, b2, tp, color=cGreen, width=1)
+            label.new(bar_index, sl, (upBreak ? "LONG" : "SHORT") + " @ " + str.tostring(close, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\n" + str.tostring(tpR) + "R  qty " + str.tostring(q), style=upBreak ? label.style_label_up : label.style_label_down, color=color.new(upBreak ? cGreen : cRed, 20), textcolor=color.white, size=size.tiny)
+    else if showTrades
+        label.new(bar_index, close, risk < minStop ? "SKIP: stop under " + str.tostring(minStop) : "SKIP: stop over " + str.tostring(maxStop), style=label.style_label_left, color=color.new(cMuted, 40), textcolor=color.white, size=size.tiny)
+
+plotshape(longSig, "BUY", shape.triangleup, location.belowbar, cGreen, text="BUY", textcolor=cGreen, size=size.small)
+plotshape(shortSig, "SELL", shape.triangledown, location.abovebar, cRed, text="SELL", textcolor=cRed, size=size.small)
+
+// ---------- Exits: 2-hour time stop and the flat-by time
+if strategy.position_size != 0 and strategy.opentrades > 0
+    if time - strategy.opentrades.entry_time(0) >= maxHoldMin * 60000
+        strategy.close_all(comment="TIME")
+    else if nyHour >= flatHour
+        strategy.close_all(comment="EOD")
+
+// ---------- Closed trades: labels and QuantBot close messages
+var int seen = 0
+bool tpHit = false
+bool slHit = false
+bool timeHit = false
+if strategy.closedtrades > seen
+    for k = seen to strategy.closedtrades - 1
+        string ex = strategy.closedtrades.exit_comment(k)
+        float pnl = strategy.closedtrades.profit(k)
+        float px = strategy.closedtrades.exit_price(k)
+        string reason = ex == "TP" ? "tp" : ex == "SL" ? "sl" : ex == "TIME" ? "time" : ex == "EOD" ? "eod" : "signal"
+        tpHit := tpHit or reason == "tp"
+        slHit := slHit or reason == "sl"
+        timeHit := timeHit or reason == "time" or reason == "eod"
+        qbSend("close", px, na, na, na, reason, tradeId)
+        lastEvent := str.upper(reason) + " " + (pnl >= 0 ? "+" : "") + str.tostring(pnl, "#.##")
+        if showTrades
+            label.new(bar_index, px, str.upper(reason) + " " + (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#.##"), style=label.style_label_left, color=color.new(pnl >= 0 ? cGreen : cRed, 25), textcolor=color.white, size=size.tiny)
+    seen := strategy.closedtrades
+
+plotshape(tpHit, "TP", shape.circle, location.abovebar, cGreen, text="TP", textcolor=cGreen, size=size.tiny)
+plotshape(slHit, "SL", shape.xcross, location.abovebar, cRed, text="SL", textcolor=cRed, size=size.tiny)
+plotshape(timeHit, "CLOSE", shape.square, location.abovebar, cMuted, text="TIME", textcolor=cMuted, size=size.tiny)
+
+// ---------- Dashboard
+var table panel = table.new(position.top_right, 2, 9, bgcolor=color.new(#111318, 10), border_color=color.new(#2a2d35, 0), border_width=1)
+cell(int r, string k, string v, color vc) =>
+    table.cell(panel, 0, r, k, text_color=cMuted, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, r, v, text_color=vc, text_size=size.small, text_halign=text.align_right)
+
+if showPanel and barstate.islast
+    string status = strategy.position_size > 0 ? "In a long" : strategy.position_size < 0 ? "In a short" : inRange ? "Building London range" : rReady and rDate == nyDate and not doneToday ? (inEntry ? "Watching for a breakout" : "Waiting for 08:30 NY") : doneToday and rDate == nyDate ? "Done for today" : "Waiting for London"
+    float wr = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100 : 0
+    float pf = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0
+    cell(0, "QB Gold London-NY", "", cText)
+    cell(1, "Status", status, cAmber)
+    cell(2, "London range", na(rHi) ? "-" : str.tostring(rLo, format.mintick) + " - " + str.tostring(rHi, format.mintick), cText)
+    cell(3, "Trades", str.tostring(strategy.closedtrades), cText)
+    cell(4, "Win rate", str.tostring(wr, "#.0") + "%", cText)
+    cell(5, "Profit factor", str.tostring(pf, "#.00"), pf >= 1 ? cGreen : cRed)
+    cell(6, "Net P&L", (strategy.netprofit >= 0 ? "+$" : "-$") + str.tostring(math.abs(strategy.netprofit), "#,###.##"), strategy.netprofit >= 0 ? cGreen : cRed)
+    cell(7, "Max drawdown", "$" + str.tostring(strategy.max_drawdown, "#,###.##"), cRed)
+    cell(8, "Last signal", lastEvent, cText)

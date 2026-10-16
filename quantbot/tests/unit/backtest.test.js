@@ -120,6 +120,25 @@ describe('engine', () => {
     assert.ok(r.counts['in session'] > 0);
   });
 
+  test('the gold London-NY breakout trades once a day from the London range, with a 2-hour cap', async () => {
+    const { runBacktest } = await load('/src/lib/backtest/engine.js');
+    const { LONDON_NY_SIM } = await import('../../scripts/xau-london-ny.sim.js');
+    // 5-minute bars over two weeks, quiet in London then a strong rally in the New York morning (broker time = NY + 7h)
+    const n = 14 * 288, b = makeBars(Array.from({ length: n }, () => 2000));
+    for (let i = 0; i < n; i++) {
+      b.time[i] = Date.UTC(2026, 0, 5) + i * 300000;
+      const ny = (new Date(b.time[i]).getUTCHours() + 17) % 24 * 60 + new Date(b.time[i]).getUTCMinutes();
+      const c = ny >= 120 && ny < 300 ? 2000 + (i % 2 ? 6 : -6) : ny >= 540 && ny < 780 ? 2006 + (ny - 540) * 0.2 : 2000;
+      b.open[i] = i ? b.close[i - 1] : c; b.close[i] = c; b.high[i] = Math.max(b.open[i], c) + 0.5; b.low[i] = Math.min(b.open[i], c) - 0.5;
+    }
+    const r = runBacktest({ bars: b, startIndex: 300, simCode: LONDON_NY_SIM, balance: 10000, contractSize: 100, point: 0.01 });
+    assert.equal(r.errors, 0);
+    assert.ok(r.trades.length >= 8, `${r.trades.length} trades`);
+    assert.ok(r.trades.every((t) => t.side === 'long' && (t.exitTime - t.entryTime) <= 2 * 3600000 + 300000));
+    const days = new Set(r.trades.map((t) => new Date(t.entryTime).toISOString().slice(0, 10)));
+    assert.equal(days.size, r.trades.length); // one trade a day
+  });
+
   test('incremental ICT-style code runs 50,000 bars in well under the limit', async () => {
     const { runBacktest } = await load('/src/lib/backtest/engine.js');
     const closes = Array.from({ length: 50000 }, (_, i) => 2000 + 30 * Math.sin(i / 40) + 8 * Math.sin(i / 5.3));
