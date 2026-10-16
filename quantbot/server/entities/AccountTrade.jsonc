@@ -1,0 +1,25 @@
+{
+  "name": "AccountTrade",
+  "type": "object",
+  "properties": {
+    "account_id": { "type": "string" },
+    "group_id": { "type": "string" },
+    "script_id": { "type": "string" },
+    "trade_id": { "type": "string", "description": "The script's trade id (same from entry to close)" },
+    "symbol": { "type": "string" },
+    "side": { "type": "string", "enum": ["long", "short"] },
+    "qty": { "type": "number" },
+    "point_value": { "type": "number" },
+    "entry": { "type": "number" },
+    "sl": { "type": "number" },
+    "tp": { "type": "number" },
+    "exit": { "type": "number" },
+    "pnl": { "type": "number" },
+    "xp": { "type": "number" },
+    "reason": { "type": "string" },
+    "status": { "type": "string", "enum": ["open", "closed"], "default": "open" },
+    "opened_at": { "type": "string" },
+    "closed_at": { "type": "string" },
+    "forwarded": { "type": "string", "description": "Result of forwarding the order to the account's order URL, if set" }
+  }
+}

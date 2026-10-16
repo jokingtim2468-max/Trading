@@ -1,0 +1,14 @@
+{
+  "name": "Script",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string", "description": "Also the strategy name its signals carry" },
+    "language": { "type": "string", "enum": ["Pine", "MT5", "Other"], "default": "Pine" },
+    "code": { "type": "string" },
+    "chat_id": { "type": "string", "description": "QuantBot chat it came from, if any" },
+    "xp": { "type": "number", "default": 0, "description": "XP from every trade it made on every account" },
+    "trades": { "type": "number", "default": 0 },
+    "pnl": { "type": "number", "default": 0 }
+  },
+  "required": ["name"]
+}

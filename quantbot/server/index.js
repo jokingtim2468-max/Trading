@@ -13,6 +13,7 @@ import { createMarketStore } from './market/store.js';
 import { TIMEFRAMES, MAX_RANGE_DAYS } from './market/instruments.js';
 import { encodeBars } from './market/resample.js';
 import { createSignals } from './signals.js';
+import { createCopier } from './copier.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -160,7 +161,8 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     defaults: entityDefaults(path.join(root, 'server', 'entities')),
   });
 
-  const signals = createSignals({ dataDir, db: { run: (...a) => backend.handle('entity', ...a) }, log: app?.log });
+  const entityDb = { run: (...a) => backend.handle('entity', ...a) };
+  const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier: createCopier({ db: entityDb, log: app?.log }) });
   const server = http.createServer();
   const boundPort = () => server.address()?.port;
   let vite = null;
@@ -177,13 +179,13 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     // The launcher's loading screen asks this until QuantBot itself answers
     if (url.pathname === '/__launcher/status') return send(res, 200, { percent: 100, label: 'Ready', ready: true });
     // Webhook for TradingView alerts and MT5 EAs: open to any host (the public link forwards here), guarded by the key
-    const hook = url.pathname.match(/^\/hook\/([^/]+)\/?$/);
+    const hook = url.pathname.match(/^\/hook\/([^/]+)(?:\/s\/([A-Za-z0-9]+))?\/?$/);
     if (hook) {
       if (req.method !== 'POST' || !signals.matches(hook[1])) return send(res, 404, { error: 'Not found' });
       try {
         const body = (await readBody(req, 4000)).toString('utf8');
         const host = String(req.headers.host || '').replace(/:\d+$/, '');
-        const saved = await signals.receive(body, { userAgent: String(req.headers['user-agent'] || ''), local: LOCAL_HOSTS.has(host) && !req.headers['cf-connecting-ip'] });
+        const saved = await signals.receive(body, { userAgent: String(req.headers['user-agent'] || ''), local: LOCAL_HOSTS.has(host) && !req.headers['cf-connecting-ip'], scriptId: hook[2] });
         return send(res, 200, { ok: true, id: saved.id });
       } catch (e) {
         app?.log?.(`signal rejected: ${e.message}`);

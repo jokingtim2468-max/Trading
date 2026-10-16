@@ -55,7 +55,7 @@ export const signalLine = (s) => [
   `[${s.strategy}${s.trade_id ? ` ${s.trade_id}` : ''}, ${s.source}]`,
 ].filter(Boolean).join(' ');
 
-export function createSignals({ dataDir, db, log = () => {} }) {
+export function createSignals({ dataDir, db, log = () => {}, copier = null }) {
   const file = path.join(dataDir, 'webhook.json');
   let key;
   try { key = JSON.parse(fs.readFileSync(file, 'utf8')).key; } catch { /* first run */ }
@@ -75,13 +75,20 @@ export function createSignals({ dataDir, db, log = () => {} }) {
       const a = Buffer.from(String(candidate)), b = Buffer.from(key);
       return a.length === b.length && crypto.timingSafeEqual(a, b);
     },
+    // meta.scriptId: the script named in the webhook path (/hook/<key>/s/<scriptId>)
     async receive(body, meta = {}) {
       const now = Date.now();
       if (now - window.start > 60000) window = { start: now, count: 0 };
       if (++window.count > MAX_PER_MINUTE) throw Object.assign(new Error('Too many signals this minute'), { status: 429 });
       const rec = readSignal(body, meta);
-      const saved = await db.run('Signal', 'create', rec);
+      const saved = await db.run('Signal', 'create', { ...rec, ...(meta.scriptId ? { script_id: meta.scriptId } : {}) });
       log(signalLine(saved));
+      if (copier) {
+        try {
+          const r = await copier.onSignal(saved, meta.scriptId);
+          if (r.script) log(`copy: ${saved.event} from ${r.script} -> ${r.accounts} account trade${r.accounts === 1 ? '' : 's'}`);
+        } catch (e) { log(`copy failed: ${e.stack || e.message}`); }
+      }
       const total = await db.run('Signal', 'count', {});
       if (total > KEEP + 500) {
         const old = await db.run('Signal', 'filter', {}, 'created_date', total - KEEP);

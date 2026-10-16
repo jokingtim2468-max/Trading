@@ -56,11 +56,73 @@
       "type": "number",
       "default": 1,
       "description": "Contracts / lots this account takes per group trade (Tradovate Group Trade order quantity)"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Random name shown with the account's picture"
+    },
+    "avatar_seed": {
+      "type": "string"
+    },
+    "xp": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "passed",
+        "failed"
+      ],
+      "default": "active"
+    },
+    "plan": {
+      "type": "string",
+      "default": "none",
+      "description": "Account rules preset (copyRules PLANS)"
+    },
+    "start_balance": {
+      "type": "number",
+      "default": 50000
+    },
+    "balance": {
+      "type": "number",
+      "default": 50000
+    },
+    "target": {
+      "type": "number",
+      "description": "Profit that passes the account"
+    },
+    "max_loss": {
+      "type": "number",
+      "description": "Loss that fails the account"
+    },
+    "trailing": {
+      "type": "boolean",
+      "default": false,
+      "description": "Max loss trails the best end-of-day balance (Lucid)"
+    },
+    "peak_eod": {
+      "type": "number"
+    },
+    "floor": {
+      "type": "number"
+    },
+    "day_key": {
+      "type": "string"
+    },
+    "risk_usd": {
+      "type": "number",
+      "description": "Size each trade so its stop risks this many dollars; empty uses the script's quantity x copy_qty"
+    },
+    "forward_url": {
+      "type": "string",
+      "description": "Optional order URL (e.g. a TradersPost webhook) that places the trades for real"
     }
   },
   "required": [
     "platform",
-    "label",
-    "login"
+    "label"
   ]
 }
