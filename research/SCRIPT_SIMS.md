@@ -37,3 +37,20 @@ or at 15:55. SMT (QQQ) only affects the grade panel and is ignored.
 
 * Positive years: 2018, 2022 and 2024 (best: 2024, +$2,121, PF 1.31). Every other year lost.
 * Every year's drawdown was larger than the Lucid $1,000 limit.
+
+## TBR Sessions: Sweeps, Fib Auto-Adjust & 3-Drive – `tbr_sim.py`
+The script draws session ranges (Asia / London / NY), auto-adjusting Fibonacci levels from each break, double breaks
+and 3-drive patterns. It has no entries, so two readings were tested in the NY window (09:30–12:00), using the
+07:00–09:30 range:
+* **A – 0.618 line:** after a NY body break, a limit order rests on the labelled 0.618 Fib line. Stop = range edge
+  (Fib 0), target = break extreme (Fib 1.0). One per direction per day.
+* **B – sweep reversal:** a wick past the range closes back inside before any body break. Trade against it, stop
+  beyond the extreme, target the opposite range edge (only if that is at least 1:1).
+
+| Version | Trades | Win % | PF | Net P&L | Max drawdown | $/week |
+|---|---|---|---|---|---|---|
+| A: 0.618 Fib line | 2,464 | 54.7 | 0.70 | −$41,073 | $42,014 | −$79 |
+| B: sweep reversal | 1,435 | 26.2 | 0.71 | −$40,977 | $41,153 | −$79 |
+
+* Both lost money in **every year** from 2015 to 2025.
+* Version A wins 55% of the time but only targets about 0.6R. After costs it needs ~65% winners to break even.

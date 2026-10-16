@@ -74,11 +74,12 @@ def run_day(rec, sigs, sym, news, max_trades, cost_mult=1.0, rules=RULES):
     flat_t = rules["flat"]
     flatten_at = [ev - 2 for ev, _, _ in news]
     trades = []
+    done = set()  # optional "group": at most one filled trade per group per day
     free_t, losses, dpnl = 0, 0, 0.0
     for s in sorted(sigs, key=lambda x: x["t"]):
         if len(trades) >= max_trades or losses >= rules["max_losses"] or dpnl <= rules["max_day_loss"]:
             break
-        if s["t"] < free_t or s["t"] >= flat_t - 5 or s["t"] not in idx:
+        if s["t"] < free_t or s["t"] >= flat_t - 5 or s["t"] not in idx or s.get("group") in done:
             continue
         side, px, stop, tp = s["side"], s["px"], s["stop"], s["tp"]
         if side * (px - stop) <= 0 or side * (tp - px) <= 0:
@@ -139,6 +140,8 @@ def run_day(rec, sigs, sym, news, max_trades, cost_mult=1.0, rules=RULES):
         pnl = side * (exit_px - entry) * pv * n - comm * n
         trades.append(dict(t_in=te, t_out=int(T[k]), side=side, n=n, entry=entry, exit=exit_px,
                            stop=stop, tp=tp, pnl=pnl, why=why, mae=mae * pv * n + comm * n, tag=s.get("tag", "")))
+        if s.get("group") is not None:
+            done.add(s["group"])
         dpnl += pnl
         losses += pnl < 0
         free_t = int(T[k]) + 1
