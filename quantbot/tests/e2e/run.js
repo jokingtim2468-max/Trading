@@ -567,7 +567,7 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   // Groups: a futures group with its Group Trade guide, rename, pause, delete
   await page.getByRole('button', { name: 'New group' }).click();
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid group');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByTestId('group-panel').getByText(/Drag accounts onto this group/).waitFor();
   await page.getByTestId('group-panel').getByText('Switch copying on in Tradovate (Group Trade)').waitFor();
   const menu = () => page.locator('button[aria-haspopup=menu]').first().click();
@@ -575,7 +575,7 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await page.getByRole('menuitem', { name: 'Rename' }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid copies');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByTestId('group-title').filter({ hasText: 'Lucid copies' }).waitFor();
   await menu();
   await page.getByRole('menuitem', { name: 'Pause copying' }).click();
@@ -631,7 +631,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   // A script, with its own webhook address
   await page.getByRole('button', { name: 'Add script' }).click();
   await page.getByRole('dialog').getByPlaceholder('e.g. Gold London-NY breakout').fill('Gold Breakout');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('dialog').getByText("This script's webhook").waitFor();
   const local = (await page.getByRole('dialog').getByLabel('MT5 / this PC', { exact: true }).textContent()).trim();
   expect(/\/hook\/[0-9a-f]{32}\/s\/[A-Za-z0-9]+$/.test(local), `script webhook: ${local}`);
@@ -641,7 +641,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   // A group; drag two accounts and the script onto it
   await page.getByRole('button', { name: 'New group' }).click();
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid squad');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   // The new group opens; accounts dropped anywhere on it join it
   const panel = page.getByTestId('group-panel');
@@ -702,7 +702,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   // One script per account: dropping another asks first; Keep leaves it, Yes replaces it
   await page.getByRole('button', { name: 'Add script' }).click();
   await page.getByRole('dialog').getByPlaceholder('e.g. Gold London-NY breakout').fill('Silver Scalper');
-  await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
   await page.getByRole('dialog').getByText("This script's webhook").waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('dialog').waitFor({ state: 'detached' });
@@ -721,11 +721,26 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await panel.getByRole('button', { name: 'All groups' }).click();
   const card = page.locator('[data-group-card="Lucid squad"]');
   await card.getByTestId('card-scripts').getByText('Silver Scalper').waitFor();
-  await card.getByText('+$7,000.00').waitFor();
+  await card.getByTestId('card-pnl').locator('p.text-lg').getByText('+$7,000.00').waitFor();
   await page.waitForTimeout(500);
   await snap('copy-overview');
   await card.click();
   await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
+  // Each script has a folder for Claude (code, CLAUDE.md, logs, trades) and a Claude-only chat
+  await page.locator('[data-script="Silver Scalper"]').getByRole('button', { name: 'Edit Silver Scalper' }).click();
+  const sd = page.getByRole('dialog');
+  await sd.getByTestId('script-folder').getByLabel('Folder').filter({ hasText: /silver-scalper$/ }).waitFor();
+  const folder = path.join(dataDir, 'scripts', 'silver-scalper');
+  expect(fs.existsSync(path.join(folder, 'CLAUDE.md')) && fs.existsSync(path.join(folder, 'activity.log')), `no script folder at ${folder}`);
+  expect(/Lucid squad now trades Silver Scalper/.test(fs.readFileSync(path.join(folder, 'activity.log'), 'utf8')), 'activity.log missing the setup');
+  await snap('copy-script-dialog');
+  await sd.getByRole('button', { name: 'Open its Claude chat' }).click();
+  await page.getByPlaceholder('Reply to QuantBot...').waitFor();
+  const picker = page.getByRole('combobox').filter({ hasText: /^Claude/ });
+  await picker.click();
+  const names = await page.getByRole('option').allTextContents();
+  expect(names.length === 3 && names.every((n) => n.startsWith('Claude')), `script chat offers ${names.join(', ')}`);
+  await page.keyboard.press('Escape');
 });
 
 await step('Unknown page shows 404', async () => {

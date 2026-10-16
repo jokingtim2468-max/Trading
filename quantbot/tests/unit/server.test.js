@@ -140,6 +140,30 @@ describe('AI functions', () => {
     assert.equal(be.handle('entity', 'ChatSession', 'get', s.id).title, 'Gold Scalper');
   });
 
+  test("a script's chat is Claude only, reads the script's folder and saves Claude's new code", async () => {
+    const dir = tmp();
+    const be = backendIn(dir);
+    const { createScriptFolders } = await import('../../server/scriptFolders.js');
+    const folders = createScriptFolders({ root: path.join(dir, 'scripts'), db: { run: (...a) => be.handle('entity', ...a) } });
+    be.setFolders(folders);
+    const script = be.handle('entity', 'Script', 'create', { name: 'Gold Breakout', language: 'Pine', code: '//@version=5\nstrategy("old")' });
+    const s = be.handle('entity', 'ChatSession', 'create', { title: 'Gold Breakout', group: 'Pine', script_id: script.id });
+    be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'Tighten the stop' });
+    be.handle('function', 'apiKeys', { action: 'save', provider: 'google', api_key: 'AIzaTest' });
+    await assert.rejects(be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'gemini-3.8-flash' }), /Scripts are written with Claude only/);
+    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });
+    let sent;
+    fakeModel('Done\n```pine\n//@version=5\nstrategy("new")\n```', (url, body) => { sent = { url, body }; });
+    await be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'gemini-3.8-flash' });
+    assert.match(sent.url, /anthropic/, 'a Gemini pick still goes to Claude');
+    assert.match(sent.body.system, /LINKED SCRIPT: this chat writes and changes the copy trading script "Gold Breakout"/);
+    assert.match(sent.body.system, /strategy\("old"\)/);
+    assert.match(sent.body.system, /Files here/);
+    assert.equal(be.handle('entity', 'Script', 'get', script.id).code, '//@version=5\nstrategy("new")');
+    assert.equal(be.handle('entity', 'ChatSession', 'get', s.id).title, 'Gold Breakout');
+    assert.match(be.handle('entity', 'CopyEvent', 'filter', {})[0].message, /Claude updated Gold Breakout \(Pine, 2 lines\)/);
+  });
+
   test('a refusal becomes a clear error', async () => {
     const be = backendIn(tmp());
     be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });

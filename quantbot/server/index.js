@@ -14,6 +14,7 @@ import { TIMEFRAMES, MAX_RANGE_DAYS } from './market/instruments.js';
 import { encodeBars } from './market/resample.js';
 import { createSignals } from './signals.js';
 import { createCopier } from './copier.js';
+import { createScriptFolders } from './scriptFolders.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -48,7 +49,9 @@ function trusted(req) {
   return !origin || origin === `http://${req.headers.host}`;
 }
 
-async function handleApi(req, res, { backend, market, app, signals, port }, url) {
+const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
+
+async function handleApi(req, res, { backend, market, app, signals, port, folders }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -75,6 +78,19 @@ async function handleApi(req, res, { backend, market, app, signals, port }, url)
   }
 
   // Signals page: the webhook addresses (this PC for MT5, the desktop app's public link for TradingView)
+  // Script folders for Claude: where they are (brought up to date first); the desktop app can open them
+  if (req.method === 'GET' && url.pathname === '/api/scripts/folders') {
+    return send(res, 200, { ...(await folders.sync()), canOpen: !!app?.openScriptsFolder });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/scripts/open') {
+    const { id } = JSON.parse((await readBody(req, 2000)).toString('utf8') || '{}');
+    const { scripts, root: dir } = await folders.sync();
+    const target = id ? scripts.find((s) => s.id === id)?.dir : dir;
+    if (!target || !app?.openScriptsFolder) return send(res, 400, { error: 'Open the folder from the desktop app' });
+    const failed = await app.openScriptsFolder(target);
+    return failed ? send(res, 500, { error: failed }) : send(res, 200, { ok: true });
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/signals/config') {
     const tunnel = app?.tunnel ? app.tunnel.status() : { available: false };
     return send(res, 200, { key: signals.key(), localUrl: `http://127.0.0.1:${port()}/hook/${signals.key()}`, tunnel });
@@ -105,6 +121,7 @@ async function handleApi(req, res, { backend, market, app, signals, port }, url)
     const result = await backend.handle(kind, ...list);
     // Copy trading actions taken in the app (script dropped on a group, account moved, reset...) also go in the log file
     if (kind === 'entity' && list[0] === 'CopyEvent' && list[1] === 'create' && list[2]?.message) app?.log?.(`copy ${list[2].kind || 'setup'}: ${list[2].message}`);
+    if (kind === 'entity' && FOLDER_ENTITIES.has(list[0]) && !['get', 'filter', 'list', 'count', 'aggregate'].includes(list[1])) folders.syncSoon();
     return send(res, 200, { result: result === undefined ? null : result });
   }
 
@@ -165,6 +182,10 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   });
 
   const entityDb = { run: (...a) => backend.handle('entity', ...a) };
+  // A folder per script next to the logs (desktop app) or in the data folder, for Claude's context
+  const folders = createScriptFolders({ root: app?.scriptsDir?.() || path.join(dataDir, 'scripts'), db: entityDb, log: app?.log });
+  backend.setFolders(folders);
+  folders.syncSoon(300);
   const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier: createCopier({ db: entityDb, log: app?.log }) });
   const server = http.createServer();
   const boundPort = () => server.address()?.port;
@@ -189,6 +210,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
         const body = (await readBody(req, 4000)).toString('utf8');
         const host = String(req.headers.host || '').replace(/:\d+$/, '');
         const saved = await signals.receive(body, { userAgent: String(req.headers['user-agent'] || ''), local: LOCAL_HOSTS.has(host) && !req.headers['cf-connecting-ip'], scriptId: hook[2] });
+        folders.syncSoon();
         return send(res, 200, { ok: true, id: saved.id });
       } catch (e) {
         app?.log?.(`signal rejected: ${e.message}`);
@@ -197,7 +219,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);

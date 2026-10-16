@@ -29,7 +29,10 @@ TradingView webhooks need a paid TradingView plan with two-factor login. Only `/
 link. QuantBot doesn't place orders itself: Lucid and other prop accounts can't be traded through Tradovate's API.
 
 Copy trading (the Copy trading page, `/accounts`): add your scripts, add accounts, make groups, then drag a script onto
-a group. Each script has its own webhook address, `/hook/<key>/s/<script id>` (alerts to the plain address are matched
+a group. The page opens on an overview of the groups (script, P&L, trades made / max, passed / failed / current);
+click one to open it (its script, stats, top accounts and latest trades). A group runs one script, so an account
+never holds two scripts' trades: dropping a different script asks to replace it (clearing the old one and its open
+trades) or keep it, and the copier also skips a signal for an account that still holds another script's trade. Each script has its own webhook address, `/hook/<key>/s/<script id>` (alerts to the plain address are matched
 by the strategy name). Every buy / sell is copied to each active account in the script's groups, on paper at the
 alert's price: sized so the stop risks the account's "risk per trade" (default 15% of the plan's max loss, $300 on a
 Lucid 50K), else the script's quantity x the account's Qty. Set SL / TP moves follow, and a close (or the opposite
@@ -46,7 +49,12 @@ Everything copy trading does goes into an activity log (`CopyEvent`, the newest 
 (`risk $300 / (4 stop x $10) = 7; risking $280.00`), skips and why (group paused, max trades reached, account failed,
 one contract over the risk, no open trade to close, event types that aren't copied), fills, SL / TP moves, closes with
 P&L, XP and balance, max-loss floor moves, rank-ups, pass / fail, orders sent to order URLs (and failures), and setup
-done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Below the accounts,
+done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Scripts are written with Claude only: each has its own chat (Open its Claude chat) that always uses Claude and
+saves every new version Claude writes as the script's code. Each script also has a folder next to QuantBot's logs
+(`<install folder>/scripts/<script>/`, or `data/scripts/` from source) with `CLAUDE.md` (where it trades, results,
+recent warnings, your notes), the code, `activity.log`, `trades.csv`, `summary.json` and `notes.md`; QuantBot
+rewrites them as things happen (`server/scriptFolders.js`) and reads your edits to `notes.md` back, so Claude Code or
+Claude Desktop pointed at the folder has the full context. Below the accounts,
 **Activity log** filters it (trades, signals, skips & warnings, ranks & pass / fail, orders, setup, by account, script
 or text; click a line for its details) and **Evaluate** shows net P&L, win rate, profit factor, P&L per trade, average
 win / loss, max drawdown, best / worst, average hold and an equity curve, with tables by script, account, group, exit

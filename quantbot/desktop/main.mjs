@@ -56,6 +56,9 @@ const logDir = () => {
   return (logsDir = userData());
 };
 const logFile = () => path.join(logDir(), 'quantbot.log');
+// Script folders for Claude sit next to the logs folder ("scripts"). QuantBot rebuilds them from its data at start,
+// so an update replacing the install folder loses nothing (your notes.md are kept in QuantBot's data too).
+const scriptsDir = () => (path.basename(logDir()) === 'logs' ? path.join(path.dirname(logDir()), 'scripts') : path.join(logDir(), 'scripts'));
 const logBackup = () => path.join(userData(), 'quantbot.log'); // also where older versions kept the log
 const LOG_MAX = 5 * 1024 * 1024;
 const log = (msg) => {
@@ -182,6 +185,13 @@ const tunnel = createTunnel({
 const hooks = {
   heartbeat() {},
   log,
+  scriptsDir,
+  // Opens a script's folder (only inside the scripts folder) in File Explorer; '' when it opened
+  openScriptsFolder(dir) {
+    const rel = path.relative(scriptsDir(), path.resolve(dir));
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return 'Not a script folder';
+    return shell.openPath(dir);
+  },
   tunnel: {
     status: tunnel.status,
     async start() { hooks.setPrefs({ tunnel: true }); return tunnel.start(); },

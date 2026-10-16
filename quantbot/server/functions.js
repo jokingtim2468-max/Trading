@@ -7,10 +7,21 @@ import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
 import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
+import { codeFromReply } from './scriptFolders.js';
 
 const fail = (message) => { throw new Error(message); };
 
-export function createFunctions({ db, user, keys, market }) {
+// System prompt part for a script's own Claude chat: its folder context and current code
+function scriptBrief(script, context) {
+  return [
+    `LINKED SCRIPT: this chat writes and changes the copy trading script "${script.name}" (${script.language}). Its accounts copy the script's QuantBot signal alerts, so keep every buy / sell / set_sl / set_tp / close message in the code.`,
+    'When you change it, reply with the whole script in ONE code block: QuantBot saves it as the script\'s new code and in its folder. Use the copy_trading_* tools for its live results, log and trades before changing it, and say what evidence a change is based on.',
+    context ? `Script folder (CLAUDE.md):\n${context.slice(0, 6000)}` : '',
+    script.code ? `Current code:\n\`\`\`${script.language === 'MT5' ? 'mql5' : 'pine'}\n${script.code.slice(0, 30000)}\n\`\`\`` : 'No code yet: write the first version.',
+  ].filter(Boolean).join('\n\n');
+}
+
+export function createFunctions({ db, user, keys, market, folders = () => null }) {
   const chatTools = createChatTools({ db, market });
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   function pickModel(model) {
@@ -68,18 +79,28 @@ export function createFunctions({ db, user, keys, market }) {
     async quantChat({ session_id, style, model }) {
       const session = db.run('ChatSession', 'get', session_id);
       const recent = db.run('ChatMessage', 'filter', { session_id }, { sort: '-created_date', limit: 20 }).items.reverse();
-      const system = chatSystem(session.group, style, user.me().full_name, {
-        linked: session.bot_name ? chatTools.testBrief(session.bot_name) : '',
-        today: new Date().toISOString().slice(0, 10),
-      });
-      const reply = String(await ask(model, system, toTurns(chatHistory(recent)), 16000, chatTools));
+      // A copy trading script's chat: Claude only, with the script's folder context (CLAUDE.md) and code
+      let script = null;
+      if (session.script_id) { try { script = db.run('Script', 'get', session.script_id); } catch { /* script deleted */ } }
+      if (script && !keys.get('anthropic')) fail('Scripts are written with Claude only. Add your Anthropic (Claude) API key in Settings.');
+      const useModel = script && !String(model || '').startsWith('claude-') ? user.me().default_claude_model || DEFAULT_MODELS.anthropic : model;
+      const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
+      const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10) });
+      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent)), 16000, chatTools));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       db.run('ChatSession', 'update', session_id, {
         last_message_at: new Date().toISOString(),
-        ...(name && name !== session.title ? { title: name } : {}),
+        ...(!script && name && name !== session.title ? { title: name } : {}),
       });
-      return { message };
+      // New code in the reply becomes the script's code (and its folder's script file)
+      const found = script && codeFromReply(reply);
+      if (found && found.code !== script.code) {
+        db.run('Script', 'update', script.id, { code: found.code, language: found.language });
+        db.run('CopyEvent', 'create', { kind: 'setup', level: 'info', script_id: script.id, message: `Claude updated ${script.name} (${found.language}, ${found.code.split('\n').length} lines)` });
+        folders()?.syncSoon(200);
+      }
+      return { message, script_updated: !!found };
     },
 
     async strategyTester(body) {

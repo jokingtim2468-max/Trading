@@ -19,6 +19,10 @@
       "type": "string",
       "format": "date-time",
       "description": "Time of the latest message"
+    },
+    "script_id": {
+      "type": "string",
+      "description": "Copy trading script this chat writes (Claude only)"
     }
   },
   "required": [

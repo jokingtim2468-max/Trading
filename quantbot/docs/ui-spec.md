@@ -63,30 +63,23 @@ Drop this file into your Obsidian vault. It mirrors what the code does; the sour
   "opens in / closes in"; MT5 server time; a note during the London / New York overlap) and **Last test** (bot, market,
   latest net, link to Test history; or how to start with the Converter).
 
-## Motion: grow from the click (pop-ups) or the middle (pages)
+## Motion: simple fades and short slides
 
-- **Pages** grow out of the middle of the window and shrink back into it.
-- **Dialogs, menus, pickers, popovers, toasts** grow out of the spot that was clicked and shrink back into it.
+Nothing grows or zooms any more. Everything fades with a short slide.
+- **Timing:** 200 ms, easing `cubic-bezier(0.25, 0.1, 0.25, 1)`. These are Tailwind's `duration-pop` and `ease-pop`;
+  `MOTION` lives in `src/lib/clickOrigin.js`.
 
-Everything that opens from a click uses one motion.
-
-- **Open:** grows from 5% size and fully transparent to full size, starting at the spot that was clicked.
-- **Close:** shrinks back to 5% and fades out, into the same spot it came from. That is the spot clicked to open it,
-  not the close button.
-- **Timing:** 400 ms (slowed to 0.75x from 300 ms so the growth is easy to follow and doesn't feel abrupt), easing
-  `cubic-bezier(0.2, 0.8, 0.2, 1)` (Tailwind `duration-pop` and `ease-pop`).
-- **Backdrops** behind dialogs fade in and out over the same 400 ms.
-
-| Element | Grows from |
+| Element | Motion |
 |---|---|
-| Pages (sidebar links, back arrows) | the exact click point |
-| Dialogs (add account, add market data, groups) | the exact click point |
-| Delete-chat confirmation | the exact click point |
-| Toasts (e.g. "Message failed") | the click that led to them (up to a minute before) |
-| Mobile sidebar | the menu button tap |
-| Dropdown menus, selects, market picker | the button that opened them (Radix anchor origin) |
-| Tooltips | not animated this way (they open on hover, not a click) |
-| Date fields | the browser's own date picker, which can't be animated |
+| Pages | fade in sliding up 12 px; fade out sliding up 6 px |
+| Dialogs and confirmations | fade in while rising slightly (from 48% to 50% of the window); backdrop fades |
+| Dropdown menus, selects, popovers | fade, sliding 4 px away from the button that opened them |
+| Toasts | fade in sliding up from the bottom edge; fade out sliding right |
+| Phone sidebar | slides in from the left edge and fades; slides back out |
+| Copy trading: opening a group | the group fades in sliding from the right; "All groups" slides the overview back in from the left |
+| Desktop app opening | the page fades in sliding up 10 px (300 ms) |
+| Pressed buttons | fade to 75% while held (no size change) |
+| Settings > Motion "Reduced" | everything appears straight away |
 
 ## Numbers and charts
 
@@ -122,10 +115,22 @@ Everything that opens from a click uses one motion.
 - **Scripts panel:** card with a trophy icon (chart-4 yellow), "Add script" outline button, and the scripts ranked by
   XP (1, 2, 3... in muted numbers). Each row: rank picture (40 px), name, "<tier> · <xp> XP · <n> trades · <P&L>"
   (P&L green / red), "Trading <groups>" or "Not on a group", a pencil and a grip. Rows are dragged onto a group.
-- **Group overview** (selected group tab): title "<group>: n accounts", and on the right the **script slot**, a
-  rounded box with a dashed border reading "Drag a script here" (file icon). While a script is dragged the slot's
-  border turns primary; hovering it shows a 2 px primary ring and a primary/10 fill. With a script it shows the
-  script's picture, name, tier and XP and an X to take it off.
+- **Groups overview** (top card): "Groups" with a grid of group cards (1 / 2 / 3 per row) and a dashed "New group"
+  card. Each group card shows its name, Futures / MT5 pill, Paused, a chevron, then the **script** (24 px ranked
+  picture, name, the script's P&L in this group), a full-width **P&L** row (profit green over loss red on the left,
+  total on the right), **Trades made** "20/100", **Passed · Failed · Current**, and up to 7 account pictures.
+  Cards are drop targets for accounts and scripts (2 px primary ring while hovered); cards an account can't join
+  fade to 40%.
+- **Group view** (click a card): "← All groups", the name, account count and the ••• menu (rename, pause, delete).
+  Then **Script**: the script's card (44 px picture, rank, XP, its P&L, trades and win rate here, X to take it off)
+  next to the dashed **script slot** ("Drag a script here" / "Drag a different script here to replace it"),
+  highlighted primary while a script is dragged.
+- **One script per account:** dropping a different script on a group, or moving an account with an open trade into
+  a group running another script, asks "There is already one on this account" with **Keep <script>** (outline)
+  and **Yes, replace it** (primary). Replacing clears the old script and its open trades from those accounts.
+- **Top accounts** (trophy icon): the group's accounts best first by gain, with 1st / 2nd / 3rd places in gold,
+  silver and bronze circles (one account shows without a place). Each row has a picture, name, tier, balance, gain,
+  status, risk or Qty, and an X to take the account out.
 - **Three stat cards** (rounded-xl, background/60, small uppercase muted labels):
   - **P&L:** profit (green `+$`) over loss (red) in small type on the left, the total large on the right (green if up,
     red if down).
@@ -136,8 +141,13 @@ Everything that opens from a click uses one motion.
   (Current muted, Passed green border, Failed red border) and "Risk $300" or a Qty field.
 - **Latest trades:** up to 8 rows: trader, "Buy 7 MGC1!" (green) / "Sell..." (red), entry -> exit, P&L, "+50 XP".
 - **Account cards:** 46 px rank picture, random trader name (e.g. "Crimson Falcon") in medium weight, then
-  "<account name> · <login> on <server>", then "<tier> · into/need XP"; balance with the change since the start, and a
-  Passed / Failed pill.
+  "<account name> · <login> on <server>", then "<tier> · into/need XP"; the **script** it trades (file icon in
+  primary, or "No script: add it to a group"), balance with the change since the start, and a Passed / Failed pill.
+- **Accounts card:** platform tabs, Sort, Add account, then filter chips "All accounts", "Not in a group" (a drop
+  target to take an account out) and "In <group>" while a group is open.
+- **Script dialog:** name, language, a primary-tinted "Written with Claude" box with **Open its Claude chat** (or
+  "Save and write it with Claude"), the code, **Its folder (for Claude)** with the path and an Open folder button
+  (desktop app), and the script's webhook addresses.
 - **Add account dialog:** 56 px picture, "Trader name" field with a dice button (new random name and picture),
   then name, login (optional for TradingView), platform, and a "Copy trading" box: Account rules (LucidPro 25K / 50K /
   100K / 150K, Custom, Just track it), Risk per trade, Order URL.
@@ -149,8 +159,10 @@ Everything that opens from a click uses one motion.
   - Evaluate: 8 stat tiles, 4 per row (Net P&L, Win rate, Profit factor, Per trade, Avg win / loss, Max drawdown,
     Best / worst, Avg hold), a 180 px primary equity area chart, then tables By script, By account, By group, By exit
     and Longs vs shorts; **Export trades CSV** top right.
-- **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. Tabs the dragged
-  item can't go to fade to 40%.
+- **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. The page only
+  auto-scrolls when dragging into the outer 10% of the window.
+- **No wrapping:** numbers, labels and table cells stay on one line (they truncate); activity lines show one line and
+  the full text when clicked; Evaluate tiles hold one value each, 5 per row.
 
 ### Rank pictures and tier rings
 

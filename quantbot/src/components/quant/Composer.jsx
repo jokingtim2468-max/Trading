@@ -6,7 +6,9 @@ import { MODELS } from '@/lib/models';
 const STYLES = ['Concise', 'Code only'];
 const triggerCls = 'h-8 w-auto gap-2 border-border bg-transparent text-xs text-muted-foreground';
 
-export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange }) {
+// claudeOnly: a copy trading script's chat, which only Claude writes
+export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange, claudeOnly = false }) {
+  const models = claudeOnly ? MODELS.filter((m) => m.provider === 'anthropic') : MODELS;
   const [text, setText] = useState('');
 
   const submit = () => {
@@ -37,7 +39,7 @@ export default function Composer({ onSend, disabled, style, onStyleChange, model
             <Select value={model} onValueChange={onModelChange}>
               <SelectTrigger className={triggerCls}><SelectValue /></SelectTrigger>
               <SelectContent>
-                {MODELS.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
+                {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

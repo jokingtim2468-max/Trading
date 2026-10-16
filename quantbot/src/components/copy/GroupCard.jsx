@@ -38,18 +38,21 @@ export default function GroupCard({ group, accounts, trades, scripts, over, drop
         )) : <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><FileCode2 className="w-3.5 h-3.5" />No script yet: drag one here</p>}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-card/60 py-1.5 min-w-0">
-          <p className={`text-sm font-semibold tabular-nums truncate ${st.pnl > 0 ? 'text-emerald-400' : st.pnl < 0 ? 'text-red-400' : ''}`}>{signedMoney(st.pnl)}</p>
-          <p className="text-[10px] text-muted-foreground whitespace-nowrap"><span className="text-emerald-400">{money(st.profit)}</span> / <span className="text-red-400">{money(st.loss)}</span></p>
+      <div className="rounded-lg bg-card/60 px-3 py-2 flex items-center gap-3" data-testid="card-pnl">
+        <div className="text-[11px] leading-4 tabular-nums whitespace-nowrap">
+          <p className="text-emerald-400">{signedMoney(st.profit)}</p>
+          <p className="text-red-400">{money(st.loss)}</p>
         </div>
+        <p className={`ml-auto text-lg font-semibold tabular-nums whitespace-nowrap ${st.pnl > 0 ? 'text-emerald-400' : st.pnl < 0 ? 'text-red-400' : ''}`}>{signedMoney(st.pnl)}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-center">
         <div className="rounded-lg bg-card/60 py-1.5">
           <p className="text-sm font-semibold tabular-nums">{st.made}<span className="text-muted-foreground">/{st.max}</span></p>
-          <p className="text-[10px] text-muted-foreground">Trades</p>
+          <p className="text-[10px] text-muted-foreground">Trades made</p>
         </div>
         <div className="rounded-lg bg-card/60 py-1.5">
-          <p className="text-sm font-semibold tabular-nums"><span className="text-emerald-400">{st.passed}</span>·<span className="text-red-400">{st.failed}</span>·{st.current}</p>
-          <p className="text-[10px] text-muted-foreground whitespace-nowrap">Pass · Fail · Live</p>
+          <p className="text-sm font-semibold tabular-nums"><span className="text-emerald-400">{st.passed}</span> · <span className="text-red-400">{st.failed}</span> · {st.current}</p>
+          <p className="text-[10px] text-muted-foreground whitespace-nowrap">Passed · Failed · Current</p>
         </div>
       </div>
 

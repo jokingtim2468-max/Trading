@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
-import { missingKey, knownModel } from '@/lib/models';
+import { missingKey, knownModel, DEFAULT_MODELS } from '@/lib/models';
 import { useToast } from '@/components/ui/use-toast';
 import QuantSidebar from '@/components/quant/QuantSidebar';
 import ChatHeader from '@/components/quant/ChatHeader';
@@ -36,7 +36,10 @@ export default function QuantChat() {
   useEffect(() => { refreshSessions(); }, [refreshSessions]);
 
   const session = sessions.find((s) => s.id === activeId) || null;
-  const missing = missingKey(model, keyStatus);
+  // A copy trading script's chat is Claude only
+  const claudeOnly = !!session?.script_id;
+  const chatModel = claudeOnly && !String(model).startsWith('claude-') ? knownModel(user?.default_claude_model, DEFAULT_MODELS.anthropic) : model;
+  const missing = missingKey(chatModel, keyStatus);
   const needsKey = !!missing;
 
   const changeModel = (m) => { setModel(m); localStorage.setItem('quant_model', m); };
@@ -70,7 +73,7 @@ export default function QuantChat() {
     const userMsg = await api.addUserMessage(id, text);
     setMessages((m) => [...m, userMsg]);
     try {
-      const reply = await api.askQuantAI(id, style, model);
+      const reply = await api.askQuantAI(id, style, chatModel);
       setMessages((m) => [...m, reply]);
     } catch (e) {
       toast({ title: 'Message failed', description: e.response?.data?.error || e.message, variant: 'destructive' });
@@ -133,7 +136,7 @@ export default function QuantChat() {
         <MessageQueue queue={queue} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
         <Composer
           onSend={submit} disabled={needsKey}
-          style={style} onStyleChange={setStyle} model={model} onModelChange={changeModel}
+          style={style} onStyleChange={setStyle} model={chatModel} onModelChange={changeModel} claudeOnly={claudeOnly}
         />
       </main>
     </div>

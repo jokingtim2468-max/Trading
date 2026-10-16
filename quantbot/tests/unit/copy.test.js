@@ -8,6 +8,7 @@ import { createCipher } from '../../server/crypto.js';
 import { createBackend, entityDefaults } from '../../server/backend.js';
 import { createCopier, orderMessage } from '../../server/copier.js';
 import { createChatTools } from '../../server/lib/chatTools.js';
+import { createScriptFolders, codeFromReply, slug } from '../../server/scriptFolders.js';
 import { startServer } from '../../server/index.js';
 import {
   xpForTrade, levelFromXp, tierOf, pointValue, randomName, applyClose, nyDay, evaluate, PLANS, ACCOUNT_STEP, SCRIPT_STEP,
@@ -215,5 +216,52 @@ describe('one trade per account', () => {
     assert.equal((await db.run('AccountTrade', 'filter', { account_id: acc.id })).length, 1);
     const skip = (await db.run('CopyEvent', 'filter', { kind: 'skip' }))[0];
     assert.match(skip.message, /Swift Fox skipped sell MNQ1!: there is already a A long on MGC1! on this account \(one trade per account\)/);
+  });
+});
+
+describe('script folders for Claude', () => {
+  test('each script gets CLAUDE.md, its code, activity.log, trades.csv, summary.json and notes.md; your notes are kept', async () => {
+    const dir = tmp();
+    const db = dbIn(dir);
+    const root = path.join(dir, 'scripts');
+    const folders = createScriptFolders({ root, db });
+    const copier = createCopier({ db });
+    const script = await db.run('Script', 'create', { name: 'Gold Breakout!', language: 'Pine', code: '//@version=5' });
+    const g = await db.run('CopyGroup', 'create', { name: 'Squad', platform: 'Futures', script_ids: [script.id] });
+    await db.run('TradingAccount', 'create', lucid50({ label: 'L1', display_name: 'Swift Fox', group_id: g.id }));
+    await copier.onSignal({ event: 'buy', symbol: 'MGC1!', price: 2400, sl: 2396, strategy: 'Gold Breakout!' });
+    await copier.onSignal({ event: 'close', symbol: 'MGC1!', price: 2404, reason: 'tp', strategy: 'Gold Breakout!' });
+    const out = await folders.sync();
+    const sd = path.join(root, 'gold-breakout');
+    assert.equal(out.scripts[0].dir, sd);
+    assert.deepEqual(fs.readdirSync(sd).sort(), ['CLAUDE.md', 'activity.log', 'notes.md', 'script.pine', 'summary.json', 'trades.csv']);
+    const md = fs.readFileSync(path.join(sd, 'CLAUDE.md'), 'utf8');
+    assert.match(md, /# Gold Breakout!/);
+    assert.match(md, /Group Squad: 1\/100 trades made/);
+    assert.match(md, /Swift Fox \(L1, TradingView\): active, balance \$50,280\.00/);
+    assert.match(md, /1 closed trades \(0 open\): net \$280\.00/);
+    assert.match(fs.readFileSync(path.join(sd, 'activity.log'), 'utf8'), /open   Swift Fox: Swift Fox bought 7 MGC1!/);
+    assert.match(fs.readFileSync(path.join(sd, 'trades.csv'), 'utf8'), /,Swift Fox,Squad,,MGC1!,long,7,2400,2396,,2404,280,50,tp,closed,/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(sd, 'summary.json'), 'utf8')).overall.net, 280);
+    assert.match(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'), /gold-breakout\/: Gold Breakout! \(Pine, 1 trades, \$280\.00\)/);
+    // Your notes go back into QuantBot and survive a rebuilt folder
+    fs.writeFileSync(path.join(sd, 'notes.md'), 'Try a 2h max hold');
+    await folders.sync();
+    assert.equal((await db.run('Script', 'get', script.id)).notes, 'Try a 2h max hold');
+    fs.rmSync(root, { recursive: true });
+    await createScriptFolders({ root, db }).sync();
+    assert.equal(fs.readFileSync(path.join(sd, 'notes.md'), 'utf8'), 'Try a 2h max hold');
+    assert.match(fs.readFileSync(path.join(sd, 'CLAUDE.md'), 'utf8'), /## Trader notes\nTry a 2h max hold/);
+    // A deleted script's folder goes
+    await db.run('Script', 'delete', script.id);
+    await folders.sync();
+    assert.ok(!fs.existsSync(sd));
+  });
+
+  test('code in a reply and folder names', () => {
+    assert.deepEqual(codeFromReply('x\n```pine\n//@version=5\nplot(close)\n```'), { code: '//@version=5\nplot(close)', language: 'Pine' });
+    assert.equal(codeFromReply('```mql5\nvoid OnTick(){}\n```').language, 'MT5');
+    assert.equal(codeFromReply('no code'), null);
+    assert.equal(slug('Gold: London/NY v2!'), 'gold-london-ny-v2');
   });
 });
