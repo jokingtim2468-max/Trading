@@ -25,6 +25,30 @@
  },
  {
   "rank": 3,
+  "script": "SMC Sniper Pro",
+  "version": "Model 3 CISD, Lucid rules (1h cap)",
+  "risk": "$150",
+  "trades": 687,
+  "win": 49.8,
+  "pf": 1.0,
+  "net": 122,
+  "maxdd": 4280,
+  "per_week": 0.2
+ },
+ {
+  "rank": 4,
+  "script": "SMC Sniper Pro",
+  "version": "Model 1 IFVG, Lucid rules (1h cap)",
+  "risk": "$150",
+  "trades": 482,
+  "win": 46.9,
+  "pf": 1.0,
+  "net": -30,
+  "maxdd": 2561,
+  "per_week": -0.1
+ },
+ {
+  "rank": 5,
   "script": "TradeX QuantORB",
   "version": "V3.1 as written",
   "risk": "$500",
@@ -36,7 +60,31 @@
   "per_week": -0.7
  },
  {
-  "rank": 4,
+  "rank": 6,
+  "script": "SMC Sniper Pro",
+  "version": "Model 3 CISD, script rules",
+  "risk": "$150",
+  "trades": 679,
+  "win": 42.9,
+  "pf": 0.97,
+  "net": -1476,
+  "maxdd": 6545,
+  "per_week": -2.8
+ },
+ {
+  "rank": 7,
+  "script": "SMC Sniper Pro",
+  "version": "Model 1 IFVG, script rules",
+  "risk": "$150",
+  "trades": 481,
+  "win": 43.5,
+  "pf": 0.94,
+  "net": -1860,
+  "maxdd": 3456,
+  "per_week": -3.6
+ },
+ {
+  "rank": 8,
   "script": "TradeX QuantORB",
   "version": "V3.1 script rules",
   "risk": "$150",
@@ -48,7 +96,31 @@
   "per_week": -5.7
  },
  {
-  "rank": 5,
+  "rank": 9,
+  "script": "SMC Sniper Pro",
+  "version": "Model 2 MSS+EQ, script rules",
+  "risk": "$150",
+  "trades": 138,
+  "win": 32.6,
+  "pf": 0.71,
+  "net": -3345,
+  "maxdd": 3823,
+  "per_week": -6.4
+ },
+ {
+  "rank": 10,
+  "script": "SMC Sniper Pro",
+  "version": "Model 2 MSS+EQ, Lucid rules (1h cap)",
+  "risk": "$150",
+  "trades": 137,
+  "win": 34.3,
+  "pf": 0.62,
+  "net": -3530,
+  "maxdd": 3943,
+  "per_week": -6.8
+ },
+ {
+  "rank": 11,
   "script": "TradeX QuantORB",
   "version": "V4.1 Lucid rules (1h cap)",
   "risk": "$150",
@@ -60,7 +132,7 @@
   "per_week": -11.4
  },
  {
-  "rank": 6,
+  "rank": 12,
   "script": "TradeAxis DOL",
   "version": "as written (pool clogs, few signals)",
   "risk": "$150",
@@ -72,7 +144,7 @@
   "per_week": -14.0
  },
  {
-  "rank": 7,
+  "rank": 13,
   "script": "TradeX QuantORB",
   "version": "V3.1 Lucid rules (1h cap)",
   "risk": "$150",
@@ -84,7 +156,7 @@
   "per_week": -17.6
  },
  {
-  "rank": 8,
+  "rank": 14,
   "script": "iFVG Ultimate+",
   "version": "script lines (BE, no target)",
   "risk": "$150",
@@ -96,7 +168,7 @@
   "per_week": -27.4
  },
  {
-  "rank": 9,
+  "rank": 15,
   "script": "iFVG Ultimate+",
   "version": "+ 2R target",
   "risk": "$150",
@@ -108,7 +180,7 @@
   "per_week": -35.9
  },
  {
-  "rank": 10,
+  "rank": 16,
   "script": "TBR Sessions",
   "version": "B: sweep reversal",
   "risk": "$150",
@@ -120,7 +192,7 @@
   "per_week": -78.9
  },
  {
-  "rank": 11,
+  "rank": 17,
   "script": "TBR Sessions",
   "version": "A: 0.618 Fib line",
   "risk": "$150",
@@ -132,7 +204,7 @@
   "per_week": -79.1
  },
  {
-  "rank": 12,
+  "rank": 18,
   "script": "TradeAxis DOL",
   "version": "dead-level bug fixed",
   "risk": "$150",

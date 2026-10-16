@@ -90,16 +90,22 @@ instead fills at the next 1-minute open and checks exits minute by minute.
 |---|---|---|---|---|---|
 | 1 | TradeX QuantORB | V4.1 as written | $500 | +$26,798 | $29,128 |
 | 2 | TradeX QuantORB | V4.1 script rules | $150 | +$2,754 | $7,792 |
-| 3 | TradeX QuantORB | V3.1 as written | $500 | −$386 | $46,530 |
-| 4 | TradeX QuantORB | V3.1 script rules | $150 | −$2,984 | $14,056 |
-| 5 | TradeX QuantORB | V4.1 Lucid rules | $150 | −$5,912 | $10,734 |
-| 6 | TradeAxis DOL | as written (clogs, few trades) | $150 | −$7,261 | $7,261 |
-| 7 | TradeX QuantORB | V3.1 Lucid rules | $150 | −$9,134 | $15,086 |
-| 8 | iFVG Ultimate+ | script lines | $150 | −$14,216 | $15,182 |
-| 9 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
-| 10 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
-| 11 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
-| 12 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
+| 3 | SMC Sniper Pro | Model 3 CISD, Lucid rules (1h cap) | $150 | +$122 | $4,280 |
+| 4 | SMC Sniper Pro | Model 1 IFVG, Lucid rules (1h cap) | $150 | −$30 | $2,561 |
+| 5 | TradeX QuantORB | V3.1 as written | $500 | −$386 | $46,530 |
+| 6 | SMC Sniper Pro | Model 3 CISD, script rules | $150 | −$1,476 | $6,545 |
+| 7 | SMC Sniper Pro | Model 1 IFVG, script rules | $150 | −$1,860 | $3,456 |
+| 8 | TradeX QuantORB | V3.1 script rules | $150 | −$2,984 | $14,056 |
+| 9 | SMC Sniper Pro | Model 2 MSS+EQ, script rules | $150 | −$3,345 | $3,823 |
+| 10 | SMC Sniper Pro | Model 2 MSS+EQ, Lucid rules (1h cap) | $150 | −$3,530 | $3,943 |
+| 11 | TradeX QuantORB | V4.1 Lucid rules (1h cap) | $150 | −$5,912 | $10,734 |
+| 12 | TradeAxis DOL | as written (pool clogs, few signals) | $150 | −$7,261 | $7,261 |
+| 13 | TradeX QuantORB | V3.1 Lucid rules (1h cap) | $150 | −$9,134 | $15,086 |
+| 14 | iFVG Ultimate+ | script lines (BE, no target) | $150 | −$14,216 | $15,182 |
+| 15 | iFVG Ultimate+ | + 2R target | $150 | −$18,632 | $19,774 |
+| 16 | TBR Sessions | B: sweep reversal | $150 | −$40,977 | $41,153 |
+| 17 | TBR Sessions | A: 0.618 Fib line | $150 | −$41,073 | $42,014 |
+| 18 | TradeAxis DOL | dead-level bug fixed | $150 | −$189,735 | $189,895 |
 
 ## QuantORB on the newest week: 2026-10-05 → 2026-10-09 – `orb_week.py`
 Data: real NQ=F 1-minute bars from Yahoo Finance (CME), saved in `results/orb_week/`. Each day has a full 390-bar
@@ -120,3 +126,26 @@ regular session and there are no bad jumps. Same port, fills and costs as the 10
   * The long at 10:20 went to break-even (−$3).
   * At $150 risk the V4.1 stop (~106 points = $212 per micro) is larger than the risk budget, so it was skipped.
 * **Sample size:** two trades in one week say nothing statistically about the strategy either way.
+
+## SMC Sniper Pro – Quant Flow Labs – `smc_sim.py`
+Exact port of all three models with the default filters (2 of 3 HTF biases, fresh 1H FVG) and the Fixed-RR bracket:
+entry at the signal close, stop at the sweep extreme ± 0.25 ATR, 2R target. Only regular-hours signals are traded
+(09:30–15:50), at $150 risk.
+
+Quirks of the script, kept in the port:
+* The MSS check runs for every model. Model 1 therefore also fires on MSS, and Model 3 loses setups when MSS comes
+  first.
+* Once a setup reaches stage 2, Model 1 has no expiry.
+
+| Version | Trades | Win % | PF | Net P&L | Max drawdown |
+|---|---|---|---|---|---|
+| Model 1 IFVG, script rules | 481 | 43.5 | 0.94 | −$1,860 | $3,456 |
+| Model 1 IFVG, Lucid rules | 482 | 46.9 | 1.00 | −$30 | $2,561 |
+| Model 2 MSS+EQ, script rules | 138 | 32.6 | 0.71 | −$3,345 | $3,823 |
+| Model 2 MSS+EQ, Lucid rules | 137 | 34.3 | 0.62 | −$3,530 | $3,943 |
+| Model 3 CISD, script rules | 679 | 42.9 | 0.97 | −$1,476 | $6,545 |
+| Model 3 CISD, Lucid rules | 687 | 49.8 | 1.00 | +$122 | $4,280 |
+
+* **Filters leave few trades:** the bias and HTF-FVG filters allow about 50–75 regular-hours trades per year.
+* **No edge:** every model is flat to negative over 10 years. The best, Model 3 under Lucid rules, made +$122 in total.
+* **Drawdowns:** every version had drawdowns well above the $1,000 Lucid limit.

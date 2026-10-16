@@ -24,6 +24,11 @@ for k in ("V4.1 as written", "V4.1 script $150", "V4.1 Lucid", "V3.1 as written"
     risk = "$500" if "as written" in k else "$150"
     rows.append(("TradeX QuantORB", k.replace("script $150", "script rules").replace("Lucid", "Lucid rules (1h cap)"),
                  risk, orb[k]["overall"]))
+smc = j("smc/smc_summary.json")
+for m in ("Model 1 IFVG", "Model 2 MSS+EQ", "Model 3 CISD"):
+    for acct in ("script rules", "Lucid rules"):
+        rows.append(("SMC Sniper Pro", f"{m}, {acct}" + (" (1h cap)" if acct == "Lucid rules" else ""), "$150",
+                     smc[f"{m} {acct}"]["overall"]))
 rows.sort(key=lambda r: -r[3]["net"])
 out = []
 for i, (s, v, risk, o) in enumerate(rows, 1):
@@ -42,7 +47,7 @@ BG, GRID, TXT, MUTED = "#131722", "#2a2e39", "#d1d4dc", "#787b86"
 plt.rcParams.update({"axes.facecolor": BG, "figure.facecolor": BG, "axes.edgecolor": GRID, "axes.labelcolor": TXT,
                      "xtick.color": MUTED, "ytick.color": MUTED, "text.color": TXT, "grid.color": GRID,
                      "font.size": 10, "text.parse_math": False})
-fig, ax = plt.subplots(figsize=(13, 7))
+fig, ax = plt.subplots(figsize=(13, 9))
 labels = [f"#{r['rank']}  {r['script']} - {r['version']}  ({r['risk']} risk)" for r in out][::-1]
 vals = [r["net"] for r in out][::-1]
 cols = ["#089981" if v > 0 else "#F23645" for v in vals]
