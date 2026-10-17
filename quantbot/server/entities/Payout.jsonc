@@ -1,0 +1,43 @@
+{
+  "name": "Payout",
+  "type": "object",
+  "description": "Profit taken out of a funded account (auto-withdraw)",
+  "properties": {
+    "account_id": {
+      "type": "string"
+    },
+    "firm": {
+      "type": "string"
+    },
+    "gross": {
+      "type": "number",
+      "description": "Profit withdrawn from the account"
+    },
+    "split": {
+      "type": "number"
+    },
+    "net": {
+      "type": "number",
+      "description": "Your share"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "due",
+        "requested",
+        "paid"
+      ],
+      "default": "due"
+    },
+    "period_from": {
+      "type": "string"
+    },
+    "period_to": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "account_id",
+    "gross"
+  ]
+}

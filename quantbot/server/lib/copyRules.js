@@ -93,6 +93,18 @@ const POINT_VALUES = [
   [/^MGC/, 10], [/^GC/, 100], [/^MNQ/, 2], [/^NQ/, 20], [/^MES/, 5], [/^ES/, 50], [/^MYM/, 0.5], [/^YM/, 5],
   [/^M2K/, 5], [/^RTY/, 50], [/^MCL/, 100], [/^CL/, 1000], [/^(XAUUSD|GOLD)/, 100], [/^(US100|NAS100|USTEC|NDX)/, 1],
 ];
+// The account's own symbol for a signal's symbol: "MGC1!=XAUUSD, MNQ1!=US100.cash" (case and exchange prefix ignored)
+export function mapSymbol(map, symbol) {
+  const bare = (x) => String(x || '').trim().toUpperCase().replace(/^[A-Z_]+:/, '');
+  for (const pair of String(map || '').split(/[,;\n]/)) {
+    const [from, to] = pair.split('=').map((x) => x?.trim());
+    if (from && to && bare(from) === bare(symbol)) return to;
+  }
+  return symbol;
+}
+// Whole contracts for futures, 0.01 lots for MT5
+export const sizeFor = (raw, platform) => (platform === 'MT5' ? Math.floor(raw * 100 + 1e-9) / 100 : Math.floor(raw + 1e-9));
+
 export function pointValue(symbol) {
   const s = String(symbol || '').toUpperCase().replace(/^[A-Z_]+:/, '');
   return POINT_VALUES.find(([re]) => re.test(s))?.[1] ?? 1;

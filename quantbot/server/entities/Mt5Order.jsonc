@@ -1,0 +1,74 @@
+{
+  "name": "Mt5Order",
+  "type": "object",
+  "description": "Orders waiting for an account's MT5 terminal (QuantBot Copier EA polls for them)",
+  "properties": {
+    "account_id": {
+      "type": "string"
+    },
+    "trade_id": {
+      "type": "string",
+      "description": "AccountTrade id"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "open",
+        "modify",
+        "close"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short"
+      ]
+    },
+    "lots": {
+      "type": "number"
+    },
+    "sl": {
+      "type": "number"
+    },
+    "tp": {
+      "type": "number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "done",
+        "failed"
+      ],
+      "default": "pending"
+    },
+    "ticket": {
+      "type": "string"
+    },
+    "fill_price": {
+      "type": "number"
+    },
+    "error": {
+      "type": "string"
+    },
+    "sent_at": {
+      "type": "string"
+    },
+    "done_at": {
+      "type": "string"
+    },
+    "tries": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "account_id",
+    "action"
+  ]
+}

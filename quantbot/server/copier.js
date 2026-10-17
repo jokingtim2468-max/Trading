@@ -2,7 +2,8 @@
 // on. Accounts are traded on paper at the signal's price; an account with an order URL (e.g. TradersPost) also gets
 // the order sent there. Closed trades earn XP for the account and the script, and move the account to passed / failed.
 // Everything that happens is written to the activity log (CopyEvent) and the log file, so a run can be evaluated.
-import { pointValue, xpForTrade, applyClose, nyDay, levelFromXp, tierOf, groupScriptIds, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
+import { pointValue, xpForTrade, applyClose, dayIn, levelFromXp, tierOf, groupScriptIds, mapSymbol, sizeFor, PLANS, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
+import { blackoutAt } from './lib/blackout.js';
 
 const KEEP = 20000;
 const usd = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,7 +28,8 @@ async function defaultForward(url, body) {
   return `${res.status}`;
 }
 
-export function createCopier({ db, log = () => {}, forward = defaultForward }) {
+// news: () => calendar events (server/news.js) for the groups' news blackouts
+export function createCopier({ db, log = () => {}, forward = defaultForward, news = () => [] }) {
   const run = (...a) => db.run(...a);
   let written = 0;
 
@@ -67,6 +69,16 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
     }
   }
 
+  // An order for the account's MT5 terminal (the QuantBot Copier EA polls for it and places it)
+  async function queueMt5(account, action, trade, refs) {
+    if (account.platform !== 'MT5' || !account.mt5_on) return;
+    const order = await run('Mt5Order', 'create', {
+      account_id: account.id, trade_id: trade.id, action, symbol: trade.symbol, side: trade.side, lots: trade.qty,
+      sl: trade.sl ?? null, tp: trade.tp ?? null, status: 'pending', ticket: trade.mt5_ticket || '',
+    });
+    await note('order', `${who(account)}: ${action} ${action === 'open' ? `${trade.side === 'long' ? 'buy' : 'sell'} ${trade.qty} lots ` : ''}${trade.symbol} queued for MT5`, { ...refs, account_id: account.id, trade_id: trade.id }, { mt5_order: order.id, action });
+  }
+
   async function close(account, script, trade, price, reason, at, refs) {
     const dir = trade.side === 'long' ? 1 : -1;
     const points = (price - trade.entry) * dir;
@@ -74,7 +86,8 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
     const xp = xpForTrade(pnl);
     const done = await run('AccountTrade', 'update', trade.id, { exit: price, pnl, xp, reason, status: 'closed', closed_at: at });
     const before = { ...account };
-    const next = applyClose(account, pnl, xp, nyDay(Date.parse(at)));
+    const zone = account.day_zone || PLANS[account.plan]?.dayZone || 'America/New_York';
+    const next = applyClose(account, pnl, xp, dayIn(Date.parse(at), zone));
     await run('TradingAccount', 'update', account.id, next);
     Object.assign(account, next);
     const r = { ...refs, account_id: account.id, trade_id: trade.id };
@@ -87,7 +100,8 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
     if (now.level > was.level) await note('rank', `${who(account)} reached level ${now.level} (${now.name}) with ${next.xp} XP`, r, { from: was, to: now, xp: next.xp });
     if (next.status !== (before.status || 'active')) {
       const why = next.status === 'passed' ? `balance ${usd(next.balance)} reached the target ${usd((Number(account.start_balance) || 0) + (Number(account.target) || 0))}`
-        : `balance ${usd(next.balance)} hit the max loss floor ${usd(next.floor)}`;
+        : next.status_reason === 'daily loss' ? `lost ${usd(next.day_start - next.balance)} today, the daily loss limit is ${usd(Number(account.daily_loss))}`
+          : `balance ${usd(next.balance)} hit the max loss floor ${usd(next.floor)}`;
       await note('status', `${who(account)} ${next.status.toUpperCase()}: ${why}`, r, { status: next.status, balance: next.balance, floor: next.floor, target: account.target }, next.status === 'failed' ? 'error' : 'info');
     }
     const s = await run('Script', 'get', script.id);
@@ -127,6 +141,9 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
       const openOf = async (a) => (await run('AccountTrade', 'filter', { account_id: a.id, script_id: script.id, status: 'open' }));
       if (!members.length) await note('skip', `${g.name} has no accounts`, gr, null, 'warn');
       if (sig.event === 'buy' || sig.event === 'sell') {
+        // News, weekday, time-window and date blocks: no new trades (stops, targets and closes still follow)
+        const block = blackoutAt(g.blackout, news(), Date.parse(at), sig.symbol);
+        if (block) { await note('block', `${g.name}: ${sig.event} ${sig.symbol} not copied. ${block.reason}`, gr, block, 'warn'); continue; }
         for (const a of members.filter((x) => (x.status || 'active') !== 'active')) {
           await note('skip', `${who(a)} skipped: account ${a.status}`, { ...gr, account_id: a.id }, null, 'warn');
         }
@@ -134,12 +151,15 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
         if (made >= max) { await note('limit', `${g.name} is at its max of ${max} trades: ${sig.event} not copied`, gr, { made, max }, 'warn'); continue; }
         await run('CopyGroup', 'update', g.id, { trades_made: made + 1 });
         const side = sig.event === 'buy' ? 'long' : 'short';
-        const pv = pointValue(sig.symbol);
         for (const a of accounts) {
           const ar = { ...gr, account_id: a.id };
+          const symbol = mapSymbol(a.symbol_map, sig.symbol);
+          const pv = pointValue(symbol);
+          const unit = a.platform === 'MT5' ? 'lots' : 'contracts';
           for (const t of await openOf(a)) {
             await note('close', `${who(a)}: opposite signal, closing the open ${t.side} first`, { ...ar, trade_id: t.id });
-            await close(a, script, t, sig.price, 'reverse', at, gr);
+            const done = await close(a, script, t, sig.price, 'reverse', at, gr);
+            await queueMt5(a, 'close', done, gr);
           }
           if ((a.status || 'active') !== 'active') continue;
           // One trade per account: an open trade from another script means this one is skipped
@@ -151,23 +171,25 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
           }
           const stop = sig.sl != null ? Math.abs(sig.price - sig.sl) : 0;
           const byRisk = a.risk_usd > 0 && stop > 0;
-          const qty = byRisk ? Math.floor(a.risk_usd / (stop * pv)) : (sig.qty || 1) * (a.copy_qty || 1);
+          const qty = sizeFor(byRisk ? a.risk_usd / (stop * pv) : (sig.qty || 1) * (a.copy_qty || 1), a.platform);
           const sizing = byRisk
-            ? `risk $${a.risk_usd} / (${Math.round(stop * 100) / 100} stop x $${pv}) = ${qty}`
+            ? `risk $${a.risk_usd} / (${Math.round(stop * 100) / 100} stop x $${pv}) = ${qty}${unit === 'lots' ? ' lots' : ''}`
             : `${a.risk_usd > 0 ? 'no stop in the signal, so ' : ''}script qty ${sig.qty || 1} x account qty ${a.copy_qty || 1} = ${qty}`;
           if (!(qty > 0)) {
-            await note('skip', `${who(a)} skipped ${sig.event} ${sig.symbol}: 1 contract risks $${Math.round(stop * pv * 100) / 100}, more than the $${a.risk_usd} risk per trade`, ar, { stop, point_value: pv, risk_usd: a.risk_usd }, 'warn');
+            const one = unit === 'lots' ? '0.01 lots' : '1 contract';
+            await note('skip', `${who(a)} skipped ${sig.event} ${symbol}: ${one} risks $${Math.round(stop * pv * (unit === 'lots' ? 0.01 : 1) * 100) / 100}, more than the $${a.risk_usd} risk per trade`, ar, { stop, point_value: pv, risk_usd: a.risk_usd }, 'warn');
             continue;
           }
           const trade = await run('AccountTrade', 'create', {
-            account_id: a.id, group_id: g.id, script_id: script.id, trade_id: sig.trade_id, symbol: sig.symbol, side, qty,
+            account_id: a.id, group_id: g.id, script_id: script.id, trade_id: sig.trade_id, symbol, side, qty,
             point_value: pv, entry: sig.price, sl: sig.sl, tp: sig.tp, status: 'open', opened_at: at,
           });
           touched++;
           const riskUsd = stop ? Math.round(stop * pv * qty * 100) / 100 : null;
-          await note('open', `${who(a)} ${side === 'long' ? 'bought' : 'sold'} ${qty} ${sig.symbol} @ ${sig.price}${sig.sl != null ? ` SL ${sig.sl}` : ''}${sig.tp != null ? ` TP ${sig.tp}` : ''} (${sizing}${riskUsd != null ? `; risking ${usd(riskUsd)}` : ''}) - group trade ${made + 1}/${max}`,
+          await note('open', `${who(a)} ${side === 'long' ? 'bought' : 'sold'} ${qty}${unit === 'lots' ? ' lots' : ''} ${symbol} @ ${sig.price}${sig.sl != null ? ` SL ${sig.sl}` : ''}${sig.tp != null ? ` TP ${sig.tp}` : ''} (${sizing}${riskUsd != null ? `; risking ${usd(riskUsd)}` : ''}) - group trade ${made + 1}/${max}`,
             { ...ar, trade_id: trade.id }, { side, qty, entry: sig.price, sl: sig.sl, tp: sig.tp, stop, point_value: pv, risk_usd: a.risk_usd, risk: riskUsd, sizing, balance: a.balance, trade_number: made + 1, max });
           await send(a, 'open', sig, trade, { ...ar, trade_id: trade.id });
+          await queueMt5(a, 'open', trade, gr);
         }
       } else if (sig.event === 'set_sl' || sig.event === 'set_tp') {
         for (const a of accounts) {
@@ -175,8 +197,9 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
           if (!open.length) await note('skip', `${who(a)}: ${sig.event} but no open trade from ${script.name}`, { ...gr, account_id: a.id }, null, 'warn');
           for (const t of open) {
             const key = sig.event === 'set_sl' ? 'sl' : 'tp';
-            await run('AccountTrade', 'update', t.id, { [key]: sig[key] });
+            const moved = await run('AccountTrade', 'update', t.id, { [key]: sig[key] });
             touched++;
+            await queueMt5(a, 'modify', moved, gr);
             await note('move', `${who(a)}: ${key.toUpperCase()} ${t[key] ?? 'none'} -> ${sig[key]} on ${t.side} ${t.qty} ${t.symbol}`, { ...gr, account_id: a.id, trade_id: t.id }, { [key]: sig[key], from: t[key] });
           }
         }
@@ -188,6 +211,7 @@ export function createCopier({ db, log = () => {}, forward = defaultForward }) {
             const done = await close(a, script, t, sig.price, sig.reason || 'signal', at, gr);
             touched++;
             await send(a, 'close', sig, done, { ...gr, account_id: a.id, trade_id: t.id });
+            await queueMt5(a, 'close', done, gr);
           }
         }
       }

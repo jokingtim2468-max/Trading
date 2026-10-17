@@ -15,6 +15,10 @@ import { encodeBars } from './market/resample.js';
 import { createSignals } from './signals.js';
 import { createCopier } from './copier.js';
 import { createScriptFolders } from './scriptFolders.js';
+import { createNews } from './news.js';
+import { createMt5Bridge } from './mt5.js';
+import { createPayouts } from './payouts.js';
+import { pcZone } from './lib/blackout.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -51,7 +55,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -78,6 +82,23 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
 
   // Signals page: the webhook addresses (this PC for MT5, the desktop app's public link for TradingView)
+  // Economic calendar for news blackouts, and this PC's time zone (blackout times are in it)
+  if (req.method === 'GET' && url.pathname === '/api/news') {
+    const from = Date.now() - 86400000, to = Date.now() + 9 * 86400000;
+    return send(res, 200, { events: news.events().filter((e) => { const t = Date.parse(e.time); return t >= from && t <= to; }), status: news.status(), tz: pcZone() });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/news/refresh') return send(res, 200, { ...(await news.refresh()), status: news.status() });
+  if (req.method === 'POST' && url.pathname === '/api/payouts/check') return send(res, 200, { due: (await payouts.check()).length });
+  // The MT5 copier EA for an account's terminal, and the address it calls
+  if (req.method === 'GET' && url.pathname === '/api/mt5/ea') {
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': 'attachment; filename="QuantBotCopier.mq5"' });
+    return res.end(fs.readFileSync(path.join(root, 'mt5', 'QuantBotCopier.mq5')));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/mt5/url') {
+    const id = url.searchParams.get('account') || '';
+    return send(res, 200, { url: `http://127.0.0.1:${port()}/mt5/${signals.key()}/${id}`, allow: `http://127.0.0.1:${port()}` });
+  }
+
   // Script folders for Claude: where they are (brought up to date first); the desktop app can open them
   if (req.method === 'GET' && url.pathname === '/api/scripts/folders') {
     return send(res, 200, { ...(await folders.sync()), canOpen: !!app?.openScriptsFolder });
@@ -169,7 +190,8 @@ function serveStatic(req, res, dist) {
 }
 
 // app: hooks from the desktop launcher ({ heartbeat, info, updates, restart }); absent with npm start
-export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false, app = null } = {}) {
+// newsFetch: replaces fetch for the economic calendars (tests)
+export async function startServer({ port = 5173, dataDir = path.join(root, 'data'), prod = false, userName, quiet = false, app = null, newsFetch } = {}) {
   const cipher = createCipher(dataDir);
   const market = createMarketStore(dataDir, { log: app?.log });
   const backend = createBackend({
@@ -186,7 +208,18 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   const folders = createScriptFolders({ root: app?.scriptsDir?.() || path.join(dataDir, 'scripts'), db: entityDb, log: app?.log });
   backend.setFolders(folders);
   folders.syncSoon(300);
-  const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier: createCopier({ db: entityDb, log: app?.log }) });
+  // Economic calendars for news blackouts, refreshed every 30 minutes
+  const news = createNews({ dataDir, log: app?.log, ...(newsFetch ? { fetch: newsFetch } : {}) });
+  news.start();
+  const copier = createCopier({ db: entityDb, log: app?.log, news: () => news.events() });
+  const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier });
+  // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
+  const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
+  const payouts = createPayouts({ db: entityDb, note: copier.note });
+  const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
+  const payoutTimer = setInterval(checkPayouts, 3600000);
+  payoutTimer.unref?.();
+  setTimeout(checkPayouts, 30000).unref?.();
   const server = http.createServer();
   const boundPort = () => server.address()?.port;
   let vite = null;
@@ -217,9 +250,29 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
         return send(res, e.status || 400, { error: e.message });
       }
     }
+    // The MT5 copier EA on this PC / VPS: local only, guarded by the webhook key
+    const ea = url.pathname.match(/^\/mt5\/([^/]+)\/([A-Za-z0-9]+)\/(poll|ack)$/);
+    if (ea) {
+      const host = String(req.headers.host || '').replace(/:\d+$/, '');
+      if (!LOCAL_HOSTS.has(host) || req.headers['cf-connecting-ip'] || !signals.matches(ea[1])) return send(res, 404, { error: 'Not found' });
+      try {
+        if (ea[3] === 'poll') {
+          const text = await mt5.poll(ea[2]);
+          res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+          return res.end(text);
+        }
+        if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+        const n = await mt5.ack(ea[2], (await readBody(req, 20000)).toString('utf8'));
+        folders.syncSoon();
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end(String(n));
+      } catch (e) {
+        return send(res, e.status || 400, { error: e.message });
+      }
+    }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
@@ -237,6 +290,8 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   });
 
   const close = async () => {
+    news.stop();
+    clearInterval(payoutTimer);
     backend.flush();
     if (vite) await vite.close();
     await new Promise((r) => server.close(r));

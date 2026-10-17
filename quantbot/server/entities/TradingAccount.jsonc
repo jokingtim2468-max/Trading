@@ -119,6 +119,67 @@
     "forward_url": {
       "type": "string",
       "description": "Optional order URL (e.g. a TradersPost webhook) that places the trades for real"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "evaluation",
+        "challenge",
+        "verification",
+        "funded"
+      ],
+      "description": "Where a prop account is: evaluation / FTMO Challenge / Verification, or funded"
+    },
+    "daily_loss": {
+      "type": "number",
+      "description": "Loss in one trading day that fails the account (FTMO 5%)"
+    },
+    "day_start": {
+      "type": "number",
+      "description": "Balance at the start of the current trading day"
+    },
+    "day_zone": {
+      "type": "string",
+      "description": "Time zone of the trading day (FTMO Europe/Prague, Lucid America/New_York)"
+    },
+    "status_reason": {
+      "type": "string"
+    },
+    "mt5_on": {
+      "type": "boolean",
+      "default": false,
+      "description": "Send this account's copied trades to its MT5 terminal (QuantBot Copier EA)"
+    },
+    "symbol_map": {
+      "type": "string",
+      "description": "Signal symbol to the account's symbol, e.g. MGC1!=XAUUSD, MNQ1!=US100.cash"
+    },
+    "mt5_seen_at": {
+      "type": "string",
+      "description": "Last time the MT5 copier EA asked for orders"
+    },
+    "auto_withdraw": {
+      "type": "boolean",
+      "default": false,
+      "description": "Take the profit out on the firm's payout schedule (FTMO every 14 days)"
+    },
+    "payout_days": {
+      "type": "number"
+    },
+    "split": {
+      "type": "number",
+      "description": "Profit split you keep (0.8 = 80%)"
+    },
+    "last_payout_at": {
+      "type": "string"
+    },
+    "funded_at": {
+      "type": "string"
+    },
+    "withdrawn": {
+      "type": "number",
+      "default": 0,
+      "description": "Your share paid out so far"
     }
   },
   "required": [

@@ -41,6 +41,10 @@
         "type": "string"
       },
       "description": "Scripts whose signals this group trades (script_id is the single-script field from before)"
+    },
+    "blackout": {
+      "type": "object",
+      "description": "News, weekday, time-window and date blocks (server/lib/blackout.js)"
     }
   },
   "required": [
