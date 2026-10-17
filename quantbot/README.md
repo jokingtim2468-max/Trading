@@ -69,6 +69,23 @@ QuantBot. It asks `http://127.0.0.1:<port>/mt5/<key>/<account>/poll` every secon
 in 0.01 lots on the account's own symbol via the symbol map, e.g. `MGC1!=XAUUSD`) and reports each fill or error
 to `/ack`; fills, slippage and rejections go in the activity log.
 
+Multi-broker MT5 and 24/7 automation (Settings > MT5 & deployment): add MT5 accounts from any broker or prop firm
+(FTMO, FundedNext, FOREX.com...) one at a time or many at once (one per line: broker, account number, password,
+server, capital, terminal path; pasting from a spreadsheet works). Accounts are ordinary TradingAccount records
+(`firm`, `login`, `server`, `capital`, `enabled`, `terminal_path`); the same number on the same server updates the
+account instead of adding it twice. Passwords are encrypted with AES-256-GCM (`password_enc`, the same key as the API
+keys), can't be written or read through the generic data API, and are only handed to the daemon on this PC
+(`server/mt5daemon.js`). The daemon, `mt5/mt5_manager.py` (Python 3 + `pip install MetaTrader5`, Windows), fetches
+the enabled accounts from `http://127.0.0.1:<port>/daemon/accounts` with its token, runs one worker process per
+account (the MetaTrader5 package talks to one terminal per process), starts and logs in each account's own
+terminal64.exe (portable mode), checks the connection every 30 s, logs in again with a growing wait (up to 5 minutes)
+when it drops, refuses two accounts sharing one terminal, and reports state, balance, equity and Algo Trading back
+to `/daemon/status`, which the accounts table shows live. `--once` does one pass (a test run). The tests run the real
+script against QuantBot with a stand-in MetaTrader5 module (`tests/support/fake_mt5`). The VPS guide covers
+Windows Server sizing, one MT5 folder per account, Allow algorithmic trading / WebRequest, a startup task at logon
+(MT5 terminals need a desktop session, so not as SYSTEM at boot), Sysinternals Autologon, and "Start QuantBot when
+Windows starts" (desktop app).
+
 Scripts are written with Claude only: each has its own chat (Open its Claude chat) that always uses Claude and
 saves every new version Claude writes as the script's code. Each script also has a folder next to QuantBot's logs
 (`<install folder>/scripts/<script>/`, or `data/scripts/` from source) with `CLAUDE.md` (where it trades, results,

@@ -186,6 +186,11 @@ const hooks = {
   heartbeat() {},
   log,
   scriptsDir,
+  // Start QuantBot when Windows starts (a 24/7 VPS logs in and QuantBot comes back after a reboot)
+  startup: {
+    get: () => app.getLoginItemSettings().openAtLogin,
+    set: (on) => { app.setLoginItemSettings({ openAtLogin: !!on }); log(`start with Windows ${on ? 'on' : 'off'}`); },
+  },
   // Opens a script's folder (only inside the scripts folder) in File Explorer; '' when it opened
   openScriptsFolder(dir) {
     const rel = path.relative(scriptsDir(), path.resolve(dir));

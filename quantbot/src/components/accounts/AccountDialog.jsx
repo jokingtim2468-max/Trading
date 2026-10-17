@@ -56,6 +56,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
         stage: plan.stages ? form.stage || Object.keys(plan.stages)[0] : '', daily_loss: num(form.daily_loss), day_zone: form.day_zone || plan.dayZone || '',
         auto_withdraw: !!form.auto_withdraw && form.stage === 'funded', split: num(form.split), payout_days: num(form.payout_days),
         mt5_on: isMt5 && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
+        ...(isMt5 ? { terminal_path: (form.terminal_path || '').trim() } : {}),
       };
       // Firm limits: Lucid 5 funded accounts, FTMO $400K funded capital
       const limit = firmLimitError(accounts, { ...data, id: account?.id });
@@ -70,13 +71,21 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
       if (group && (group.platform === 'MT5' ? 'MT5' : 'Futures') !== familyOf(platform)) data.group_id = '';
       const { TradingAccount } = client.entities;
       const rules = `${PLANS[data.plan]?.label || data.plan}${data.stage ? ` ${data.stage}` : ''}, start $${start.toLocaleString()}${data.risk_usd ? `, risk $${data.risk_usd}/trade` : ''}${data.forward_url ? ', order URL set' : ''}`;
+      // The MT5 password goes through its own encrypted route, never the account record
+      const savePassword = async (id) => {
+        if (!isMt5 || !form.password) return;
+        const res = await fetch('/api/mt5/password', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, password: form.password }) });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not save the password');
+      };
       if (account) {
         await TradingAccount.update(account.id, data);
+        await savePassword(account.id);
         const reset = data.balance != null ? `${startOver ? 'started over' : 'reset by new rules'} at $${start.toLocaleString()} (was $${Number(account.balance ?? start).toLocaleString()}, ${account.status || 'active'})` : '';
         const changed = ['plan', 'stage', 'risk_usd', 'forward_url', 'target', 'max_loss', 'auto_withdraw', 'mt5_on', 'symbol_map'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
         if (reset || changed.length) await logSetup(`${data.display_name}: ${[reset, changed.length ? `changed ${changed.join(', ')} (${rules})` : ''].filter(Boolean).join('; ')}`, { account_id: account.id, group_id: account.group_id || '' }, { rules: data });
       } else {
         const made = await TradingAccount.create({ ...data, group_id: '' });
+        await savePassword(made.id);
         await logSetup(`${data.display_name} added: ${data.label} on ${platform} (${rules})`, { account_id: made.id });
       }
       onSaved();

@@ -180,6 +180,52 @@
       "type": "number",
       "default": 0,
       "description": "Your share paid out so far"
+    },
+    "capital": {
+      "type": "number",
+      "description": "Account size / capital (multi-broker MT5)"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "The MT5 daemon keeps this account logged in"
+    },
+    "portable": {
+      "type": "boolean",
+      "default": true,
+      "description": "Start the terminal in portable mode (its own data folder)"
+    },
+    "password_enc": {
+      "type": "string",
+      "description": "MT5 password, AES-256-GCM encrypted; never sent to the pages"
+    },
+    "daemon_state": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "connecting",
+        "error",
+        "stopped"
+      ]
+    },
+    "daemon_error": {
+      "type": "string"
+    },
+    "daemon_seen_at": {
+      "type": "string"
+    },
+    "broker_balance": {
+      "type": "number"
+    },
+    "broker_equity": {
+      "type": "number"
+    },
+    "broker_currency": {
+      "type": "string"
+    },
+    "algo_trading": {
+      "type": "boolean",
+      "description": "The terminal's Algo Trading button is on"
     }
   },
   "required": [

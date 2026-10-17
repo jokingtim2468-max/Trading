@@ -176,6 +176,19 @@ Nothing grows or zooms any more. Everything fades with a short slide.
   (time pairs as removable chips, two time fields and +); Blocked dates and weeks (date range, note, +); and "Next
   news blocks for <symbol>" (FTMO-restricted ones in yellow) with Refresh and when the calendars last updated.
 - **Activity log:** new chips "News & hours" (block, yellow pill) and "Payouts" (payout, green pill).
+- **Settings tabs:** "General" and "MT5 & deployment" (the page widens to 4xl on the second; `?tab=deploy`).
+- **Multi-broker MT5 accounts card:** a 3-column form (Broker / prop firm, Account number, Password, MT5 server,
+  Capital, Terminal), a primary "Add account to daemon" button and an outline "Add many at once" that opens a
+  monospace textarea (one account per line) with "Add these accounts". Results list each line in green (added /
+  updated) or red (the reason). Then a compact table: account (firm + number + capital, server and terminal muted
+  under it), daemon pill (Connected green, Logging in yellow, Error red with the reason under it, Needs its password
+  yellow, Auto-login off / Last seen muted), broker balance / equity, Auto-login switch, and a small password field
+  with a key button.
+- **MT5 auto-login daemon card:** title with a pill ("Running: 2/6 accounts connected" green, else "Not reporting" /
+  "Not started yet"), three numbered steps (Python + pip, Download mt5_manager.py, run it), the daemon command with a
+  copy button, and an outline "New token" button.
+- **24/7 VPS deployment card:** "Start QuantBot when Windows starts" switch (desktop app), then 7 numbered steps with
+  copyable install and startup-task commands.
 - **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. The page only
   auto-scrolls when dragging into the outer 10% of the window.
 - **No wrapping:** numbers, labels and table cells stay on one line (they truncate); activity lines show one line and

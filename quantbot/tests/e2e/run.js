@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { startFakeDukascopy } from '../support/fakeDukascopy.js';
 import { startFakeModels } from '../support/fakeModels.js';
@@ -846,6 +847,60 @@ await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, ne
 });
 
 await page.setViewportSize({ width: 1360, height: 900 });
+
+await step('MT5 & deployment: add broker accounts one by one and in bulk, the daemon logs them in and reports back', async () => {
+  await page.setViewportSize({ width: 1360, height: 2400 });
+  await page.goto(`${base()}/settings`);
+  await page.getByRole('tab', { name: 'MT5 & deployment' }).click();
+  const card = page.getByTestId('mt5-accounts');
+  await card.getByLabel('Broker', { exact: true }).fill('FundedNext');
+  await card.getByLabel('Account number', { exact: true }).fill('7001234');
+  await card.getByLabel('Password', { exact: true }).fill('Fn-Secret-1');
+  await card.getByLabel('MT5 server', { exact: true }).fill('FundedNext-Server');
+  await card.getByLabel('Capital', { exact: true }).fill('50000');
+  await card.getByLabel('Terminal path', { exact: true }).fill('C:\\MT5\\FN1\\terminal64.exe');
+  await card.getByRole('button', { name: 'Add account to daemon' }).click();
+  await card.getByTestId('mt5-add-results').getByText('added FundedNext 7001234').waitFor();
+  await card.getByRole('button', { name: 'Add many at once' }).click();
+  await card.getByLabel('Accounts, one per line').fill([
+    'broker, account number, password, server, capital, terminal path',
+    'FOREX.com, 22334455, Fx-Secret-2, FOREX.com-Live, 10000, C:\\MT5\\FX1\\terminal64.exe',
+    'FTMO, 5100777, Ftmo-Bad-3, FTMO-Server, 100000, C:\\MT5\\FTMO7\\terminal64.exe',
+    'FTMO, 51x, nope, FTMO-Server',
+  ].join('\n'));
+  await card.getByRole('button', { name: 'Add these accounts' }).click();
+  const results = card.getByTestId('mt5-add-results');
+  await results.getByText('Line 2: added FOREX.com 22334455').waitFor();
+  await results.getByText(/Line 4: Account number must be digits/).waitFor();
+  await card.locator('tr[data-mt5="22334455"]').getByText('Waiting for the daemon').waitFor();
+  // The real daemon script, with a stand-in for the Windows-only MetaTrader5 package
+  const command = (await page.getByTestId('daemon-card').getByLabel('Daemon command', { exact: true }).textContent()).trim();
+  const token = command.match(/--token ([0-9a-f]{40})/)[1];
+  const calls = path.join(dataDir, 'fake-mt5-calls.jsonl');
+  fs.writeFileSync(calls, '');
+  const daemon = await new Promise((resolve) => {
+    const p = spawn('python3', ['mt5/mt5_manager.py', '--url', base(), '--token', token, '--once', '--log', ''], {
+      env: { ...process.env, PYTHONPATH: path.resolve('tests/support/fake_mt5'), FAKE_MT5_CALLS: calls, FAKE_MT5_FAIL: '5100777' },
+    });
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { out += d; });
+    p.on('close', (status) => resolve({ status, out }));
+  });
+  expect(daemon.status === 0, `daemon failed:\n${daemon.out}`);
+  expect(/logged in to FundedNext-Server/.test(daemon.out), `daemon output:\n${daemon.out}`);
+  await card.locator('tr[data-mt5="7001234"]').getByTestId('daemon-state').getByText('Connected').waitFor();
+  await card.locator('tr[data-mt5="7001234"]').getByText(/100,234 \/ 100,050 USD/).waitFor();
+  await card.locator('tr[data-mt5="5100777"]').getByText(/login failed: -6 Terminal: Authorization failed/).waitFor();
+  await page.getByTestId('daemon-card').getByTestId('daemon-status').getByText(/Running: 2\/\d+ accounts connected/).waitFor();
+  const logged = fs.readFileSync(calls, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  expect(logged.some((c) => c.login === 22334455 && c.password === 'Fx-Secret-2' && c.path === 'C:\\MT5\\FX1\\terminal64.exe'), 'daemon did not log in FOREX.com with its own terminal');
+  const stored = fs.readdirSync(path.join(dataDir, 'entities')).map((f) => fs.readFileSync(path.join(dataDir, 'entities', f), 'utf8')).join('');
+  expect(!stored.includes('Fx-Secret-2') && !stored.includes('Fn-Secret-1'), 'MT5 password stored in plain text');
+  await page.getByTestId('vps-guide').getByText('24/7 VPS deployment').waitFor();
+  await snap('mt5-deployment');
+  await page.setViewportSize({ width: 1360, height: 900 });
+});
 
 await step('Unknown page shows 404', async () => {
   await page.goto(`${base()}/nope`);

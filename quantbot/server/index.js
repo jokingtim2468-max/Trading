@@ -19,6 +19,7 @@ import { createNews } from './news.js';
 import { createMt5Bridge } from './mt5.js';
 import { createPayouts } from './payouts.js';
 import { pcZone } from './lib/blackout.js';
+import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -55,7 +56,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -82,6 +83,44 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
 
   // Signals page: the webhook addresses (this PC for MT5, the desktop app's public link for TradingView)
+  // Multi-broker MT5 accounts for the auto-login daemon: add one or many (passwords encrypted here), set a password,
+  // the daemon's token and command, and the script itself
+  if (req.method === 'POST' && url.pathname === '/api/mt5/accounts') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    const body = JSON.parse((await readBody(req, 1024 * 1024)).toString('utf8') || '{}');
+    const { rows, errors } = body.bulk != null ? parseBulk(body.bulk) : { rows: Array.isArray(body.accounts) ? body.accounts : [body], errors: [] };
+    const results = [...errors.map((e) => ({ ...e, action: 'error' })), ...(await daemon.addMany(rows))];
+    folders.syncSoon();
+    return send(res, 200, { results });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/mt5/password') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    const { id, password } = JSON.parse((await readBody(req, 4000)).toString('utf8') || '{}');
+    return send(res, 200, await daemon.setPassword(id, password));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/mt5/daemon') {
+    const base = `http://127.0.0.1:${port()}`;
+    return send(res, 200, { token: daemon.token(), url: base, ...(await daemon.status()) });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/mt5/daemon/rotate') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    return send(res, 200, { token: daemon.rotate() });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/mt5/daemon/script') {
+    res.writeHead(200, { 'content-type': 'text/x-python; charset=utf-8', 'content-disposition': 'attachment; filename="mt5_manager.py"' });
+    return res.end(fs.readFileSync(path.join(root, 'mt5', 'mt5_manager.py')));
+  }
+  // Start with Windows (desktop app), for a 24/7 VPS
+  if (url.pathname === '/api/app/startup') {
+    if (!app?.startup) return send(res, 200, { available: false });
+    if (req.method === 'POST') {
+      if (!json()) return send(res, 415, { error: 'JSON required' });
+      const { on } = JSON.parse((await readBody(req, 1000)).toString('utf8') || '{}');
+      app.startup.set(!!on);
+    }
+    return send(res, 200, { available: true, on: app.startup.get() });
+  }
+
   // Economic calendar for news blackouts, and this PC's time zone (blackout times are in it)
   if (req.method === 'GET' && url.pathname === '/api/news') {
     const from = Date.now() - 86400000, to = Date.now() + 9 * 86400000;
@@ -139,7 +178,13 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     const { kind, args } = JSON.parse((await readBody(req, MAX_JSON)).toString('utf8') || '{}');
     if (kind === 'file') return send(res, 400, { error: 'Upload files through /api/files' });
     const list = Array.isArray(args) ? args : [];
-    const result = await backend.handle(kind, ...list);
+    // MT5 passwords only go in through /api/mt5 (encrypted) and never come out to the pages
+    if (kind === 'entity' && list[0] === 'TradingAccount' && ['create', 'update'].includes(list[1])) {
+      const data = list[1] === 'create' ? list[2] : list[3];
+      if (data && typeof data === 'object') { delete data.password_enc; delete data.password; }
+    }
+    const raw = await backend.handle(kind, ...list);
+    const result = kind === 'entity' && list[0] === 'TradingAccount' ? sanitizeResult(raw) : raw;
     // Copy trading actions taken in the app (script dropped on a group, account moved, reset...) also go in the log file
     if (kind === 'entity' && list[0] === 'CopyEvent' && list[1] === 'create' && list[2]?.message) app?.log?.(`copy ${list[2].kind || 'setup'}: ${list[2].message}`);
     if (kind === 'entity' && FOLDER_ENTITIES.has(list[0]) && !['get', 'filter', 'list', 'count', 'aggregate'].includes(list[1])) folders.syncSoon();
@@ -215,6 +260,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier });
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
+  const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
@@ -250,6 +296,18 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
         return send(res, e.status || 400, { error: e.message });
       }
     }
+    // The MT5 auto-login daemon (mt5/mt5_manager.py) on this PC / VPS: local only, guarded by its token
+    if (url.pathname === '/daemon/accounts' || url.pathname === '/daemon/status') {
+      const host = String(req.headers.host || '').replace(/:\d+$/, '');
+      if (!LOCAL_HOSTS.has(host) || req.headers['cf-connecting-ip'] || req.headers.origin || !daemon.matches(req.headers['x-quantbot-daemon'])) return send(res, 404, { error: 'Not found' });
+      try {
+        if (url.pathname === '/daemon/accounts') return send(res, 200, { accounts: await daemon.forDaemon() });
+        if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+        return send(res, 200, await daemon.report(JSON.parse((await readBody(req, 8000)).toString('utf8') || '{}')));
+      } catch (e) {
+        return send(res, e.status || 400, { error: e.message });
+      }
+    }
     // The MT5 copier EA on this PC / VPS: local only, guarded by the webhook key
     const ea = url.pathname.match(/^\/mt5\/([^/]+)\/([A-Za-z0-9]+)\/(poll|ack)$/);
     if (ea) {
@@ -272,7 +330,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
