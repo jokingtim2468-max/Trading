@@ -117,6 +117,11 @@ then tests it on later days it never saw against a simple guess. It runs Unsloth
 - Models: **Qwen3.5 2B** (default, about 5 GB of GPU memory: fits an 8 GB RTX 4060), Qwen3.5 0.8B (quick test),
   Qwen3 4B in 4-bit (tight on 8 GB).
 - Data: the built-in XAUUSD hourly history, or your own MT5 export.
+- Settings are picked for your GPU by default (largest batch that leaves memory spare, effective batch 16, LoRA rank
+  16 / alpha 32, 2e-4, 2 epochs); the script trims the sequence length to the longest real example, trains on the
+  answers only, and halves the batch by itself if the GPU runs out of memory.
+- Every run also writes an **Unsloth Studio recipe** (`unsloth_studio/`: the config YAML and an alpaca-format dataset)
+  you can Upload in Unsloth Studio to look at or re-run the same training there.
 - Each run is a folder in `data/train/<id>`: config, train/test data, `events.jsonl`, the LoRA adapter, test
   predictions and `result.json`. The training script is `train/unsloth/qb_train.py` (it also runs on its own:
   `python qb_train.py <folder>`).

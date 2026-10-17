@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateConfig } from '../../server/train.js';
+import { validateConfig, autoSettings } from '../../server/train.js';
 import { startServer } from '../../server/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +44,14 @@ describe('Train config', () => {
     assert.throws(() => validateConfig({ epochs: 100 }), /epochs/);
     assert.throws(() => validateConfig({ source: 'file' }), /data file/);
     assert.equal(validateConfig({ epochs: '3' }).epochs, 3);
+  });
+  test('auto settings fit the GPU and keep the effective batch', () => {
+    const a = autoSettings('qwen3.5-2b', 8);
+    assert.equal(a.settings.batch_size, 8);
+    assert.equal(a.settings.batch_size * a.settings.grad_accum, 16);
+    assert.match(a.why, /8 GB GPU/);
+    assert.equal(autoSettings('qwen3-4b-4bit', 8).settings.batch_size, 1, 'tight model: smallest batch');
+    assert.equal(autoSettings('qwen3.5-2b', 6).settings.batch_size, 2);
   });
 });
 
@@ -87,6 +95,18 @@ describe('Train API with a stand-in docker', () => {
     assert.ok(trainRows.every((r) => r.date <= '2020-12-31'), 'training days stay in the training range');
     assert.match(trainRows[0].answer, /^\{"high": [\d.-]+, "low": [\d.-]+\}$/);
 
+    assert.match(run.messages.map((m) => m.message).join(' '), /Auto settings: .*batch \d/);
+    assert.match(run.messages.map((m) => m.message).join(' '), /Unsloth Studio recipe written/);
+    const files = (await (await fetch(`${base}/api/train/runs/${id}/recipe`)).json()).files.map((f) => f.name);
+    assert.ok(files.includes('gold_daily_range.jsonl'));
+    const yamlName = files.find((f) => f.endsWith('.yaml'));
+    assert.match(yamlName, /^qwen3\.5-0\.8b_lora_gold-daily-range_\d{8}-\d{6}\.yaml$/);
+    const yaml = await (await fetch(`${base}/api/train/runs/${id}/recipe/${yamlName}`)).text();
+    assert.match(yaml, /name: "unsloth\/Qwen3\.5-0\.8B"/);
+    assert.match(yaml, /train_on_completions: true/);
+    const row = JSON.parse((await (await fetch(`${base}/api/train/runs/${id}/recipe/gold_daily_range.jsonl`)).text()).split('\n')[0]);
+    assert.deepEqual(Object.keys(row), ['instruction', 'input', 'output']);
+    assert.equal((await fetch(`${base}/api/train/runs/${id}/recipe/..%2Fconfig.json`)).status, 404, 'only recipe files');
     const list = await (await fetch(`${base}/api/train/runs`)).json();
     assert.equal(list.runs[0].id, id);
     const del = await fetch(`${base}/api/train/runs/${id}`, { method: 'DELETE' });

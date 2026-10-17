@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Download, Play, Square, Trash2, Cpu, Container, CheckCircle2, XCircle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ChartLoader from '@/components/quant/ChartLoader';
 
@@ -68,7 +69,9 @@ function NewRunCard({ status, onStarted }) {
   const [more, setMore] = useState(false);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const [auto, setAuto] = useState(null);
   const set = (k, v) => setC((x) => ({ ...x, [k]: v }));
+  useEffect(() => { api(`/api/train/auto?model=${c.model}`, undefined, 'GET').then(setAuto).catch(() => setAuto(null)); }, [c.model]);
   const model = status.models.find((m) => m.id === c.model);
   const tight = status.gpu && model && model.vram > status.gpu.memory_gb - 0.5;
   const ready = status.docker && status.image;
@@ -123,10 +126,22 @@ function NewRunCard({ status, onStarted }) {
           </div>
         </Field>
       </div>
-      <button type="button" onClick={() => setMore((v) => !v)} className="block text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${more ? 'rotate-180' : ''}`} />Training settings
-      </button>
-      {more && (
+      <div className="flex items-start gap-3 rounded-xl border border-border p-3">
+        <Switch checked={c.auto} onCheckedChange={(v) => set('auto', v)} data-testid="train-auto" />
+        <div className="space-y-1">
+          <div className="text-sm">Pick the training settings for my GPU</div>
+          {c.auto && auto && (
+            <div className="text-[11px] text-muted-foreground" data-testid="train-auto-why">
+              {auto.why}. Batch {auto.settings.batch_size} × accumulation {auto.settings.grad_accum}, {auto.settings.epochs} epochs, learning rate {auto.settings.learning_rate}, LoRA rank {auto.settings.lora_r};
+              {' '}sequence length is trimmed to the longest real example, and the batch halves by itself if the GPU runs out of memory.
+            </div>
+          )}
+          {!c.auto && <button type="button" onClick={() => setMore((v) => !v)} className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${more ? 'rotate-180' : ''}`} />Training settings
+          </button>}
+        </div>
+      </div>
+      {!c.auto && more && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 animate-in fade-in-0 slide-in-from-top-1 duration-pop calm:animate-none">
           <Field label="Epochs"><Input type="number" step="0.5" value={c.epochs} onChange={(e) => set('epochs', e.target.value)} /></Field>
           <Field label="Learning rate"><Input type="number" step="0.00005" value={c.learning_rate} onChange={(e) => set('learning_rate', e.target.value)} /></Field>
@@ -166,6 +181,22 @@ function Verdict({ r }) {
   return <p className={`text-xs ${b >= 15 ? 'text-emerald-400' : b > 3 ? 'text-amber-400' : 'text-muted-foreground'}`}>{text}</p>;
 }
 
+function Recipe({ id, status }) {
+  const [files, setFiles] = useState([]);
+  useEffect(() => { api(`/api/train/runs/${id}/recipe`, undefined, 'GET').then((r) => setFiles(r.files)).catch(() => {}); }, [id, status]);
+  if (!files.length) return null;
+  return (
+    <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1" data-testid="train-recipe">
+      <span>Unsloth Studio recipe (Upload the YAML on Studio&apos;s training page, then pick the dataset):</span>
+      {files.map((f) => (
+        <a key={f.name} href={`/api/train/runs/${id}/recipe/${encodeURIComponent(f.name)}`} download className="text-primary hover:underline inline-flex items-center gap-1">
+          <Download className="w-3 h-3" />{f.name}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function RunCard({ run, models, onChange }) {
   const p = run.progress;
   const pct = p?.total ? Math.round((100 * p.step) / p.total) : 0;
@@ -203,6 +234,7 @@ function RunCard({ run, models, onChange }) {
         </div>
       )}
       {run.error && <p className="text-xs text-destructive">{run.error}</p>}
+      <Recipe id={run.id} status={run.status} />
       {run.messages.length > 0 && (
         <details className="text-[11px] text-muted-foreground"><summary className="cursor-pointer">Log</summary>
           <div className="mt-1 font-mono space-y-0.5 max-h-40 overflow-auto">{run.messages.map((m, i) => <div key={i}>{m.message}</div>)}</div>

@@ -223,11 +223,14 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
   downloaded (with size). A **Download Unsloth** button (about 10 GB, once) shows the last `docker pull` line beside it.
 - **New training run** card: data (built-in XAUUSD hourly, or an MT5 export path on this PC), model (Qwen3.5 2B default,
   Qwen3.5 0.8B, Qwen3 4B 4-bit, each with its GPU memory need; amber warning when it's close to the GPU's memory),
-  train and test date ranges (the test must start after training ends), and a collapsible **Training settings** row
-  (epochs, learning rate, LoRA rank, batch size, gradient accumulation, max sequence length) that fades and slides in.
+  train and test date ranges (the test must start after training ends), and a bordered **Pick the training settings
+  for my GPU** switch (on by default) that spells out the chosen batch, accumulation, epochs, learning rate and LoRA rank
+  and why. Switched off, a **Training settings** row (epochs, learning rate, LoRA rank, batch size, gradient
+  accumulation, max sequence length) fades and slides in.
 - **Run cards** (newest first, fade and rise in): model name, status pill (blue running phase, green done, red error,
   grey stopped), a progress bar with step, loss, epoch and GPU memory, a blue loss line, four result tiles (model error,
   simple guess error, better than guess, test days) and a verdict line: green 15%+ better, amber 3-15%, grey no edge.
+  Under it, blue download links for the run's **Unsloth Studio recipe** (the config YAML and the alpaca dataset).
 - Polls every 2 s while a run or download is going, every 10 s otherwise.
 
 ## Market data

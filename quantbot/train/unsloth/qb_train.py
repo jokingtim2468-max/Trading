@@ -109,7 +109,51 @@ def prepare(job, cfg):
             for e in rows:
                 f.write(json.dumps(e) + "\n")
     emit("log", message=f"{len(days)} trading days {days[0][0]} to {days[-1][0]}: {len(tr)} for training, {len(te)} for the test")
+    studio_recipe(job, cfg, tr)
     return tr, te
+
+
+def yaml_lines(d, indent=0):
+    out = []
+    for k, v in d.items():
+        pad = "  " * indent
+        if isinstance(v, dict):
+            out += [f"{pad}{k}:"] + yaml_lines(v, indent + 1)
+        elif isinstance(v, list):
+            out += [f"{pad}{k}:"] + [f"{pad}  - {x}" for x in v]
+        elif isinstance(v, bool):
+            out.append(f"{pad}{k}: {'true' if v else 'false'}")
+        else:
+            out.append(f"{pad}{k}: {json.dumps(v) if isinstance(v, str) else v}")
+    return out
+
+
+def studio_recipe(job, cfg, rows):
+    """The same run as an Unsloth Studio recipe: an alpaca-format dataset and a config YAML to Upload in Studio."""
+    folder = os.path.join(job, "unsloth_studio")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "gold_daily_range.jsonl"), "w") as f:
+        for r in rows:
+            f.write(json.dumps({"instruction": "Forecast today's gold (XAUUSD) high and low as % from today's open.",
+                                "input": r["prompt"], "output": r["answer"]}) + "\n")
+    hf_id, four_bit, _ = MODELS[cfg["model"]]
+    recipe = {
+        "model": {"name": hf_id, "method": "qlora" if four_bit else "lora", "type": "text"},
+        "dataset": {"path": "gold_daily_range.jsonl", "format": "alpaca"},
+        "training": {"max_steps": 0, "num_train_epochs": cfg["epochs"], "per_device_train_batch_size": cfg["batch_size"],
+                     "gradient_accumulation_steps": cfg["grad_accum"], "learning_rate": cfg["learning_rate"],
+                     "max_seq_length": cfg["max_seq_length"], "warmup_steps": 10, "weight_decay": 0.01, "optim": "adamw_8bit",
+                     "lr_scheduler_type": "linear", "gradient_checkpointing": "unsloth", "seed": 3407,
+                     "packing": False, "train_on_completions": True},
+        "lora": {"r": cfg["lora_r"], "lora_alpha": cfg["lora_r"] * 2, "lora_dropout": 0.0,
+                 "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]},
+        "logging": {"report_to": "none", "logging_steps": 5},
+    }
+    name = f"{cfg['model']}_{recipe['model']['method']}_gold-daily-range_{time.strftime('%Y%m%d-%H%M%S')}.yaml"
+    with open(os.path.join(folder, name), "w") as f:
+        f.write("# QuantBot recipe for Unsloth Studio: Upload this file on the training page, then pick the dataset next to it\n")
+        f.write("\n".join(yaml_lines(recipe)) + "\n")
+    emit("log", message=f"Unsloth Studio recipe written: unsloth_studio/{name}")
 
 
 def load_rows(job, name):
@@ -141,7 +185,14 @@ def train(job, cfg):
                                              use_gradient_checkpointing="unsloth", random_state=3407, max_seq_length=cfg["max_seq_length"])
     eos = tok.eos_token or ""
     rows = load_rows(job, "train")
-    ds = Dataset.from_list([{"text": template(r["prompt"], r["answer"]) + eos} for r in rows])
+    texts = [template(r["prompt"], r["answer"]) + eos for r in rows]
+    if cfg.get("auto", True):
+        longest = max(len(tok(t)["input_ids"]) for t in texts[:: max(1, len(texts) // 400)])
+        seq = min(cfg["max_seq_length"], 64 * math.ceil((longest + 32) / 64))
+        if seq != cfg["max_seq_length"]:
+            emit("log", message=f"Auto: longest example is {longest} tokens, sequence length set to {seq} (saves GPU memory)")
+            cfg["max_seq_length"] = seq
+    ds = Dataset.from_list([{"text": t} for t in texts])
 
     class Progress(TrainerCallback):
         def on_log(self, args, state, control, logs=None, **kw):
@@ -153,13 +204,31 @@ def train(job, cfg):
             if os.path.exists(os.path.join(job, "STOP")):
                 control.should_training_stop = True
 
-    trainer = SFTTrainer(model=model, tokenizer=tok, train_dataset=ds, callbacks=[Progress()], args=SFTConfig(
-        dataset_text_field="text", max_seq_length=cfg["max_seq_length"], per_device_train_batch_size=cfg["batch_size"],
-        gradient_accumulation_steps=cfg["grad_accum"], warmup_steps=10, num_train_epochs=cfg["epochs"],
-        learning_rate=cfg["learning_rate"], logging_steps=5, optim="adamw_8bit", weight_decay=0.01,
-        lr_scheduler_type="linear", seed=3407, output_dir=os.path.join(job, "checkpoints"), save_strategy="no",
-        report_to="none", dataset_num_proc=1))
-    trainer.train()
+    def make_trainer(batch, accum):
+        t = SFTTrainer(model=model, tokenizer=tok, train_dataset=ds, callbacks=[Progress()], args=SFTConfig(
+            dataset_text_field="text", max_seq_length=cfg["max_seq_length"], per_device_train_batch_size=batch,
+            gradient_accumulation_steps=accum, warmup_steps=10, num_train_epochs=cfg["epochs"],
+            learning_rate=cfg["learning_rate"], logging_steps=5, optim="adamw_8bit", weight_decay=0.01,
+            lr_scheduler_type="linear", seed=3407, output_dir=os.path.join(job, "checkpoints"), save_strategy="no",
+            report_to="none", dataset_num_proc=1))
+        try:  # learn only the answers, not to repeat the question
+            from unsloth.chat_templates import train_on_responses_only
+            t = train_on_responses_only(t, instruction_part="### Question\n", response_part="### Answer\n")
+        except Exception as e:  # noqa: BLE001 - older Unsloth: train on the whole text
+            emit("log", message=f"Training on the whole text ({type(e).__name__})")
+        return t
+
+    batch, accum = cfg["batch_size"], cfg["grad_accum"]
+    while True:
+        try:
+            make_trainer(batch, accum).train()
+            break
+        except torch.cuda.OutOfMemoryError:
+            if batch == 1:
+                raise SystemExit("Out of GPU memory even at batch size 1: pick a smaller model")
+            torch.cuda.empty_cache()
+            batch, accum = batch // 2, accum * 2
+            emit("log", message=f"Out of GPU memory: retrying with batch size {batch} (gradient accumulation {accum}, same effective batch)")
     model.save_pretrained(os.path.join(job, "adapter"))
     tok.save_pretrained(os.path.join(job, "adapter"))
     emit("log", message="Adapter saved")

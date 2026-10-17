@@ -18,7 +18,7 @@ export const MODELS = [
   { id: 'qwen3-4b-4bit', name: 'Qwen3 4B (4-bit)', vram: 8, note: 'Bigger model in 4-bit: tight on 8 GB' },
 ];
 export const DEFAULTS = {
-  model: 'qwen3.5-2b', source: 'builtin', symbol: 'XAUUSD', data_path: '',
+  auto: true, model: 'qwen3.5-2b', source: 'builtin', symbol: 'XAUUSD', data_path: '',
   train_from: '2004-01-01', train_to: '2022-12-31', test_from: '2023-01-01', test_to: '2026-12-31',
   epochs: 2, learning_rate: 0.0002, lora_r: 16, batch_size: 4, grad_accum: 4, max_seq_length: 768,
 };
@@ -38,6 +38,19 @@ function run(cmd, args, timeoutMs = 15000) {
     p.on('error', (e) => { clearTimeout(t); resolve({ code: -1, out, err: e.message }); });
     p.on('close', (code) => { clearTimeout(t); resolve({ code, out: out.trim(), err: err.trim() }); });
   });
+}
+
+// Settings picked for the GPU: the largest batch that leaves memory to spare (same effective batch of 16 either way),
+// LoRA rank 16 with alpha 32 and 2e-4 (Unsloth's defaults), 2 epochs over ~4,700 days. The script then trims the
+// sequence length to the longest real example and halves the batch by itself if the GPU still runs out of memory.
+export function autoSettings(modelId, gpuGb) {
+  const m = MODELS.find((x) => x.id === modelId) || MODELS[0];
+  const spare = gpuGb ? gpuGb - m.vram : 2;
+  const batch = spare >= 3 ? 8 : spare >= 1.5 ? 4 : spare >= 0.5 ? 2 : 1;
+  const why = gpuGb
+    ? `${gpuGb} GB GPU, ${m.name} needs about ${m.vram} GB: batch ${batch} leaves ${Math.max(0, spare).toFixed(1)} GB to spare`
+    : `No GPU reading: batch ${batch} to be safe`;
+  return { settings: { epochs: 2, learning_rate: 0.0002, lora_r: 16, batch_size: batch, grad_accum: Math.max(1, Math.round(16 / batch)), max_seq_length: 1024 }, why };
 }
 
 export function validateConfig(input) {
@@ -104,9 +117,18 @@ export function createTrainer({ dataDir, market, log = () => {} }) {
     return target;
   }
 
+  async function gpuGb() {
+    const g = await run('nvidia-smi', ['--query-gpu=memory.total', '--format=csv,noheader,nounits']);
+    return g.code === 0 ? Math.round(Number(g.out.split('\n')[0]) / 102.4) / 10 : null;
+  }
+
   async function start(input) {
     if ([...live.values()].some((x) => x.state.status === 'running')) throw Object.assign(new Error('A training run is already going: stop it or wait for it to finish'), { status: 409 });
-    const cfg = validateConfig(input);
+    let cfg = validateConfig(input);
+    if (cfg.auto) {
+      const a = autoSettings(cfg.model, await gpuGb());
+      cfg = { ...cfg, ...a.settings, auto_reason: a.why };
+    }
     const id = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
     fs.mkdirSync(dir(id), { recursive: true });
     const st = { id, status: 'running', phase: 'starting', config: cfg, started: new Date().toISOString(), ended: null, error: null };
@@ -153,6 +175,7 @@ export function createTrainer({ dataDir, market, log = () => {} }) {
         live.delete(id);
       }
     })();
+    if (cfg.auto_reason) fs.appendFileSync(path.join(dir(id), 'events.jsonl'), `${JSON.stringify({ type: 'log', time: Date.now() / 1000, message: `Auto settings: ${cfg.auto_reason}` })}\n`);
     log(`train ${id}: started ${cfg.model} on ${cfg.source === 'file' ? path.basename(cfg.data_path) : cfg.symbol}`);
     return { id };
   }
@@ -202,6 +225,16 @@ export function createTrainer({ dataDir, market, log = () => {} }) {
       return fs.readdirSync(root).map(summary).filter(Boolean).sort((a, b) => b.started.localeCompare(a.started));
     },
     run: (id) => summary(id),
+    auto: async (model) => autoSettings(model, await gpuGb()),
+    // The Unsloth Studio recipe the run wrote (config YAML + dataset), for Upload in Studio
+    recipe(id) {
+      const f = path.join(dir(id), 'unsloth_studio');
+      return fs.existsSync(f) ? fs.readdirSync(f).map((name) => ({ name, size: fs.statSync(path.join(f, name)).size })) : [];
+    },
+    recipeFile(id, name) {
+      const f = path.join(dir(id), 'unsloth_studio', path.basename(name));
+      return fs.existsSync(f) ? f : null;
+    },
     remove(id) {
       if (live.has(id)) throw Object.assign(new Error('Stop the run first'), { status: 409 });
       fs.rmSync(dir(id), { recursive: true, force: true });

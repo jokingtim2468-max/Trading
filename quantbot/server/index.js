@@ -177,6 +177,15 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   if (req.method === 'GET' && url.pathname === '/api/train/status') return send(res, 200, { ...(await trainer.status()), models: trainer.models, defaults: trainer.defaults, image_name: trainer.image });
   if (req.method === 'POST' && url.pathname === '/api/train/pull') { if (!json()) return send(res, 415, { error: 'JSON required' }); return send(res, 200, trainer.pull()); }
   if (req.method === 'GET' && url.pathname === '/api/train/runs') return send(res, 200, { runs: trainer.runs() });
+  if (req.method === 'GET' && url.pathname === '/api/train/auto') return send(res, 200, await trainer.auto(url.searchParams.get('model')));
+  const recipe = url.pathname.match(/^\/api\/train\/runs\/([0-9a-z-]+)\/recipe(?:\/([^/]+))?$/i);
+  if (req.method === 'GET' && recipe) {
+    if (!recipe[2]) return send(res, 200, { files: trainer.recipe(recipe[1]) });
+    const f = trainer.recipeFile(recipe[1], decodeURIComponent(recipe[2]));
+    if (!f) return send(res, 404, { error: 'No such file' });
+    res.writeHead(200, { 'content-type': f.endsWith('.yaml') ? 'application/x-yaml' : 'application/x-ndjson', 'content-disposition': `attachment; filename="${path.basename(f)}"` });
+    return fs.createReadStream(f).pipe(res);
+  }
   if (req.method === 'POST' && url.pathname === '/api/train/start') {
     if (!json()) return send(res, 415, { error: 'JSON required' });
     return send(res, 200, await trainer.start(JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}')));
