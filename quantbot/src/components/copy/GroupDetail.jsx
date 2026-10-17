@@ -6,6 +6,7 @@ import { SCRIPT_STEP, groupStats, money, signedMoney, logSetup, TIERS } from '@/
 import GroupMenu from '@/components/accounts/GroupMenu';
 import RankAvatar, { RankName } from './RankAvatar';
 import { rankedScripts } from './GroupCard';
+import BlackoutPanel from './BlackoutPanel';
 
 const STATUS = {
   active: 'border-border text-muted-foreground', passed: 'border-emerald-500/40 text-emerald-400', failed: 'border-red-500/40 text-red-400',
@@ -173,6 +174,8 @@ export default function GroupDetail({ group, accounts, trades, scripts, over, dr
           </div>
         </div>
       )}
+
+      <BlackoutPanel group={group} symbol={mine[0]?.symbol || (futures ? 'MGC1!' : 'XAUUSD')} onChanged={onChanged} />
 
       {futures ? (
         <details className="text-xs text-muted-foreground">

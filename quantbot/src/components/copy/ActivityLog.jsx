@@ -10,9 +10,11 @@ export const ACTIVITY_FILTERS = [
   { id: 'all', label: 'All', test: () => true },
   { id: 'trades', label: 'Trades', test: (e) => ['open', 'close', 'move'].includes(e.kind) },
   { id: 'signals', label: 'Signals', test: (e) => e.kind === 'signal' },
-  { id: 'problems', label: 'Skips & warnings', test: (e) => e.level !== 'info' || ['skip', 'limit', 'ignore'].includes(e.kind) },
+  { id: 'problems', label: 'Skips & warnings', test: (e) => e.level !== 'info' || ['skip', 'limit', 'ignore', 'block'].includes(e.kind) },
+  { id: 'blocks', label: 'News & hours', test: (e) => e.kind === 'block' },
   { id: 'progress', label: 'Ranks & pass / fail', test: (e) => ['rank', 'status', 'floor'].includes(e.kind) },
   { id: 'orders', label: 'Orders', test: (e) => e.kind === 'order' },
+  { id: 'payouts', label: 'Payouts', test: (e) => e.kind === 'payout' },
   { id: 'setup', label: 'Setup', test: (e) => e.kind === 'setup' },
 ];
 const KIND = {
@@ -20,6 +22,7 @@ const KIND = {
   move: 'text-chart-4 border-chart-4/40', skip: 'text-chart-4 border-chart-4/40', limit: 'text-chart-4 border-chart-4/40',
   ignore: 'text-muted-foreground border-border', rank: 'text-violet-300 border-violet-400/40', status: 'text-foreground border-foreground/40',
   floor: 'text-muted-foreground border-border', order: 'text-sky-300 border-sky-400/40', setup: 'text-muted-foreground border-border',
+  block: 'text-chart-4 border-chart-4/40', payout: 'text-emerald-400 border-emerald-500/40',
 };
 const LEVEL = { warn: 'text-chart-4', error: 'text-red-400' };
 const time = (iso) => { const d = new Date(iso); return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour12: false })}`; };

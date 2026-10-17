@@ -6,7 +6,7 @@ import { DragDropContext, Droppable } from '@hello-pangea/dnd';
 import { client } from '@/api/client';
 import useAccounts from '@/hooks/useAccounts';
 import usePointerDrop from '@/hooks/usePointerDrop';
-import { logSetup, groupScriptIds } from '@/lib/copy';
+import { logSetup, groupScriptIds, firmUsage } from '@/lib/copy';
 import { MOTION, reducedMotion } from '@/lib/clickOrigin';
 import { useToast } from '@/components/ui/use-toast';
 import { Button } from '@/components/ui/button';
@@ -174,6 +174,17 @@ export default function Accounts() {
                           <div className="flex items-center gap-2">
                             <h2 className="text-sm font-semibold">Groups</h2>
                             <span className="text-[11px] text-muted-foreground">Click a group to open it. Drag accounts and a script onto a group.</span>
+                            <div className="ml-auto flex flex-wrap gap-1.5" data-testid="firm-usage">
+                              {firmUsage(accounts).map((u) => {
+                                const full = (u.max && u.funded >= u.max) || (u.maxCapital && u.capital >= u.maxCapital);
+                                return (
+                                  <span key={u.firm} className={`text-[11px] rounded-full border px-2 py-0.5 whitespace-nowrap ${full ? 'border-chart-4/50 text-chart-4' : 'border-border text-muted-foreground'}`}
+                                    title={u.max ? `${u.firm} allows ${u.max} funded accounts per person` : `${u.firm} allows any number of accounts, $${u.maxCapital.toLocaleString('en-US')} funded at once`}>
+                                    {u.firm} funded {u.max ? `${u.funded}/${u.max}` : `$${(u.capital / 1000).toLocaleString('en-US')}K / $${(u.maxCapital / 1000).toLocaleString('en-US')}K`}
+                                  </span>
+                                );
+                              })}
+                            </div>
                           </div>
                           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {groups.map((g) => (
@@ -247,7 +258,7 @@ export default function Accounts() {
         </DragDropContext>
       )}
       {editing && (
-        <AccountDialog account={editing.account} servers={servers} groups={groups}
+        <AccountDialog account={editing.account} accounts={accounts} servers={servers} groups={groups}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); data.reload(); }} />
       )}
       {groupDialog && (

@@ -19,7 +19,12 @@ process.env.QUANTBOT_ANTHROPIC_URL = models.url;
 const { startServer } = await import('../../server/index.js');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quantbot-e2e-'));
-let app = await startServer({ port: 0, dataDir, userName: 'Tim', quiet: true });
+// A made-up economic calendar: a high-impact USD event 30 minutes from now (Forex Factory) that FTMO restricts
+const inHalfHour = new Date(Date.now() + 30 * 60000);
+const newsFetch = async (url) => new Response(JSON.stringify(String(url).includes('faireconomy')
+  ? [{ title: 'Non-Farm Employment Change', country: 'USD', date: inHalfHour.toISOString(), impact: 'High' }]
+  : { items: [{ title: 'Non-Farm Employment Change', instrument: 'USD + US INDICES + XAUUSD', impact: 'high', restriction: true, date: inHalfHour.toISOString() }] }));
+let app = await startServer({ port: 0, dataDir, userName: 'Tim', quiet: true, newsFetch });
 const base = () => `http://localhost:${app.port}`;
 
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
@@ -595,27 +600,29 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await card('FTMO 100K').waitFor({ state: 'detached' });
 });
 
+// Dragging with the mouse the way a person does: press, move in small steps, let go
+const drag = async (from, to) => {
+  // a dialog that just closed hands the page back to the mouse a moment later
+  await page.waitForFunction(() => getComputedStyle(document.body).pointerEvents !== 'none', null, { timeout: 5000 });
+  // the target in the middle of the window (clear of the sticky header and the drag auto-scroll edges)
+  await to.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(100);
+  const a = await from.boundingBox(), b = await to.boundingBox();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 5 });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 20 });
+  await page.waitForTimeout(250);
+  await page.mouse.up();
+  // the card settles back before the next drag can start
+  await page.waitForFunction(() => !document.querySelector('[data-rfd-draggable-id][style*="position: fixed"]'));
+  await page.waitForTimeout(150);
+};
+
 await step('Copy trading: add a script, drag accounts and the script onto a group, its alerts trade every account', async () => {
+  await page.setViewportSize({ width: 1360, height: 2200 }); // the open group and the accounts fit on one screen
   await page.goto(`${base()}/accounts`);
   await page.getByRole('heading', { name: 'Copy trading' }).waitFor();
-  // Dragging with the mouse the way a person does: press, move in small steps, let go
-  const drag = async (from, to) => {
-    // a dialog that just closed hands the page back to the mouse a moment later
-    await page.waitForFunction(() => getComputedStyle(document.body).pointerEvents !== 'none', null, { timeout: 5000 });
-    // the target in the middle of the window (clear of the sticky header and the drag auto-scroll edges)
-    await to.evaluate((el) => el.scrollIntoView({ block: 'center' }));
-    await page.waitForTimeout(100);
-    const a = await from.boundingBox(), b = await to.boundingBox();
-    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2 + 10, { steps: 5 });
-    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 20 });
-    await page.waitForTimeout(250);
-    await page.mouse.up();
-    // the card settles back before the next drag can start
-    await page.waitForFunction(() => !document.querySelector('[data-rfd-draggable-id][style*="position: fixed"]'));
-    await page.waitForTimeout(150);
-  };
   // A new account gets a random trader name, a ranked picture and Lucid 50K rules with $300 risk
   await page.getByRole('button', { name: 'Add account' }).click();
   const d = page.getByRole('dialog');
@@ -743,6 +750,101 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.keyboard.press('Escape');
 });
 
+await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, news and trading-hour blocks', async () => {
+  await page.setViewportSize({ width: 1360, height: 2200 }); // the open group and the accounts fit on one screen
+  await page.goto(`${base()}/accounts`);
+  await page.getByTestId('groups-overview').waitFor();
+  const addFtmo = async (name, login, size, stage) => {
+    await page.getByRole('button', { name: 'Add account' }).click();
+    const d = page.getByRole('dialog');
+    await d.getByPlaceholder('e.g. Lucid 50K #1').fill(name);
+    await d.getByPlaceholder('e.g. LTT04821 or 5100123').fill(login);
+    await d.getByPlaceholder('e.g. FTMO-Demo').fill('FTMO-Server');
+    await pick(d.getByRole('combobox', { name: 'Account rules' }), `FTMO ${size}K`);
+    await pick(d.getByRole('combobox', { name: 'Stage' }), stage);
+    return d;
+  };
+  // Funded FTMO accounts: auto-withdraw is on by default, the risk is 15% of the 5% daily loss
+  let d = await addFtmo('FTMO 100K #1', '5100901', 100, 'Funded');
+  expect(await d.getByRole('switch', { name: 'Withdraw automatically' }).getAttribute('aria-checked') === 'true', 'auto-withdraw should default on for funded FTMO');
+  expect((await d.getByLabel('Risk per trade').inputValue()) === '750', 'FTMO 100K risk should default to $750');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.waitFor({ state: 'detached' });
+  d = await addFtmo('FTMO 200K #1', '5100902', 200, 'Funded');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.waitFor({ state: 'detached' });
+  await page.getByTestId('firm-usage').getByText('FTMO funded $300K / $400K').waitFor();
+  // A third funded account would pass FTMO's $400K: refused until it is a Challenge
+  d = await addFtmo('FTMO 200K #2', '5100903', 200, 'Funded');
+  await d.getByTestId('firm-limit').getByText(/\$400,000 of funded capital/).waitFor();
+  expect(await d.getByRole('button', { name: 'Save', exact: true }).isDisabled(), 'save should be blocked over the FTMO limit');
+  await pick(d.getByRole('combobox', { name: 'Stage' }), 'Challenge');
+  await d.getByTestId('firm-limit').waitFor({ state: 'detached' });
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.waitFor({ state: 'detached' });
+  await page.locator('[data-account="FTMO 200K #2"]').getByText('FTMO Challenge').waitFor();
+  // The MT5 copier: on, symbol map, the EA's address once saved
+  await page.locator('[data-account="FTMO 100K #1"]').getByRole('button', { name: 'Edit FTMO 100K #1' }).click();
+  d = page.getByRole('dialog');
+  await d.getByRole('switch', { name: 'Place trades on MT5' }).click();
+  await d.getByLabel('Symbol map').fill('MGC1!=XAUUSD');
+  await d.getByTestId('mt5-copier').getByLabel('Copier address', { exact: true }).filter({ hasText: /\/mt5\/[0-9a-f]{32}\/[A-Za-z0-9]+$/ }).waitFor();
+  await snap('ftmo-mt5-account');
+  await d.getByRole('button', { name: 'Save', exact: true }).click();
+  await d.waitFor({ state: 'detached' });
+  // An MT5 group trading the script, with its news and trading-hour blocks in this PC's time zone
+  await page.getByRole('button', { name: 'New group' }).click();
+  await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('FTMO squad');
+  await page.getByRole('dialog').getByRole('radio', { name: 'MetaTrader 5' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  const panel = page.getByTestId('group-panel');
+  await panel.getByTestId('group-title').filter({ hasText: 'FTMO squad' }).waitFor();
+  await drag(page.locator('[data-account="FTMO 100K #1"]'), panel);
+  await panel.locator('[data-member="FTMO 100K #1"]').waitFor();
+  await drag(page.locator('[data-script="Silver Scalper"]'), page.getByTestId('script-slot'));
+  await panel.locator('[data-group-script="Silver Scalper"]').waitFor();
+  const bp = page.getByTestId('blackout-panel');
+  const tz = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await bp.getByTestId('blackout-tz').getByText(`Times in ${tz} (this PC)`).waitFor();
+  await bp.getByTestId('news-upcoming').getByText(/FTMO restricted news: USD \+ US INDICES \+ XAUUSD Non-Farm Employment Change/).waitFor();
+  await bp.getByTestId('news-upcoming').getByText(/News: USD Non-Farm Employment Change \(Forex Factory, high\)/).waitFor();
+  // Block a weekday other than today (today is checked with the time window below)
+  const otherDay = await page.evaluate(() => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][(new Date().getDay() + 3) % 7]);
+  await bp.getByRole('group', { name: 'Blocked days' }).getByRole('button', { name: otherDay }).click();
+  await bp.getByRole('group', { name: 'Blocked days' }).getByRole('button', { name: otherDay, pressed: true }).waitFor();
+  // Block the next few minutes, then send a buy: it is not copied, and the log says why
+  const [from, to] = await page.evaluate(() => [-1, 5].map((m) => new Date(Date.now() + m * 60000).toTimeString().slice(0, 5)));
+  await bp.getByLabel('Block from', { exact: true }).fill(from);
+  await bp.getByLabel('Block to', { exact: true }).fill(to);
+  await bp.getByRole('button', { name: 'Add blocked hours' }).click();
+  await bp.locator(`[data-window="${from}-${to}"]`).waitFor();
+  await bp.getByTestId('blackout-now').getByText('No new trades now').waitFor();
+  await page.waitForTimeout(800); // saved a moment after the change
+  await snap('ftmo-blackouts');
+  const key = (await (await fetch(`${base()}/api/signals/config`)).json()).key;
+  const inv = async (...args) => (await (await fetch(`${base()}/api/invoke`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'entity', args }) })).json()).result;
+  const silver = (await inv('Script', 'filter', { name: 'Silver Scalper' }))[0];
+  const res = await fetch(`${base()}/hook/${key}/s/${silver.id}`, { method: 'POST', body: JSON.stringify({ qb: 1, event: 'buy', symbol: 'MGC1!', price: 2400, sl: 2396, strategy: 'Silver Scalper', trade_id: 'S-1' }) });
+  expect(res.status === 200, 'buy refused');
+  await page.getByRole('tablist', { name: 'Activity filter' }).getByRole('tab', { name: /^News & hours/ }).click();
+  await page.getByTestId('activity-log').locator('li[data-event="block"]').filter({ hasText: new RegExp(`FTMO squad: buy MGC1! not copied\\. ${from}-${to} is blocked`) }).waitFor();
+  // Unblocked: the buy goes to the FTMO account in lots on XAUUSD and is queued for its MT5 terminal
+  await bp.getByRole('button', { name: `Unblock ${from}-${to}` }).click();
+  await page.waitForTimeout(800);
+  await fetch(`${base()}/hook/${key}/s/${silver.id}`, { method: 'POST', body: JSON.stringify({ qb: 1, event: 'buy', symbol: 'MGC1!', price: 2400, sl: 2396, strategy: 'Silver Scalper', trade_id: 'S-2' }) });
+  await page.getByRole('tablist', { name: 'Activity filter' }).getByRole('tab', { name: /^Orders/ }).click();
+  await page.getByTestId('activity-log').locator('li[data-event="order"]').filter({ hasText: /buy 1\.87 lots XAUUSD queued for MT5/ }).waitFor();
+  const acct = (await inv('TradingAccount', 'filter', { label: 'FTMO 100K #1' }))[0];
+  const { url } = await (await fetch(`${base()}/api/mt5/url?account=${acct.id}`)).json();
+  const poll = await (await fetch(`${url.replace('127.0.0.1', new URL(base()).hostname)}/poll`)).text();
+  expect(/^[a-z0-9]+\|open\|XAUUSD\|long\|1\.87\|2396\|0\|QB[a-z0-9]+\|0$/.test(poll), `EA poll: ${poll}`);
+  await snap('ftmo-orders');
+  await page.getByRole('tablist', { name: 'Activity filter' }).getByRole('tab', { name: /^All/ }).click();
+});
+
+await page.setViewportSize({ width: 1360, height: 900 });
+
 await step('Unknown page shows 404', async () => {
   await page.goto(`${base()}/nope`);
   await text('Page Not Found').waitFor();
@@ -768,7 +870,7 @@ await step('Phone layout: sidebar slides in from the left and back out', async (
 
 await step('Everything is still there after restarting QuantBot', async () => {
   await app.close();
-  app = await startServer({ port: 0, dataDir, userName: 'Tim', quiet: true });
+  app = await startServer({ port: 0, dataDir, userName: 'Tim', quiet: true, newsFetch });
   await page.goto(base());
   await page.locator('aside').getByText('Gold Breakout v2').waitFor();
   await page.goto(`${base()}/settings`);

@@ -1,7 +1,7 @@
 import { Draggable } from '@hello-pangea/dnd';
 import { GripVertical, Pencil, Crown, FileCode2 } from 'lucide-react';
 import { platformOf } from '@/lib/accounts';
-import { ACCOUNT_STEP, levelFromXp, money, signedMoney } from '@/lib/copy';
+import { ACCOUNT_STEP, levelFromXp, money, signedMoney, STAGE_LABELS, planFirm } from '@/lib/copy';
 import RankAvatar, { RankName } from '@/components/copy/RankAvatar';
 
 const BADGE = { MT5: 'text-chart-4 border-chart-4/40', Tradovate: 'text-primary border-primary/40', TradingView: 'text-foreground/80 border-foreground/30' };
@@ -36,7 +36,9 @@ export default function AccountCard({ account, index, group, scriptNames = [], i
             <div className="flex items-center gap-2 text-xs tabular-nums">
               <span>{money(balance)}</span>
               <span className={balance > start ? 'text-emerald-400' : balance < start ? 'text-red-400' : 'text-muted-foreground'}>{signedMoney(Math.round((balance - start) * 100) / 100)}</span>
-              {status !== 'active' && <span className={`ml-auto rounded-full border px-2 py-0.5 text-[11px] ${STATUS[status]}`}>{status === 'passed' ? 'Passed' : 'Failed'}</span>}
+              {account.withdrawn > 0 && <span className="text-[11px] text-muted-foreground whitespace-nowrap" title="Your share paid out">· {money(account.withdrawn)} out</span>}
+              {account.stage && <span className="ml-auto rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground whitespace-nowrap">{planFirm(account.plan)} {STAGE_LABELS[account.stage]}</span>}
+              {status !== 'active' && <span className={`${account.stage ? '' : 'ml-auto '}rounded-full border px-2 py-0.5 text-[11px] ${STATUS[status]}`} title={account.status_reason || ''}>{status === 'passed' ? 'Passed' : 'Failed'}</span>}
             </div>
           )}
           <div className="flex items-center gap-2 text-xs">

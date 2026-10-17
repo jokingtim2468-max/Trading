@@ -6,17 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PLATFORMS, detectPlatform, familyOf } from '@/lib/accounts';
-import { PLANS, planRisk, randomName, randomSeed, logSetup } from '@/lib/copy';
+import { PLANS, planRisk, randomName, randomSeed, logSetup, firmLimitError, planFirm } from '@/lib/copy';
 import RankAvatar from '@/components/copy/RankAvatar';
 import Field from './Field';
 import Mt5Fields from './Mt5Fields';
 import TradovateFields from './TradovateFields';
+import PropFields from './PropFields';
+import Mt5CopierFields from './Mt5CopierFields';
 
 const BLANK = { label: '', login: '', server: '', environment: 'demo', firm: '', copy_qty: 1, plan: 'lucid50', forward_url: '' };
 const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 
 // Add or edit an account. The platform is detected from the account number / name; pick it by hand to override.
-export default function AccountDialog({ account, servers, groups, onClose, onSaved }) {
+export default function AccountDialog({ account, accounts = [], servers, groups, onClose, onSaved }) {
   const [form, setForm] = useState(() => {
     const f = { ...BLANK, ...account };
     if (!f.display_name) f.display_name = randomName();
@@ -34,7 +36,9 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
   // TradingView accounts trade on paper here, so they need no login
   const missing = !form.label?.trim() || (!form.login?.trim() && platform !== 'TradingView') || !platform || (isMt5 && !form.server?.trim());
   const pickPlan = (id) => setForm((f) => ({ ...f, ...planFields(id) }));
+  const pickStage = (stage) => setForm((f) => ({ ...f, ...planFields(f.plan, stage), risk_usd: f.risk_usd, auto_withdraw: stage === 'funded' && planFirm(f.plan) === 'FTMO' ? true : f.auto_withdraw }));
   const plan = PLANS[form.plan] || PLANS.none;
+  const limitError = firmLimitError(accounts, { ...form, id: account?.id, start_balance: num(form.start_balance) ?? plan.start });
 
   const save = async (e, startOver = false) => {
     e?.preventDefault();
@@ -43,26 +47,33 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
     try {
       const start = num(form.start_balance) ?? plan.start;
       const data = {
-        platform, label: form.label.trim(), login: (form.login || '').trim(), copy_qty: Math.max(1, Number(form.copy_qty) || 1),
+        platform, label: form.label.trim(), login: (form.login || '').trim(), copy_qty: isMt5 ? Math.max(0.01, Number(form.copy_qty) || 1) : Math.max(1, Math.round(Number(form.copy_qty) || 1)),
         firm: (form.firm || detected?.firm || '').trim(),
         ...(isMt5 ? { server: form.server.trim(), environment: '' } : { server: '', environment: form.environment || 'demo' }),
         display_name: form.display_name.trim() || randomName(), avatar_seed: form.avatar_seed,
         plan: form.plan, start_balance: start, target: num(form.target), max_loss: num(form.max_loss), trailing: !!form.trailing,
         risk_usd: num(form.risk_usd), forward_url: (form.forward_url || '').trim(),
+        stage: plan.stages ? form.stage || Object.keys(plan.stages)[0] : '', daily_loss: num(form.daily_loss), day_zone: form.day_zone || plan.dayZone || '',
+        auto_withdraw: !!form.auto_withdraw && form.stage === 'funded', split: num(form.split), payout_days: num(form.payout_days),
+        mt5_on: isMt5 && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
       };
+      // Firm limits: Lucid 5 funded accounts, FTMO $400K funded capital
+      const limit = firmLimitError(accounts, { ...data, id: account?.id });
+      if (limit) throw new Error(limit);
+      if (data.stage === 'funded' && account?.stage !== 'funded') data.funded_at = new Date().toISOString();
       // A new account, a new plan or starting over begins again from the starting balance
-      if (!account || startOver || account.plan !== data.plan || account.start_balance !== start) {
-        Object.assign(data, { balance: start, peak_eod: start, floor: null, day_key: '', status: 'active' });
+      if (!account || startOver || account.plan !== data.plan || account.start_balance !== start || (account.stage || '') !== data.stage) {
+        Object.assign(data, { balance: start, peak_eod: start, floor: null, day_key: '', day_start: start, status: 'active', status_reason: '' });
       }
       // An account can't stay in a group of the other family (MT5 vs futures)
       const group = groups.find((g) => g.id === account?.group_id);
       if (group && (group.platform === 'MT5' ? 'MT5' : 'Futures') !== familyOf(platform)) data.group_id = '';
       const { TradingAccount } = client.entities;
-      const rules = `${PLANS[data.plan]?.label || data.plan}, start $${start.toLocaleString()}${data.risk_usd ? `, risk $${data.risk_usd}/trade` : ''}${data.forward_url ? ', order URL set' : ''}`;
+      const rules = `${PLANS[data.plan]?.label || data.plan}${data.stage ? ` ${data.stage}` : ''}, start $${start.toLocaleString()}${data.risk_usd ? `, risk $${data.risk_usd}/trade` : ''}${data.forward_url ? ', order URL set' : ''}`;
       if (account) {
         await TradingAccount.update(account.id, data);
         const reset = data.balance != null ? `${startOver ? 'started over' : 'reset by new rules'} at $${start.toLocaleString()} (was $${Number(account.balance ?? start).toLocaleString()}, ${account.status || 'active'})` : '';
-        const changed = ['plan', 'risk_usd', 'forward_url', 'target', 'max_loss'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
+        const changed = ['plan', 'stage', 'risk_usd', 'forward_url', 'target', 'max_loss', 'auto_withdraw', 'mt5_on', 'symbol_map'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
         if (reset || changed.length) await logSetup(`${data.display_name}: ${[reset, changed.length ? `changed ${changed.join(', ')} (${rules})` : ''].filter(Boolean).join('; ')}`, { account_id: account.id, group_id: account.group_id || '' }, { rules: data });
       } else {
         const made = await TradingAccount.create({ ...data, group_id: '' });
@@ -130,7 +141,7 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
           {platform && (
             <div className="rounded-xl border border-border p-3 space-y-3">
               <p className="text-xs font-medium">Copy trading</p>
-              <Field label="Account rules" hint={plan.target ? `Passes at +$${plan.target.toLocaleString()}, fails at -$${plan.maxLoss.toLocaleString()}${plan.trailing ? ' (trails the best end-of-day balance, locks at start + $100)' : ''}.` : 'No target or max loss: the account just tracks its trades.'}>
+              <Field label="Account rules" hint={plan.maxLoss ? `${form.target ? `Passes at +$${Number(form.target).toLocaleString()}, f` : 'F'}ails at -$${plan.maxLoss.toLocaleString()}${plan.trailing ? ' (trails the best end-of-day balance, locks at start + $100)' : ''}${plan.dailyLoss ? ` or a $${plan.dailyLoss.toLocaleString()} daily loss` : ''}.` : 'No target or max loss: the account just tracks its trades.'}>
                 <Select value={form.plan} onValueChange={pickPlan}>
                   <SelectTrigger aria-label="Account rules"><SelectValue /></SelectTrigger>
                   <SelectContent>{Object.entries(PLANS).map(([id, p]) => <SelectItem key={id} value={id}>{p.label}</SelectItem>)}</SelectContent>
@@ -143,6 +154,8 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
                   <Field label="Max loss $"><Input type="number" value={form.max_loss ?? ''} onChange={(e) => set('max_loss', e.target.value)} aria-label="Max loss" /></Field>
                 </div>
               )}
+              <PropFields form={form} plan={plan} onStage={pickStage} set={set} limitError={limitError} />
+              {isMt5 && <Mt5CopierFields account={account} form={form} set={set} />}
               <Field label="Risk per trade ($)" hint="Each copied trade is sized so its stop loses about this much. Empty: the script's quantity x this account's Qty.">
                 <Input type="number" min={0} value={form.risk_usd ?? ''} onChange={(e) => set('risk_usd', e.target.value)} aria-label="Risk per trade" placeholder="e.g. 300" />
               </Field>
@@ -156,7 +169,7 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
             {account && <Button type="button" variant="ghost" className="text-destructive sm:mr-auto" onClick={remove} disabled={busy}>Remove</Button>}
             {account && account.balance != null && <Button type="button" variant="outline" disabled={busy || missing}
               onClick={() => window.confirm('Start this account over from its starting balance? Its rank stays.') && save(null, true)}>Start over</Button>}
-            <Button type="submit" disabled={busy || missing}>{busy ? 'Saving…' : 'Save'}</Button>
+            <Button type="submit" disabled={busy || missing || !!limitError}>{busy ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -166,8 +179,12 @@ export default function AccountDialog({ account, servers, groups, onClose, onSav
 
 const platformOfTitle = (id) => PLATFORMS.find((p) => p.id === id)?.title || id;
 
-// Form fields for an account rules preset
-function planFields(id) {
+// Form fields for an account rules preset (and its stage: the target depends on it)
+function planFields(id, stage) {
   const p = PLANS[id] || PLANS.none;
-  return { plan: id, start_balance: p.start, target: p.target, max_loss: p.maxLoss, trailing: p.trailing, risk_usd: planRisk(p) };
+  const st = p.stages ? (stage && stage in p.stages ? stage : Object.keys(p.stages)[0]) : '';
+  return {
+    plan: id, stage: st, start_balance: p.start, target: p.stages ? p.stages[st] : p.target, max_loss: p.maxLoss, daily_loss: p.dailyLoss ?? null,
+    day_zone: p.dayZone || '', trailing: p.trailing, risk_usd: planRisk(p),
+  };
 }

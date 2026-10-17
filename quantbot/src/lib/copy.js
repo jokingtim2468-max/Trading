@@ -1,7 +1,7 @@
 // Copy trading in the app: the same XP, rank, plan and name rules the server's copier uses, plus overview sums
 export {
   XP_TABLE, xpForTrade, ACCOUNT_STEP, SCRIPT_STEP, levelFromXp, TIERS, tierOf, PLANS, pointValue, randomName, randomSeed, evaluate,
-  groupScriptIds,
+  groupScriptIds, FIRMS, STAGE_LABELS, planFirm, firmLimitError, firmUsage,
 } from '../../server/lib/copyRules.js';
 
 export const money = (v) => `${v < 0 ? '-' : ''}$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -33,7 +33,8 @@ export function scriptHooks(config, scriptId) {
 }
 
 // Suggested risk per trade for a plan: 15% of its max loss ($300 on a Lucid 50K)
-export const planRisk = (plan) => (plan?.maxLoss ? Math.round(plan.maxLoss * 0.15) : '');
+// Suggested risk per trade for a plan: 15% of its tightest loss limit ($300 on a Lucid 50K, $750 on an FTMO 100K)
+export const planRisk = (plan) => (plan?.maxLoss ? Math.round(Math.min(plan.maxLoss, plan.dailyLoss || Infinity) * 0.15) : '');
 
 // Something done in the app (script dropped on a group, account moved, reset...) for the activity log
 export async function logSetup(message, refs = {}, data = undefined) {
