@@ -16,6 +16,7 @@ if (a[0] === 'run') {
   const job = a.find((x, i) => a[i - 1] === '-v' && x.endsWith(':/workspace/job')).replace(/:\/workspace\/job$/, '');
   const code = a.find((x, i) => a[i - 1] === '-v' && x.endsWith(':/workspace/code:ro')).replace(/:\/workspace\/code:ro$/, '');
   void vol;
+  fs.writeFileSync(path.join(job, 'docker-args.json'), JSON.stringify({ args: a, hfToken: process.env.HF_TOKEN || null }));
   const cfgPath = path.join(job, 'config.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, data_file: path.join(job, 'data.csv') }));

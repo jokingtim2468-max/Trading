@@ -221,8 +221,15 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Sidebar entry **Train** (CPU icon), route `/train`, under Signals. Same sticky glass bar as Signals.
 - **This PC** card: three check rows (green check / grey cross): Docker version, NVIDIA GPU name and memory, Unsloth image
   downloaded (with size). A **Download Unsloth** button (about 10 GB, once) shows the last `docker pull` line beside it.
-- **New training run** card: data (built-in XAUUSD hourly, or an MT5 export path on this PC), model (Qwen3.5 2B default,
-  Qwen3.5 0.8B, Qwen3 4B 4-bit, each with its GPU memory need; amber warning when it's close to the GPU's memory),
+- **Hugging Face** card: status pill (green "Signed in as <user>", grey "No token: public models only"), a password
+  field for the `hf_…` token with **Save token**, or **Remove token** once signed in.
+- **New training run** card: data (built-in XAUUSD hourly, or an MT5 export path on this PC); a three-way pill switch
+  (blue when selected): **Recommended** (a 2-column grid of model tiles, the default marked with a star, each with a tag
+  and GPU memory badge that turns amber when it won't fit, the note and the repo id in small mono), **Hugging Face**
+  (search box with a search icon, results list with downloads / GGUF / gated, or type owner/name) and **Folder on this
+  PC**; for the last two a Method select (Auto / LoRA 16-bit / QLoRA 4-bit) and an info box that fades in: size, files
+  found (Safetensors, PyTorch .bin, GGUF, ONNX, MLX, EXL2/GPTQ/AWQ), green "Trainable" with the memory need, amber when
+  it's too big, red when it holds only run-only formats;
   train and test date ranges (the test must start after training ends), and a bordered **Pick the training settings
   for my GPU** switch (on by default) that spells out the chosen batch, accumulation, epochs, learning rate and LoRA rank
   and why. Switched off, a **Training settings** row (epochs, learning rate, LoRA rank, batch size, gradient
@@ -230,7 +237,11 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - **Run cards** (newest first, fade and rise in): model name, status pill (blue running phase, green done, red error,
   grey stopped), a progress bar with step, loss, epoch and GPU memory, a blue loss line, four result tiles (model error,
   simple guess error, better than guess, test days) and a verdict line: green 15%+ better, amber 3-15%, grey no edge.
-  Under it, blue download links for the run's **Unsloth Studio recipe** (the config YAML and the alpaca dataset).
+  Under it, blue download links for the run's **Unsloth Studio recipe** (the config YAML and the alpaca dataset), and
+  each export's result (red if one failed; the Hugging Face link in blue).
+- **Save the trained model as**: checkboxes in two columns (LoRA adapter always on; full model 16-bit / 4-bit
+  safetensors; GGUF Q4_K_M, Q5_K_M, Q8_0, F16), then an **Upload to Hugging Face** repo field with a Private box
+  (greyed out until a token is saved).
 - Polls every 2 s while a run or download is going, every 10 s otherwise.
 
 ## Market data

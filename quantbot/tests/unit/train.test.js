@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateConfig, autoSettings } from '../../server/train.js';
+import http from 'node:http';
+import { validateConfig, autoSettings, formatsOf, vramFor } from '../../server/train.js';
 import { startServer } from '../../server/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -50,20 +51,57 @@ describe('Train config', () => {
     assert.equal(a.settings.batch_size, 8);
     assert.equal(a.settings.batch_size * a.settings.grad_accum, 16);
     assert.match(a.why, /8 GB GPU/);
-    assert.equal(autoSettings('qwen3-4b-4bit', 8).settings.batch_size, 1, 'tight model: smallest batch');
+    assert.equal(autoSettings('qwen3-4b-4bit', 8).settings.batch_size, 2, 'tight model: small batch');
     assert.equal(autoSettings('qwen3.5-2b', 6).settings.batch_size, 2);
   });
 });
 
+describe('Model formats', () => {
+  test('which files can be trained from', () => {
+    assert.equal(formatsOf(['config.json', 'model-00001-of-00002.safetensors']).trainable, true);
+    assert.equal(formatsOf(['config.json', 'pytorch_model.bin']).trainable, true);
+    assert.equal(formatsOf(['model.Q4_K_M.gguf']).trainable, false);
+    assert.deepEqual(formatsOf(['config.json', 'model.onnx', 'x.gguf']).formats, ['gguf', 'onnx']);
+    assert.equal(vramFor(2.3, false), 5.6);
+    assert.equal(vramFor(4, true), 4.6);
+    assert.throws(() => validateConfig({ model_source: 'hf', hf_model: 'nope' }), /owner\/name/);
+    assert.throws(() => validateConfig({ exports: ['zip'] }), /export format/);
+    assert.deepEqual(validateConfig({ exports: ['gguf_q4_k_m'] }).exports, ['adapter', 'gguf_q4_k_m']);
+  });
+});
+
+// Stand-in for huggingface.co: whoami, search and model pages
+function fakeHf() {
+  const models = {
+    'acme/tiny-llm': { id: 'acme/tiny-llm', pipeline_tag: 'text-generation', safetensors: { total: 1.5e9 }, siblings: [{ rfilename: 'config.json' }, { rfilename: 'model.safetensors' }] },
+    'acme/big-llm': { id: 'acme/big-llm', pipeline_tag: 'text-generation', safetensors: { total: 14e9 }, siblings: [{ rfilename: 'config.json' }, { rfilename: 'model-00001-of-00006.safetensors' }] },
+    'acme/tiny-llm-GGUF': { id: 'acme/tiny-llm-GGUF', siblings: [{ rfilename: 'tiny.Q4_K_M.gguf' }] },
+    'acme/locked': { gated: 'manual' },
+  };
+  const srv = http.createServer((req, res) => {
+    const auth = req.headers.authorization === 'Bearer hf_testtoken1234567890abcd';
+    const u = new URL(req.url, 'http://x');
+    const send = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (u.pathname === '/api/whoami-v2') return auth ? send(200, { name: 'trader1', orgs: [] }) : send(401, { error: 'bad token' });
+    if (u.pathname === '/api/models') return send(200, Object.keys(models).filter((k) => k.includes(u.searchParams.get('search') || '')).map((id) => ({ id, downloads: 10, pipeline_tag: 'text-generation' })));
+    const id = decodeURIComponent(u.pathname.replace('/api/models/', ''));
+    if (id === 'acme/locked' && !auth) return send(401, {});
+    return models[id] ? send(200, models[id]) : send(404, {});
+  });
+  return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
+}
+
 describe('Train API with a stand-in docker', () => {
-  let srv, base, dir, file;
+  let srv, base, dir, file, hf;
   before(async () => {
     dir = tmp(); file = mt5File(dir);
+    hf = await fakeHf();
+    process.env.QUANTBOT_HF_URL = `http://127.0.0.1:${hf.address().port}`;
     process.env.QUANTBOT_DOCKER = path.join(here, '..', 'support', 'fake_docker.mjs');
     srv = await startServer({ port: 0, dataDir: path.join(dir, 'data'), quiet: true });
     base = `http://127.0.0.1:${srv.port}`;
   });
-  after(async () => { await srv.close(); delete process.env.QUANTBOT_DOCKER; fs.rmSync(dir, { recursive: true, force: true }); });
+  after(async () => { await srv.close(); hf.close(); delete process.env.QUANTBOT_HF_URL; delete process.env.QUANTBOT_DOCKER; fs.rmSync(dir, { recursive: true, force: true }); });
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
 
   test('status, pull, a full run, refusals and delete', async () => {
@@ -112,6 +150,54 @@ describe('Train API with a stand-in docker', () => {
     const del = await fetch(`${base}/api/train/runs/${id}`, { method: 'DELETE' });
     assert.equal(del.status, 200);
     assert.equal(fs.existsSync(folder), false);
+  });
+
+  test('Hugging Face: token, search, model checks, and runs on any model', async () => {
+    const getJ = async (p) => { const r = await fetch(base + p); return { status: r.status, body: await r.json() }; };
+    assert.equal((await getJ('/api/train/hf')).body.connected, false);
+    assert.equal((await post('/api/train/hf', { token: 'nope' })).status, 400);
+    assert.equal((await post('/api/train/hf', { token: 'hf_wrongtoken1234567890abcd' })).status, 400, 'Hugging Face refuses it');
+    const saved = await (await post('/api/train/hf', { token: 'hf_testtoken1234567890abcd' })).json();
+    assert.equal(saved.user, 'trader1');
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, 'data', 'train', 'hf.json'), 'utf8'), /hf_testtoken/, 'stored encrypted');
+    assert.equal((await getJ('/api/train/hf')).body.user, 'trader1');
+
+    const found = (await getJ('/api/train/hf/search?q=tiny')).body.models.map((m) => m.id);
+    assert.deepEqual(found, ['acme/tiny-llm', 'acme/tiny-llm-GGUF']);
+    const tiny = (await getJ('/api/train/hf/model?id=acme/tiny-llm')).body;
+    assert.equal(tiny.trainable, true);
+    assert.equal(tiny.params, 1.5);
+    const gguf = (await getJ('/api/train/hf/model?id=acme/tiny-llm-GGUF')).body;
+    assert.equal(gguf.trainable, false);
+    assert.match(gguf.why_not, /GGUF/);
+    assert.equal((await getJ('/api/train/hf/model?id=acme/locked')).status, 200, 'gated model opens with the token');
+
+    const cfg = { source: 'file', data_path: file, train_from: '2020-01-01', train_to: '2020-12-31', test_from: '2021-01-01', test_to: '2021-12-31' };
+    assert.match(await (await post('/api/train/start', { ...cfg, model_source: 'hf', hf_model: 'acme/tiny-llm-GGUF' })).text(), /GGUF/);
+    const { id } = await (await post('/api/train/start', { ...cfg, model_source: 'hf', hf_model: 'acme/big-llm', method: 'qlora', exports: ['merged_16bit', 'gguf_q4_k_m'], push_repo: 'trader1/gold' })).json();
+    let run;
+    for (let i = 0; i < 300 && (!run || run.status === 'running'); i++) { await wait(100); run = await (await fetch(`${base}/api/train/runs/${id}`)).json(); }
+    assert.equal(run.status, 'done', JSON.stringify(run.error));
+    const jobCfg = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'train', id, 'config.json'), 'utf8'));
+    assert.equal(jobCfg.hf_id, 'acme/big-llm');
+    assert.equal(jobCfg.load_in_4bit, true);
+    assert.deepEqual(jobCfg.exports, ['adapter', 'merged_16bit', 'gguf_q4_k_m']);
+    const d = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'train', id, 'docker-args.json'), 'utf8'));
+    assert.equal(d.hfToken, 'hf_testtoken1234567890abcd', 'token reaches the container through the environment');
+    assert.ok(d.args.includes('HF_TOKEN') && !d.args.some((x) => x.includes('hf_testtoken')), 'and never on the command line');
+
+    // A local folder: GGUF only is refused, safetensors folders are mounted read-only
+    const ggufDir = path.join(dir, 'gguf-model'); fs.mkdirSync(ggufDir); fs.writeFileSync(path.join(ggufDir, 'm.gguf'), 'x');
+    assert.match((await getJ(`/api/train/local?path=${encodeURIComponent(ggufDir)}`)).body.why_not, /GGUF/);
+    const stDir = path.join(dir, 'st-model'); fs.mkdirSync(stDir); fs.writeFileSync(path.join(stDir, 'config.json'), '{}'); fs.writeFileSync(path.join(stDir, 'model.safetensors'), Buffer.alloc(2000));
+    assert.equal((await getJ(`/api/train/local?path=${encodeURIComponent(stDir)}`)).body.trainable, true);
+    const { id: id2 } = await (await post('/api/train/start', { ...cfg, model_source: 'local', local_model: stDir })).json();
+    for (let i = 0; i < 300; i++) { await wait(100); run = await (await fetch(`${base}/api/train/runs/${id2}`)).json(); if (run.status !== 'running') break; }
+    const d2 = JSON.parse(fs.readFileSync(path.join(dir, 'data', 'train', id2, 'docker-args.json'), 'utf8'));
+    assert.ok(d2.args.includes(`${stDir}:/workspace/model:ro`));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'data', 'train', id2, 'config.json'), 'utf8')).hf_id, '/workspace/model');
+    assert.equal((await fetch(`${base}/api/train/hf`, { method: 'DELETE' })).status, 200);
+    assert.equal((await getJ('/api/train/hf')).body.connected, false);
   });
 
   test('a failing run reports the script error, and stop ends a run', async () => {

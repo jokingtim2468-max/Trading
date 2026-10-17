@@ -174,7 +174,17 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
 
   // Train page: Unsloth fine-tuning in Docker
-  if (req.method === 'GET' && url.pathname === '/api/train/status') return send(res, 200, { ...(await trainer.status()), models: trainer.models, defaults: trainer.defaults, image_name: trainer.image });
+  if (req.method === 'GET' && url.pathname === '/api/train/status') return send(res, 200, { ...(await trainer.status()), models: trainer.models, defaults: trainer.defaults, image_name: trainer.image, exports: trainer.exportsList });
+  if (req.method === 'GET' && url.pathname === '/api/train/hf') return send(res, 200, await trainer.hf.account());
+  if (req.method === 'POST' && url.pathname === '/api/train/hf') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    const { token } = JSON.parse((await readBody(req, 2000)).toString('utf8') || '{}');
+    return send(res, 200, await trainer.hf.save(token));
+  }
+  if (req.method === 'DELETE' && url.pathname === '/api/train/hf') return send(res, 200, trainer.hf.remove());
+  if (req.method === 'GET' && url.pathname === '/api/train/hf/search') return send(res, 200, { models: await trainer.hf.search(url.searchParams.get('q')) });
+  if (req.method === 'GET' && url.pathname === '/api/train/hf/model') return send(res, 200, await trainer.hf.model(url.searchParams.get('id') || ''));
+  if (req.method === 'GET' && url.pathname === '/api/train/local') return send(res, 200, await trainer.local(url.searchParams.get('path') || ''));
   if (req.method === 'POST' && url.pathname === '/api/train/pull') { if (!json()) return send(res, 415, { error: 'JSON required' }); return send(res, 200, trainer.pull()); }
   if (req.method === 'GET' && url.pathname === '/api/train/runs') return send(res, 200, { runs: trainer.runs() });
   if (req.method === 'GET' && url.pathname === '/api/train/auto') return send(res, 200, await trainer.auto(url.searchParams.get('model')));
@@ -287,7 +297,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
-  const trainer = createTrainer({ dataDir, market, log: app?.log });
+  const trainer = createTrainer({ dataDir, market, cipher, log: app?.log });
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);

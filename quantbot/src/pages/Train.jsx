@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ChartLoader from '@/components/quant/ChartLoader';
+import ModelPicker from '@/components/train/ModelPicker';
+import HfCard from '@/components/train/HfCard';
 
 const api = (p, body, method = 'POST') => fetch(p, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); return j; });
@@ -64,7 +66,7 @@ const Field = ({ label, children, hint }) => (
   </label>
 );
 
-function NewRunCard({ status, onStarted }) {
+function NewRunCard({ status, hf, onStarted }) {
   const [c, setC] = useState(status.defaults);
   const [more, setMore] = useState(false);
   const [error, setError] = useState('');
@@ -72,8 +74,7 @@ function NewRunCard({ status, onStarted }) {
   const [auto, setAuto] = useState(null);
   const set = (k, v) => setC((x) => ({ ...x, [k]: v }));
   useEffect(() => { api(`/api/train/auto?model=${c.model}`, undefined, 'GET').then(setAuto).catch(() => setAuto(null)); }, [c.model]);
-  const model = status.models.find((m) => m.id === c.model);
-  const tight = status.gpu && model && model.vram > status.gpu.memory_gb - 0.5;
+  const toggleExport = (id) => set('exports', c.exports.includes(id) ? c.exports.filter((x) => x !== id) : [...c.exports, id]);
   const ready = status.docker && status.image;
   const start = async () => {
     setError(''); setStarting(true);
@@ -101,16 +102,7 @@ function NewRunCard({ status, onStarted }) {
             <Input value={c.data_path} onChange={(e) => set('data_path', e.target.value)} placeholder="C:\…\XAUUSD_M5_….csv" data-testid="train-path" />
           </Field>
         ) : <div />}
-        <Field label="Model">
-          <Select value={c.model} onValueChange={(v) => set('model', v)}>
-            <SelectTrigger data-testid="train-model"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {status.models.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}: ~{m.vram} GB</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <span className={`block text-[11px] ${tight ? 'text-amber-400' : 'text-muted-foreground'}`}>{model?.note}{tight ? ` Your GPU has ${status.gpu.memory_gb} GB: it may run out of memory.` : ''}</span>
-        </Field>
-        <div />
+        <ModelPicker c={c} set={set} status={status} />
         <Field label="Train on">
           <div className="flex items-center gap-2">
             <Input type="date" value={c.train_from} onChange={(e) => set('train_from', e.target.value)} />
@@ -130,7 +122,8 @@ function NewRunCard({ status, onStarted }) {
         <Switch checked={c.auto} onCheckedChange={(v) => set('auto', v)} data-testid="train-auto" />
         <div className="space-y-1">
           <div className="text-sm">Pick the training settings for my GPU</div>
-          {c.auto && auto && (
+          {c.auto && c.model_source !== 'recommended' && <div className="text-[11px] text-muted-foreground">The batch is sized from this model&apos;s parameter count and your GPU when the run starts; sequence length and out-of-memory retries work the same way.</div>}
+          {c.auto && auto && c.model_source === 'recommended' && (
             <div className="text-[11px] text-muted-foreground" data-testid="train-auto-why">
               {auto.why}. Batch {auto.settings.batch_size} × accumulation {auto.settings.grad_accum}, {auto.settings.epochs} epochs, learning rate {auto.settings.learning_rate}, LoRA rank {auto.settings.lora_r};
               {' '}sequence length is trimmed to the longest real example, and the batch halves by itself if the GPU runs out of memory.
@@ -151,6 +144,25 @@ function NewRunCard({ status, onStarted }) {
           <Field label="Max sequence length"><Input type="number" step="64" value={c.max_seq_length} onChange={(e) => set('max_seq_length', e.target.value)} /></Field>
         </div>
       )}
+      <div className="space-y-2" data-testid="train-exports">
+        <div className="text-xs text-muted-foreground">Save the trained model as</div>
+        <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5">
+          {status.exports.map((e) => (
+            <label key={e.id} className="flex items-center gap-2 text-xs">
+              <input type="checkbox" className="accent-[hsl(var(--primary))]" checked={e.always || c.exports.includes(e.id)} disabled={e.always} onChange={() => toggleExport(e.id)} data-testid={`train-export-${e.id}`} />
+              {e.label}
+            </label>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Input value={c.push_repo} onChange={(e) => set('push_repo', e.target.value.trim())} placeholder={hf?.connected ? `Upload to Hugging Face: ${hf.user}/gold-range-model` : 'Upload to Hugging Face (add your token above first)'}
+            disabled={!hf?.connected} className="max-w-sm" data-testid="train-push-repo" />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input type="checkbox" className="accent-[hsl(var(--primary))]" checked={c.push_private} onChange={(e) => set('push_private', e.target.checked)} disabled={!hf?.connected} />Private
+          </label>
+        </div>
+        <p className="text-[11px] text-muted-foreground">GGUF files run in Ollama, llama.cpp and LM Studio (Unsloth builds llama.cpp on the first GGUF export, which takes a few extra minutes). Safetensors run in Transformers and vLLM.</p>
+      </div>
       {error && <p className="text-xs text-destructive" data-testid="train-error">{error}</p>}
       <div className="flex flex-wrap items-center gap-3 pt-1">
         <Button onClick={start} disabled={!ready || starting} data-testid="train-start"><Play className="w-3.5 h-3.5 mr-1" />{starting ? 'Starting…' : 'Start training'}</Button>
@@ -204,7 +216,7 @@ function RunCard({ run, models, onChange }) {
   return (
     <div className="bg-card border border-border rounded-2xl p-5 space-y-3 animate-in fade-in-0 slide-in-from-bottom-1 duration-pop calm:animate-none" data-testid="train-run">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="font-medium">{models.find((m) => m.id === run.config.model)?.name || run.config.model}</h3>
+        <h3 className="font-medium break-all">{run.config.model_name || models.find((m) => m.id === run.config.model)?.name || run.config.model}</h3>
         <span className={`text-[11px] rounded-full border px-2 py-0.5 ${STATUS[run.status] || ''}`}>{run.status === 'running' ? run.phase : run.status}</span>
         <span className="text-[11px] text-muted-foreground">{new Date(run.started).toLocaleString()} · trains {run.config.train_from}–{run.config.train_to}, tests {run.config.test_from}–{run.config.test_to}</span>
         <div className="ml-auto flex gap-2">
@@ -231,6 +243,15 @@ function RunCard({ run, models, onChange }) {
             ))}
           </div>
           <Verdict r={r} />
+          {r.exports && Object.keys(r.exports).length > 0 && (
+            <div className="text-[11px] space-y-0.5" data-testid="train-export-results">
+              {Object.entries(r.exports).map(([k, v]) => (
+                <div key={k} className={String(v).startsWith('failed') ? 'text-destructive' : 'text-muted-foreground'}>
+                  {k === 'upload' ? 'Hugging Face: ' : `${k}: `}{String(v).startsWith('http') ? <a className="text-primary hover:underline" href={v} target="_blank" rel="noreferrer">{v}</a> : v}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {run.error && <p className="text-xs text-destructive">{run.error}</p>}
@@ -246,6 +267,7 @@ function RunCard({ run, models, onChange }) {
 
 export default function Train() {
   const { status, runs, load } = useTrain();
+  const [hf, setHf] = useState(null);
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-3 px-4">
@@ -256,7 +278,8 @@ export default function Train() {
       {!status || !runs ? <div className="flex justify-center py-20"><ChartLoader className="w-20 h-12" /></div> : (
         <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-4">
           <SetupCard status={status} onPull={() => api('/api/train/pull', {}).then(load)} />
-          <NewRunCard status={status} onStarted={load} />
+          <HfCard onChange={setHf} />
+          <NewRunCard status={status} hf={hf} onStarted={load} />
           {runs.map((r) => <RunCard key={r.id} run={r} models={status.models} onChange={load} />)}
         </div>
       )}

@@ -22,12 +22,19 @@ import time
 from datetime import datetime, timezone
 
 CONTEXT_DAYS = 10
+# Used when the config has no hf_id (QuantBot always sends hf_id and load_in_4bit)
 MODELS = {
-    # name: (Hugging Face id, load in 4-bit, note)
-    "qwen3.5-0.8b": ("unsloth/Qwen3.5-0.8B", False, "about 3 GB, quickest test run"),
-    "qwen3.5-2b": ("unsloth/Qwen3.5-2B", False, "about 5 GB, best fit for an 8 GB RTX 4060"),
-    "qwen3-4b-4bit": ("unsloth/Qwen3-4B-unsloth-bnb-4bit", True, "about 7-8 GB, tight on 8 GB: short prompts only"),
+    "qwen3.5-0.8b": ("unsloth/Qwen3.5-0.8B", False),
+    "qwen3.5-2b": ("unsloth/Qwen3.5-2B", False),
+    "qwen3-4b-4bit": ("unsloth/Qwen3-4B-unsloth-bnb-4bit", True),
 }
+
+
+def model_of(cfg):
+    """(weights to load: a Hugging Face id or /workspace/model, load in 4-bit)"""
+    if cfg.get("hf_id"):
+        return cfg["hf_id"], bool(cfg.get("load_in_4bit"))
+    return MODELS[cfg.get("model", "qwen3.5-2b")]
 
 
 def emit(kind, **data):
@@ -136,7 +143,7 @@ def studio_recipe(job, cfg, rows):
         for r in rows:
             f.write(json.dumps({"instruction": "Forecast today's gold (XAUUSD) high and low as % from today's open.",
                                 "input": r["prompt"], "output": r["answer"]}) + "\n")
-    hf_id, four_bit, _ = MODELS[cfg["model"]]
+    hf_id, four_bit = model_of(cfg)
     recipe = {
         "model": {"name": hf_id, "method": "qlora" if four_bit else "lora", "type": "text"},
         "dataset": {"path": "gold_daily_range.jsonl", "format": "alpaca"},
@@ -149,7 +156,8 @@ def studio_recipe(job, cfg, rows):
                  "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]},
         "logging": {"report_to": "none", "logging_steps": 5},
     }
-    name = f"{cfg['model']}_{recipe['model']['method']}_gold-daily-range_{time.strftime('%Y%m%d-%H%M%S')}.yaml"
+    short = (cfg.get("model_name") or cfg.get("model") or hf_id).split("/")[-1].lower().replace(" ", "-")
+    name = f"{short}_{recipe['model']['method']}_gold-daily-range_{time.strftime('%Y%m%d-%H%M%S')}.yaml"
     with open(os.path.join(folder, name), "w") as f:
         f.write("# QuantBot recipe for Unsloth Studio: Upload this file on the training page, then pick the dataset next to it\n")
         f.write("\n".join(yaml_lines(recipe)) + "\n")
@@ -176,7 +184,7 @@ def train(job, cfg):
 
     if not torch.cuda.is_available():
         raise SystemExit("No NVIDIA GPU visible inside Docker: install the NVIDIA driver and run Docker Desktop with WSL 2 GPU support")
-    hf_id, four_bit, _ = MODELS[cfg["model"]]
+    hf_id, four_bit = model_of(cfg)
     emit("log", message=f"Loading {hf_id} on {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GB)")
     model, tok = FastLanguageModel.from_pretrained(model_name=hf_id, max_seq_length=cfg["max_seq_length"],
                                                    load_in_4bit=four_bit, load_in_16bit=not four_bit, full_finetuning=False)
@@ -275,7 +283,7 @@ def evaluate(job, cfg, model=None, tok=None):
     from unsloth import FastLanguageModel
     if model is None:
         model, tok = FastLanguageModel.from_pretrained(model_name=os.path.join(job, "adapter"), max_seq_length=cfg["max_seq_length"],
-                                                       load_in_4bit=MODELS[cfg["model"]][1])
+                                                       load_in_4bit=model_of(cfg)[1])
     FastLanguageModel.for_inference(model)
     tok.padding_side = "left"
     if tok.pad_token is None:
@@ -297,6 +305,52 @@ def evaluate(job, cfg, model=None, tok=None):
     return res
 
 
+# ---------- Export: every format the trained model can be stored in, and an optional Hugging Face upload
+
+GGUF = {"gguf_q4_k_m": "q4_k_m", "gguf_q5_k_m": "q5_k_m", "gguf_q8_0": "q8_0", "gguf_f16": "f16"}
+
+
+def export(job, cfg, model=None, tok=None):
+    from unsloth import FastLanguageModel
+    wanted = [e for e in cfg.get("exports", []) if e != "adapter"]
+    repo = (cfg.get("push_repo") or "").strip()
+    if not wanted and not repo:
+        return {}
+    if model is None:
+        model, tok = FastLanguageModel.from_pretrained(model_name=os.path.join(job, "adapter"), max_seq_length=cfg["max_seq_length"],
+                                                       load_in_4bit=model_of(cfg)[1])
+    out, token, private = {}, os.environ.get("HF_TOKEN") or None, bool(cfg.get("push_private", True))
+    for e in wanted:
+        emit("progress", phase="export", step=wanted.index(e), total=len(wanted), label=e)
+        try:
+            if e in ("merged_16bit", "merged_4bit"):
+                method = "merged_16bit" if e == "merged_16bit" else "merged_4bit_forced"
+                folder = os.path.join(job, "export", e)
+                model.save_pretrained_merged(folder, tok, save_method=method)
+                if repo:
+                    model.push_to_hub_merged(f"{repo}-{e.replace('_', '-')}", tok, save_method=method, token=token, private=private)
+            else:
+                folder = os.path.join(job, "export", "gguf")
+                model.save_pretrained_gguf(folder, tok, quantization_method=GGUF[e])
+                if repo:
+                    model.push_to_hub_gguf(f"{repo}-gguf", tok, quantization_method=GGUF[e], token=token, private=private)
+            out[e] = "ok"
+            emit("log", message=f"Exported {e}")
+        except Exception as ex:  # noqa: BLE001 - one format failing must not lose the others
+            out[e] = f"failed: {type(ex).__name__}: {ex}"[:300]
+            emit("log", message=f"Export {e} failed: {ex}")
+    if repo:
+        try:
+            model.push_to_hub(repo, token=token, private=private)
+            tok.push_to_hub(repo, token=token, private=private)
+            out["upload"] = f"https://huggingface.co/{repo}"
+            emit("log", message=f"LoRA adapter uploaded to https://huggingface.co/{repo}")
+        except Exception as ex:  # noqa: BLE001
+            out["upload"] = f"failed: {ex}"[:300]
+            emit("log", message=f"Upload to Hugging Face failed: {ex}")
+    return out
+
+
 def main(argv):
     job = argv[1]
     step = argv[2] if len(argv) > 2 else "all"
@@ -309,9 +363,13 @@ def main(argv):
             model, tok = train(job, cfg)
         if step in ("evaluate", "all"):
             res = evaluate(job, cfg, model, tok)
-            res["model"] = cfg["model"]
+            res["model"] = cfg.get("model_name") or cfg.get("model")
+            if step == "all":
+                res["exports"] = export(job, cfg, model, tok)
             json.dump(res, open(os.path.join(job, "result.json"), "w"), indent=1)
             emit("metric", **res)
+        if step == "export":
+            emit("metric", exports=export(job, cfg))
         emit("done", step=step)
     except SystemExit as e:
         emit("error", message=str(e))

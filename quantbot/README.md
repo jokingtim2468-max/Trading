@@ -114,8 +114,16 @@ then tests it on later days it never saw against a simple guess. It runs Unsloth
 (`unsloth/unsloth:core`) on this PC's NVIDIA GPU.
 
 - Needs: Docker Desktop (WSL 2) and a current NVIDIA driver. The page checks both and downloads the image (about 10 GB).
-- Models: **Qwen3.5 2B** (default, about 5 GB of GPU memory: fits an 8 GB RTX 4060), Qwen3.5 0.8B (quick test),
-  Qwen3 4B in 4-bit (tight on 8 GB).
+- Models: eight recommended for an 8 GB RTX 4060 (all checked on Hugging Face): **Qwen3.5 2B** (default, about 5 GB),
+  Qwen3.5 0.8B, Qwen3 1.7B 4-bit, Llama 3.2 1B / 3B 4-bit, Gemma 3 1B 4-bit, Phi-4 mini 4-bit and Qwen3 4B 4-bit
+  (tight). Or **any Hugging Face model** (search, or type owner/name; gated ones with your token), or a **model
+  folder on this PC**. The page checks the files first: Safetensors and PyTorch .bin weights can be trained; GGUF,
+  ONNX, MLX and EXL2/GPTQ/AWQ are run-only formats, so it points you to the original repo. It estimates the GPU memory
+  and picks 16-bit LoRA or 4-bit QLoRA.
+- Hugging Face token: stored encrypted on this PC (`data/train/hf.json`), handed to the container through its
+  environment only. Needed for gated models (accept the license on the model's page) and uploads.
+- Exports: the LoRA adapter always; optionally the full model as 16-bit or 4-bit safetensors and GGUF (Q4_K_M,
+  Q5_K_M, Q8_0, F16) for Ollama, llama.cpp and LM Studio, and an upload of all of it to your Hugging Face account.
 - Data: the built-in XAUUSD hourly history, or your own MT5 export.
 - Settings are picked for your GPU by default (largest batch that leaves memory spare, effective batch 16, LoRA rank
   16 / alpha 32, 2e-4, 2 epochs); the script trims the sequence length to the longest real example, trains on the
