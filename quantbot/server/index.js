@@ -21,6 +21,7 @@ import { createPayouts } from './payouts.js';
 import { pcZone } from './lib/blackout.js';
 import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
 import { createTrainer } from './train.js';
+import { createTerminal } from './terminal.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -57,7 +58,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -171,6 +172,20 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     if (!json()) return send(res, 415, { error: 'JSON required' });
     const body = (await readBody(req, 4000)).toString('utf8');
     return send(res, 200, await signals.receive(body, { local: true }));
+  }
+
+  // Terminal page: chart settings (presets, AI edits, versions) and orders to a copy group
+  if (url.pathname.startsWith('/api/terminal/')) {
+    const body = async () => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}'); };
+    const p = url.pathname.slice('/api/terminal/'.length);
+    if (req.method === 'GET' && p === 'chart') return send(res, 200, terminal.chart());
+    if (req.method === 'POST' && p === 'chart/preset') return send(res, 200, terminal.preset((await body()).id));
+    if (req.method === 'POST' && p === 'chart/set') { const b = await body(); return send(res, 200, terminal.set(b.change, b.note)); }
+    if (req.method === 'POST' && p === 'chart/revert') { await body(); return send(res, 200, terminal.revert()); }
+    if (req.method === 'POST' && p === 'chart/restore') return send(res, 200, terminal.restore((await body()).n));
+    if (req.method === 'POST' && p === 'chart/edit') { const b = await body(); return send(res, 200, await terminal.edit(b.message, b.model)); }
+    if (req.method === 'POST' && p === 'order') return send(res, 200, await terminal.order(await body()));
+    if (req.method === 'GET' && p === 'positions') return send(res, 200, { positions: await terminal.positions(url.searchParams.get('group')) });
   }
 
   // Train page: Unsloth fine-tuning in Docker
@@ -298,6 +313,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
   const trainer = createTrainer({ dataDir, market, cipher, log: app?.log });
+  const terminal = createTerminal({ dataDir, db: entityDb, signals, ask: backend.ask, log: app?.log });
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
@@ -367,7 +383,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);

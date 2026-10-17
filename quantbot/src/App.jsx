@@ -16,6 +16,7 @@ import PnlCalendar from '@/pages/PnlCalendar';
 import Accounts from '@/pages/Accounts';
 import Signals from '@/pages/Signals';
 import Train from '@/pages/Train';
+import Terminal from '@/pages/Terminal';
 
 const AuthenticatedApp = () => (
   <Routes>
@@ -29,6 +30,7 @@ const AuthenticatedApp = () => (
       <Route path="/accounts" element={<Accounts />} />
       <Route path="/signals" element={<Signals />} />
       <Route path="/train" element={<Train />} />
+      <Route path="/terminal" element={<Terminal />} />
     </Route>
     <Route path="*" element={<PageNotFound />} />
   </Routes>

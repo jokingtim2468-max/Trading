@@ -216,6 +216,39 @@ shows the level in black on the tier color. Three levels per tier (I, II, III); 
 XP: 10 for a closed trade of $5 or less (losses too), 20 up to $10, 30 up to $20, 50 above. Accounts level up at 100
 XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
+## Terminal page
+
+- Sidebar entry **Terminal** (candlestick icon), route `/terminal`, full height. Its own dark trading palette, the
+  familiar trading-terminal layout, QuantBot's logo and motion (no TradingView logo or icons):
+
+| Role | Hex |
+|---|---|
+| Chart / page background (Dark preset) | `#131722` |
+| Panels, menus, chat | `#1e222d` (95% with blur on overlays) |
+| Borders, grid | `#2a2e39` / `#1e222d` |
+| Text / muted | `#d1d4dc` / `#787b86` |
+| Up candles, profit | `#089981` |
+| Down candles, loss, Sell | `#f23645` |
+| Buy, primary action | `#2962ff` |
+| Model / guess high-low lines | `#e8c468` dashed |
+
+- Top bar (46 px): back, logo, symbol select (XAUUSD, US100), timeframes M1-D1 (selected one on `#2a2e39`), **Edit
+  chart**, **Trade on** group select, MT5 status (green dot "MT5 4/4" when every MT5 account in the group is logged in).
+- Left tool rail (52 px): Crosshair, Horizontal line (click the chart to drop a blue line), Remove all lines.
+- Chart: TradingView's open-source Lightweight Charts (credited in the positions bar, "Charts by TradingView
+  Lightweight Charts™"). OHLC legend top left follows the crosshair. Price lines: guess / model high and low, open,
+  ticket SL / TP (dotted), open positions (entry solid with "Buy 1 × 4", SL / TP dashed).
+- Right-click menu: 14 px corners, glass `#1e222d` at 95%, 9 px rounded items that highlight on hover, the app's pop
+  motion: Edit chart with AI…, **Presets ›** (side submenu with a two-tone swatch per preset: Dark, Black background,
+  Gray background, Black & white candles, Light, Hollow candles, QuantBot), Revert last change, Reset to default, then
+  Horizontal line / Stop loss / Take profit at the clicked price.
+- Chart editor: a 400 px floating window with 20 px corners, dragged by its header (grip icon, position remembered),
+  minimise and close; preset chips, a chat (blue own bubbles, `#2a2e39` replies), Versions pills with "now" and
+  **Revert**, input + blue Send. It can change only the chart settings (colors, grid, candles, model lines).
+- Order ticket (320 px): Sell / Buy tiles (selected one ringed), Market (Limit / Stop greyed until the daily loop), size,
+  stop loss, take profit, a full-width Buy (blue) or Sell (red) button naming the group, the result line.
+- Positions bar (190 px): every open trade of the group, Close per Terminal trade, Close all.
+
 ## Train page
 
 - Sidebar entry **Train** (CPU icon), route `/train`, under Signals. Same sticky glass bar as Signals.

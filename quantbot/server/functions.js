@@ -49,7 +49,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null }
     return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools);
   }
 
-  return {
+  const fns = {
     apiKeys({ action, provider, api_key }) {
       if (action === 'status') return keys.status();
       if (action === 'save') {
@@ -117,4 +117,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null }
       return testerResult(parseJsonReply(text)) || fail('The model could not translate this script. Try again.');
     },
   };
+  // For other server parts (the Terminal's chart editor): the local model when one is set up, else the default
+  fns._ask = (model, system, messages, maxTokens) => ask(model || (user.me().ollama_model ? 'local' : undefined), system, messages, maxTokens);
+  return fns;
 }

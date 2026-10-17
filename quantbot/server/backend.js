@@ -33,13 +33,14 @@ export function createBackend({ dataDir, encrypt, decrypt, userName, defaults, m
         case 'user': return args[0] === 'update' ? user.update(args[1]) : user.me();
         case 'file': return files.upload(args[0], args[1]);
         case 'function': {
-          const fn = functions[args[0]];
+          const fn = String(args[0]).startsWith('_') ? null : functions[args[0]];
           if (!fn) throw new Error(`Unknown function ${args[0]}`);
           return fn(args[1] || {});
         }
         default: throw new Error('Unknown request');
       }
     },
+    ask: functions._ask,
     filePath: files.path,
     flush: db.flush,
   };

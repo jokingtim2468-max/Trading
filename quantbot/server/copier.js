@@ -113,7 +113,8 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
   }
 
   // sig: a saved Signal; scriptId: from the webhook path (/hook/<key>/s/<scriptId>), else matched by strategy name
-  async function onSignal(sig, scriptId) {
+  // opts.groupId: send only to that group, whatever scripts it holds (the Terminal page's "Trade on")
+  async function onSignal(sig, scriptId, opts = {}) {
     const script = await scriptFor(sig, scriptId);
     const sigText = `${sig.event} ${sig.symbol || ''}${sig.price != null ? ` @ ${sig.price}` : ''}${sig.sl != null ? ` SL ${sig.sl}` : ''}${sig.tp != null ? ` TP ${sig.tp}` : ''}${sig.trade_id ? ` [${sig.trade_id}]` : ''}`;
     if (!script) {
@@ -124,7 +125,7 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
     }
     const refs = { script_id: script.id, signal_id: sig.id };
     const at = sig.created_date || new Date().toISOString();
-    const all = (await run('CopyGroup', 'filter', {})).filter((g) => groupScriptIds(g).includes(script.id));
+    const all = (await run('CopyGroup', 'filter', {})).filter((g) => (opts.groupId ? g.id === opts.groupId : groupScriptIds(g).includes(script.id)));
     const groups = all.filter((g) => g.enabled !== false);
     await note('signal', `${script.name}: ${sigText} -> ${groups.length ? groups.map((g) => g.name).join(', ') : 'no group'}`, refs, { signal: sig, groups: groups.map((g) => g.id) });
     for (const g of all.filter((x) => x.enabled === false)) await note('skip', `${g.name} is paused: ${sig.event} not copied`, { ...refs, group_id: g.id }, null, 'warn');

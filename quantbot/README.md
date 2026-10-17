@@ -107,6 +107,16 @@ once for a faster version with the same logic. Stop ends a test at once. Bars ca
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
+## Terminal
+
+A trading terminal inside the app (`/terminal`): XAUUSD / US100 candles from the built-in market data, drawn with
+TradingView's open-source Lightweight Charts; the day's predicted high / low (the simple guess until the trained
+model's daily loop supplies its own); an order ticket that sends market orders with stop and target to a chosen copy
+group through the copier (MT5 accounts place them through the Copier EA; the firm rules and news blocks apply); open
+positions with Close / Close all. Right-click the chart for presets, revert and the **AI chart editor**: a draggable
+chat where the local model (or your default model) changes the chart's look. It can only change chart settings, every
+change is a version you can revert or restore (`data/terminal/chart.json`).
+
 ## Train (Unsloth on your GPU)
 
 The **Train** page fine-tunes a small open model to predict each day's high and low from the 10 days before it,

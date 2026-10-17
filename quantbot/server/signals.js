@@ -85,7 +85,7 @@ export function createSignals({ dataDir, db, log = () => {}, copier = null }) {
       log(signalLine(saved));
       if (copier) {
         try {
-          const r = await copier.onSignal(saved, meta.scriptId);
+          const r = await copier.onSignal(saved, meta.scriptId, { groupId: meta.groupId });
           if (r.script) log(`copy: ${saved.event} from ${r.script} -> ${r.accounts} account trade${r.accounts === 1 ? '' : 's'}`);
         } catch (e) { log(`copy failed: ${e.stack || e.message}`); }
       }
