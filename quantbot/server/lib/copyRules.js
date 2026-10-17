@@ -37,15 +37,56 @@ export function tierOf(level) {
 }
 
 // Account plans: a starting balance, a profit target that passes the account and a max loss that fails it.
-// Lucid's max loss trails the best end-of-day balance and locks at the start + $100.
+// Lucid's max loss trails the best end-of-day balance and locks at the start + $100 (New York trading day).
+// FTMO (2-Step): 10% target in the Challenge, 5% in the Verification, none once funded; a 5% daily loss and a fixed
+// 10% max loss from the starting balance; its day resets at midnight Prague time.
+const ftmo = (k) => ({ label: `FTMO ${k / 1000}K`, firm: 'FTMO', start: k, target: k * 0.1, maxLoss: k * 0.1, dailyLoss: k * 0.05, trailing: false, dayZone: 'Europe/Prague', stages: { challenge: k * 0.1, verification: k * 0.05, funded: null } });
+const lucid = (k, target, maxLoss) => ({ label: `LucidPro ${k / 1000}K`, firm: 'Lucid', start: k, target, maxLoss, trailing: true, dayZone: 'America/New_York', stages: { evaluation: target, funded: null } });
 export const PLANS = {
   none: { label: 'Just track it', start: 50000, target: null, maxLoss: null, trailing: false },
-  lucid25: { label: 'LucidPro 25K', start: 25000, target: 1250, maxLoss: 1000, trailing: true },
-  lucid50: { label: 'LucidPro 50K', start: 50000, target: 3000, maxLoss: 2000, trailing: true },
-  lucid100: { label: 'LucidPro 100K', start: 100000, target: 6000, maxLoss: 3000, trailing: true },
-  lucid150: { label: 'LucidPro 150K', start: 150000, target: 9000, maxLoss: 4500, trailing: true },
+  lucid25: lucid(25000, 1250, 1000),
+  lucid50: lucid(50000, 3000, 2000),
+  lucid100: lucid(100000, 6000, 3000),
+  lucid150: lucid(150000, 9000, 4500),
+  ftmo10: ftmo(10000),
+  ftmo25: ftmo(25000),
+  ftmo50: ftmo(50000),
+  ftmo100: ftmo(100000),
+  ftmo200: ftmo(200000),
   custom: { label: 'Custom', start: 10000, target: 1000, maxLoss: 500, trailing: false },
 };
+export const STAGE_LABELS = { evaluation: 'Evaluation', challenge: 'Challenge', verification: 'Verification', funded: 'Funded' };
+export const planFirm = (planId) => PLANS[planId]?.firm || null;
+
+// Firm limits: Lucid allows 5 funded accounts per person; FTMO allows any number of accounts but at most $400,000
+// of funded capital at once. Payouts: FTMO pays on request every 14 days (80% split, 90% with its scaling plan).
+export const FIRMS = {
+  Lucid: { maxFunded: 5, maxFundedCapital: null, payoutDays: null, split: 0.9 },
+  FTMO: { maxFunded: null, maxFundedCapital: 400000, payoutDays: 14, split: 0.8 },
+};
+const live = (a) => (a.status || 'active') !== 'failed';
+// Why an account can't be funded (null when it can): counts the trader's other live funded accounts at that firm
+export function firmLimitError(accounts, candidate) {
+  const firm = planFirm(candidate.plan);
+  const rules = FIRMS[firm];
+  if (!rules || candidate.stage !== 'funded') return null;
+  const others = accounts.filter((a) => a.id !== candidate.id && planFirm(a.plan) === firm && a.stage === 'funded' && live(a));
+  if (rules.maxFunded && others.length + 1 > rules.maxFunded) return `${firm} allows ${rules.maxFunded} funded accounts per person; you already have ${others.length}.`;
+  if (rules.maxFundedCapital) {
+    const used = others.reduce((sum, a) => sum + (Number(a.start_balance) || 0), 0);
+    if (used + (Number(candidate.start_balance) || 0) > rules.maxFundedCapital) {
+      return `${firm} allows $${rules.maxFundedCapital.toLocaleString('en-US')} of funded capital at once; you have $${used.toLocaleString('en-US')} funded, so this $${(Number(candidate.start_balance) || 0).toLocaleString('en-US')} account doesn't fit.`;
+    }
+  }
+  return null;
+}
+// How much of each firm's funded limit is used: [{ firm, funded, max, capital, maxCapital }]
+export function firmUsage(accounts) {
+  return Object.entries(FIRMS).map(([firm, r]) => {
+    const funded = accounts.filter((a) => planFirm(a.plan) === firm && a.stage === 'funded' && live(a));
+    return { firm, funded: funded.length, max: r.maxFunded, capital: funded.reduce((s, a) => s + (Number(a.start_balance) || 0), 0), maxCapital: r.maxFundedCapital };
+  }).filter((u) => accounts.some((a) => planFirm(a.plan) === u.firm));
+}
 
 // Dollars per 1.0 price move for one contract / lot, from the symbol (TradingView tickers like MGC1!, COMEX:GC1!)
 const POINT_VALUES = [
@@ -65,26 +106,34 @@ export function randomName(rand = Math.random) {
 }
 export const randomSeed = (rand = Math.random) => Math.floor(rand() * 2 ** 31).toString(36);
 
-// New York date of a moment (the trading day)
-export const nyDay = (ms) => {
-  const d = new Date(ms);
-  const ny = new Date(d.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  return `${ny.getFullYear()}-${String(ny.getMonth() + 1).padStart(2, '0')}-${String(ny.getDate()).padStart(2, '0')}`;
-};
+// Date of a moment in a time zone (the account's trading day: New York for Lucid, Prague for FTMO)
+export function dayIn(ms, zone = 'America/New_York') {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+export const nyDay = (ms) => dayIn(ms, 'America/New_York');
 
-// An account after a closed trade: balance, trailing max-loss floor (moved at each new day), XP, passed / failed
+// An account after a closed trade: balance, trailing max-loss floor (moved at each new day), daily loss, XP,
+// passed / failed (and why)
 export function applyClose(acc, pnl, xp, day) {
   const start = Number(acc.start_balance) || 0;
-  let { balance = start, peak_eod: peak = start, floor, day_key: dayKey } = acc;
-  const maxLoss = Number(acc.max_loss) || 0, target = Number(acc.target) || 0;
+  let { balance = start, peak_eod: peak = start, floor, day_key: dayKey, day_start: dayStart } = acc;
+  const maxLoss = Number(acc.max_loss) || 0, target = Number(acc.target) || 0, dailyLoss = Number(acc.daily_loss) || 0;
   if (floor == null) floor = maxLoss ? start - maxLoss : null;
-  if (dayKey && dayKey !== day && maxLoss && acc.trailing) {
-    peak = Math.max(peak, balance);
-    floor = Math.min(peak - maxLoss, start + 100);
+  if (dayKey !== day) {
+    if (dayKey && maxLoss && acc.trailing) {
+      peak = Math.max(peak, balance);
+      floor = Math.min(peak - maxLoss, start + 100);
+    }
+    dayStart = balance;
   }
+  if (dayStart == null) dayStart = balance;
   balance += pnl;
-  const status = maxLoss && balance <= floor ? 'failed' : target && balance >= start + target ? 'passed' : (acc.status || 'active');
-  return { balance, peak_eod: peak, floor, day_key: day, xp: (Number(acc.xp) || 0) + xp, status };
+  let status = acc.status || 'active', reason = acc.status_reason || '';
+  if (maxLoss && balance <= floor) { status = 'failed'; reason = 'max loss'; }
+  else if (dailyLoss && balance - dayStart <= -dailyLoss) { status = 'failed'; reason = 'daily loss'; }
+  else if (target && balance >= start + target) { status = 'passed'; reason = 'target'; }
+  return { balance, peak_eod: peak, floor, day_key: day, day_start: dayStart, xp: (Number(acc.xp) || 0) + xp, status, status_reason: reason };
 }
 
 // Evaluation of closed copied trades: win rate, profit factor, expectancy, drawdown, best / worst, average hold
