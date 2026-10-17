@@ -191,7 +191,7 @@ export default function GroupDetail({ group, accounts, trades, scripts, over, dr
           <p className="mt-2">Group Trade works for accounts at the same prop firm (e.g. all Lucid). Don&apos;t hold opposite positions across accounts: Lucid counts that as hedging.</p>
         </details>
       ) : (
-        <p className="text-xs text-muted-foreground">MT5 accounts copy the script on paper here; give an account an order URL to send the trades on.</p>
+        <p className="text-xs text-muted-foreground">MT5 accounts copy the script on paper here; turn on &ldquo;Place the trades on this MT5 account&rdquo; in an account and run the QuantBot Copier EA on its terminal to trade it for real.</p>
       )}
     </div>
   );

@@ -33,7 +33,7 @@ export default function AccountCard({ account, index, group, scriptNames = [], i
             <span className="truncate">{scriptNames.length ? scriptNames.join(', ') : group ? 'No script on this group yet' : 'No script: add it to a group'}</span>
           </p>
           {start > 0 && (
-            <div className="flex items-center gap-2 text-xs tabular-nums">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums">
               <span>{money(balance)}</span>
               <span className={balance > start ? 'text-emerald-400' : balance < start ? 'text-red-400' : 'text-muted-foreground'}>{signedMoney(Math.round((balance - start) * 100) / 100)}</span>
               {account.withdrawn > 0 && <span className="text-[11px] text-muted-foreground whitespace-nowrap" title="Your share paid out">· {money(account.withdrawn)} out</span>}

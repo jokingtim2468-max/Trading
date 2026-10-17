@@ -788,6 +788,8 @@ await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, ne
   d = page.getByRole('dialog');
   await d.getByRole('switch', { name: 'Place trades on MT5' }).click();
   await d.getByLabel('Symbol map').fill('MGC1!=XAUUSD');
+  await d.getByRole('switch', { name: 'Place trades on MT5', checked: true }).waitFor();
+  await page.waitForTimeout(300);
   await d.getByTestId('mt5-copier').getByLabel('Copier address', { exact: true }).filter({ hasText: /\/mt5\/[0-9a-f]{32}\/[A-Za-z0-9]+$/ }).waitFor();
   await snap('ftmo-mt5-account');
   await d.getByRole('button', { name: 'Save', exact: true }).click();
