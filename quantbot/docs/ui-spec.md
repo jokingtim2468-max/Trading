@@ -245,8 +245,16 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Chart editor: a 400 px floating window with 20 px corners, dragged by its header (grip icon, position remembered),
   minimise and close; preset chips, a chat (blue own bubbles, `#2a2e39` replies), Versions pills with "now" and
   **Revert**, input + blue Send. It can change only the chart settings (colors, grid, candles, model lines).
-- Order ticket (320 px): Sell / Buy tiles (selected one ringed), Market (Limit / Stop greyed until the daily loop), size,
-  stop loss, take profit, a full-width Buy (blue) or Sell (red) button naming the group, the result line.
+- Trades on the chart (the Terminal's own): a solid entry line (blue buy, red sell) with a dark pill at the right
+  edge: "Buy 0.4 × 4", entry price, live P&L (green / red), **TP** and **SL** buttons that drag out a target or stop
+  when there is none, and an **✕** that closes the trade on every account. Stops and targets are dashed lines with a
+  solid pill (green TP, red SL) you drag up and down: while dragging it shows the price, the move from the entry
+  ("+$100.00" for $100 above a buy) and the money across the accounts ("+$2,305.60 · 4 acc", cents always shown);
+  letting go moves it on every account. Trades opened by scripts show as plain lines.
+- Order ticket (300 px): symbol and "Market order", a Sell / Buy segmented switch with the price (selected side
+  filled red or blue), Size / Stop loss / Take profit steppers (− and + either side, stop and target show their
+  dollar risk / reward live), a summary box (accounts, risk, reward), and a full-width Buy (blue) or Sell (red) button
+  pinned at the bottom with the result line under it.
 - Positions bar (190 px): every open trade of the group, Close per Terminal trade, Close all.
 
 ## Train page

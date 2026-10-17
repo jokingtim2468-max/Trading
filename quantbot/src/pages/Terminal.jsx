@@ -5,6 +5,7 @@ import { LineStyle } from 'lightweight-charts';
 import { client } from '@/api/client';
 import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
+import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
 import ChartEditor from '@/components/terminal/ChartEditor';
@@ -55,6 +56,31 @@ function guessLevels(daily) {
   ];
 }
 
+// Dollars per 1.00 price move per unit: MT5 gold is 100 oz per lot, the index CFD $1 per point
+const pointValueOf = (symbol, members) => (members.some((a) => a.platform === 'MT5') ? (symbol === 'XAUUSD' ? 100 : 1) : 1);
+
+const Row = ({ k, v, tone }) => (
+  <div className="flex items-center justify-between"><span className="text-[#787b86]">{k}</span>
+    <span className={`tabular-nums ${tone === 'loss' ? 'text-[#f23645]' : tone === 'profit' ? 'text-[#089981]' : 'text-[#d1d4dc]'}`}>{v}</span></div>
+);
+
+// A number field with - / + buttons
+function Stepper({ label, value, onChange, step, min, base = 0, placeholder, hint, hintTone, testid }) {
+  const bump = (d) => { const v = value === '' ? Number(base) || 0 : Number(value) || 0; onChange(String(Math.max(min ?? -Infinity, Math.round((v + d) * 100) / 100))); };
+  return (
+    <label className="block space-y-1">
+      <span className="flex items-center justify-between text-xs text-[#787b86]">{label}
+        {hint && <span className={`tabular-nums ${hintTone === 'loss' ? 'text-[#f23645]' : 'text-[#089981]'}`}>{hint}</span>}</span>
+      <span className="flex h-9 rounded-lg bg-[#1e222d] border border-[#2a2e39] focus-within:border-[#2962ff] overflow-hidden">
+        <button type="button" aria-label={`${label} down`} onClick={() => bump(-step)} className="w-8 text-[#787b86] hover:bg-[#2a2e39] hover:text-white">−</button>
+        <input value={value} onChange={(e) => onChange(e.target.value)} inputMode="decimal" placeholder={placeholder} data-testid={testid}
+          className="flex-1 min-w-0 bg-transparent text-center text-[13px] text-[#d1d4dc] tabular-nums outline-none placeholder:text-[#5d606b]" />
+        <button type="button" aria-label={`${label} up`} onClick={() => bump(step)} className="w-8 text-[#787b86] hover:bg-[#2a2e39] hover:text-white">+</button>
+      </span>
+    </label>
+  );
+}
+
 export default function Terminal() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [tf, setTf] = useState('M15');
@@ -88,29 +114,42 @@ export default function Terminal() {
   const last = bars && bars.time.length ? bars.close[bars.time.length - 1] : null;
   const shown = hover || (bars && bars.time.length ? { open: bars.open.at(-1), high: bars.high.at(-1), low: bars.low.at(-1), close: last } : null);
   const levels = useMemo(() => guessLevels(market.daily), [market.daily]);
+  const trades = useMemo(() => groupTrades(positions.filter((t) => t.symbol === symbol)), [positions, symbol]);
   const lines = useMemo(() => [
     ...hlines.map((p) => ({ price: p, color: '#2962ff', title: '' })),
     ...(ticket.sl ? [{ price: Number(ticket.sl), color: '#f23645', title: 'SL', style: LineStyle.Dotted }] : []),
     ...(ticket.tp ? [{ price: Number(ticket.tp), color: '#089981', title: 'TP', style: LineStyle.Dotted }] : []),
-    // One line per trade, however many accounts copied it
-    ...Object.values(Object.groupBy(positions.filter((t) => t.symbol === symbol), (t) => t.trade_id || t.id)).flatMap((same) => same.slice(0, 1).map((t) => ({ ...t, n: same.length }))).flatMap((t) => [
-      { price: t.entry, color: t.side === 'long' ? '#2962ff' : '#f23645', title: `${t.side === 'long' ? 'Buy' : 'Sell'} ${t.qty}${t.n > 1 ? ` × ${t.n}` : ''}`, width: 2 },
+    // Trades opened by scripts: plain lines (the Terminal's own trades get the draggable overlay)
+    ...trades.filter((t) => !t.closable).flatMap((t) => [
+      { price: t.entry, color: t.side === 'long' ? '#2962ff' : '#f23645', title: `${t.side === 'long' ? 'Buy' : 'Sell'} ${t.qty}${t.accounts > 1 ? ` × ${t.accounts}` : ''}`, width: 2 },
       ...(t.sl != null ? [{ price: t.sl, color: '#f23645', title: 'SL', style: LineStyle.Dashed }] : []),
       ...(t.tp != null ? [{ price: t.tp, color: '#089981', title: 'TP', style: LineStyle.Dashed }] : []),
     ]),
-  ], [hlines, ticket.sl, ticket.tp, positions, symbol]);
+  ], [hlines, ticket.sl, ticket.tp, trades]);
 
   const group = groups.find((g) => g.id === groupId);
   const members = accounts.filter((a) => a.group_id === groupId);
   const mt5 = members.filter((a) => a.platform === 'MT5');
   const live = mt5.filter((a) => a.daemon_state === 'connected').length;
 
+  // Live risk / reward of the ticket's stop and target across the group
+  const preview = useMemo(() => {
+    const n = Math.max(1, members.filter((a) => (a.status || 'active') === 'active').length);
+    const t = { side: ticket.side === 'buy' ? 'long' : 'short', entry: last, qty: Number(ticket.qty) || 0, point_value: pointValueOf(symbol, members) };
+    const at = (p) => (p === '' || p == null || last == null ? '' : `${usdSigned(moneyAt(t, Number(p), n).total)}${n > 1 ? ` · ${n} acc` : ''}`);
+    return { sl: at(ticket.sl), tp: at(ticket.tp) };
+  }, [ticket, last, symbol, members]);
+
   const chartCall = async (p, body) => setChart(await post(`/api/terminal/chart/${p}`, body));
   const place = async (event, extra = {}) => {
     setMsg(null);
     try {
       const r = await post('/api/terminal/order', { group_id: groupId, event, symbol, price: last, qty: ticket.qty, sl: ticket.sl, tp: ticket.tp, ...extra });
-      setMsg({ ok: true, text: `${event.toUpperCase()} sent to ${group?.name}: see the copy log for each account (${r.trade_id})` });
+      const where = group?.name || 'the group';
+      const text = event === 'set_tp' ? `Take profit moved to ${f2(extra.tp)} on ${where}`
+        : event === 'set_sl' ? `Stop loss moved to ${f2(extra.sl)} on ${where}`
+          : event === 'close' ? `Close sent to ${where}` : `${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.qty} ${symbol} sent to ${where}`;
+      setMsg({ ok: true, text: `${text} · ${r.trade_id || 'all'}` });
       loadTrading();
     } catch (e) { setMsg({ ok: false, text: e.message }); }
   };
@@ -166,7 +205,9 @@ export default function Terminal() {
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div className="absolute inset-0">
-                  <TerminalChart bars={bars} settings={chart?.settings} levels={levels} lines={lines} tool={tool}
+                  <TerminalChart bars={bars} settings={chart?.settings} levels={levels} lines={lines} tool={tool} trades={trades} last={last}
+                    onModify={(t, kind, price) => place(kind === 'tp' ? 'set_tp' : 'set_sl', { [kind]: price, price: last, trade_id: t.trade_id })}
+                    onCloseTrade={(t) => place('close', { price: last, trade_id: t.trade_id })}
                     onAddLine={(p) => setHlines((h) => [...h, p])} onPriceAt={setClickPrice} onCrosshair={setHover} />
                 </div>
               </ContextMenuTrigger>
@@ -220,35 +261,42 @@ export default function Terminal() {
         </div>
 
         {/* Order ticket */}
-        <div className="w-[320px] shrink-0 border-l border-[#2a2e39] p-3.5 flex flex-col gap-3 overflow-y-auto" data-testid="order-ticket">
-          <div className="grid grid-cols-2 gap-2">
-            {[['sell', 'SELL', 'bg-[#f23645]'], ['buy', 'BUY', 'bg-[#2962ff]']].map(([side, label, bg]) => (
-              <button key={side} type="button" onClick={() => setTicket((t) => ({ ...t, side }))} data-testid={`side-${side}`}
-                className={`h-[54px] rounded-[9px] ${bg} text-white text-left px-3 transition-[opacity,transform] ${ticket.side === side ? 'ring-2 ring-white/70' : 'opacity-70 hover:opacity-100'}`}>
-                <div className="text-[11px] opacity-85">{label}</div><div className="text-[17px] font-semibold tabular-nums">{f2(last)}</div>
-              </button>
-            ))}
+        <div className="w-[300px] shrink-0 border-l border-[#2a2e39] flex flex-col" data-testid="order-ticket">
+          <div className="px-3.5 pt-3.5 pb-3 border-b border-[#2a2e39]">
+            <div className="flex items-baseline justify-between">
+              <span className="text-white font-semibold">{symbol}</span>
+              <span className="text-[11px] text-[#787b86]">Market order</span>
+            </div>
+            <div className="mt-2.5 grid grid-cols-2 gap-1 p-1 rounded-[10px] bg-[#1e222d]">
+              {[['sell', 'Sell'], ['buy', 'Buy']].map(([side, label]) => (
+                <button key={side} type="button" onClick={() => setTicket((t) => ({ ...t, side }))} data-testid={`side-${side}`}
+                  className={`h-11 rounded-lg flex flex-col items-center justify-center transition-colors ${ticket.side === side ? (side === 'buy' ? 'bg-[#2962ff] text-white' : 'bg-[#f23645] text-white') : 'text-[#787b86] hover:text-[#d1d4dc]'}`}>
+                  <span className="text-[11px] leading-none">{label}</span>
+                  <span className="text-[15px] font-semibold tabular-nums leading-tight">{f2(last)}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-1 p-[3px] rounded-lg bg-[#1e222d]">
-            <span className="flex-1 text-center py-1.5 rounded-md bg-[#2a2e39] text-white">Market</span>
-            <span className="flex-1 text-center py-1.5 rounded-md text-[#5d606b]" title="The copier sends market orders today; limit and stop orders come with the daily model loop">Limit</span>
-            <span className="flex-1 text-center py-1.5 rounded-md text-[#5d606b]" title="The copier sends market orders today; limit and stop orders come with the daily model loop">Stop</span>
+          <div className="flex-1 overflow-y-auto px-3.5 py-3 flex flex-col gap-3">
+            <Stepper label="Size" value={ticket.qty} step={1} min={0.01} onChange={(v) => setTicket((t) => ({ ...t, qty: v }))} testid="ticket-qty" />
+            <Stepper label="Stop loss" value={ticket.sl} step={1} placeholder="None" base={last} onChange={(v) => setTicket((t) => ({ ...t, sl: v }))} testid="ticket-sl"
+              hint={preview.sl} hintTone="loss" />
+            <Stepper label="Take profit" value={ticket.tp} step={1} placeholder="None" base={last} onChange={(v) => setTicket((t) => ({ ...t, tp: v }))} testid="ticket-tp"
+              hint={preview.tp} hintTone="profit" />
+            <div className="rounded-[10px] bg-[#1e222d] px-3 py-2.5 text-xs space-y-1.5">
+              <Row k="Accounts" v={`${members.filter((a) => (a.status || 'active') === 'active').length} in ${group?.name || '–'}`} />
+              <Row k="Risk" v={preview.sl || '–'} tone={preview.sl ? 'loss' : ''} />
+              <Row k="Reward" v={preview.tp || '–'} tone={preview.tp ? 'profit' : ''} />
+            </div>
           </div>
-          {[['qty', 'Size (script units; accounts with a $ risk size themselves from the stop)'], ['sl', 'Stop loss'], ['tp', 'Take profit']].map(([k, label]) => (
-            <label key={k} className="flex flex-col gap-1 text-[#787b86] text-xs">{label}
-              <input value={ticket[k]} onChange={(e) => setTicket((t) => ({ ...t, [k]: e.target.value }))} inputMode="decimal" data-testid={`ticket-${k}`}
-                className="h-9 px-2.5 rounded-lg bg-[#1e222d] border border-[#2a2e39] text-[#d1d4dc] text-[13px] tabular-nums outline-none focus:border-[#2962ff]" />
-            </label>
-          ))}
-          <button type="button" disabled={!groupId || last == null} onClick={() => place(ticket.side)} data-testid="ticket-place"
-            className={`h-10 rounded-[9px] text-white font-semibold disabled:opacity-40 ${ticket.side === 'buy' ? 'bg-[#2962ff]' : 'bg-[#f23645]'}`}>
-            {ticket.side === 'buy' ? 'Buy' : 'Sell'} {symbol} on {group ? group.name : 'a group'}
-          </button>
-          {msg && <p className={`text-xs ${msg.ok ? 'text-[#089981]' : 'text-[#f23645]'}`} data-testid="ticket-msg">{msg.text}</p>}
-          <p className="text-[11px] text-[#5d606b] leading-relaxed">
-            Orders go to every active account in the group through the copier: the firm rules, news blocks and one-trade-per-account
-            checks apply, and MT5 accounts place them through the QuantBot Copier EA.
-          </p>
+          <div className="p-3.5 border-t border-[#2a2e39] space-y-2">
+            <button type="button" disabled={!groupId || last == null} onClick={() => place(ticket.side)} data-testid="ticket-place"
+              className={`w-full h-11 rounded-[10px] text-white font-semibold transition-[filter] hover:brightness-110 disabled:opacity-40 ${ticket.side === 'buy' ? 'bg-[#2962ff]' : 'bg-[#f23645]'}`}>
+              {ticket.side === 'buy' ? 'Buy' : 'Sell'} {ticket.qty || 0} {symbol}
+            </button>
+            {msg && <p className={`text-xs text-center animate-in fade-in-0 duration-pop calm:animate-none ${msg.ok ? 'text-[#089981]' : 'text-[#f23645]'}`} data-testid="ticket-msg">{msg.text}</p>}
+            <p className="text-[11px] text-center text-[#5d606b]" title="Firm rules, news blocks and one trade per account apply; MT5 accounts place it through the QuantBot Copier EA">Goes to every active account in the group</p>
+          </div>
         </div>
       </div>
 
