@@ -4,21 +4,13 @@
     python walk_forward.py XAUUSD_M5_....csv
 
 Each year Y from 2011 on: train on the 5 years before Y-1, pick the threshold on Y-1, trade Y. Every traded year is
-unseen by its model. Variants: broker-time vs UTC hour inputs, with and without a volatility regime filter (only trade
-while ATR(100) is above its 500-bar average), flat 0.5% risk vs confidence tiers (0.25 / 0.5 / 1.0%).
+unseen by its model. Hour inputs are UTC (see train_gold_model.py). Variants: with and without the volatility regime
+filter the EA uses, flat 0.5% risk vs confidence tiers (0.25 / 0.5 / 1.0%).
 """
 import sys
 import numpy as np
-import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier
 import train_gold_model as T
-
-
-def utc_hours(index):
-    """MT5 gold brokers mostly run New York close = 00:00 (UTC+2 winter, UTC+3 in US summer time)."""
-    ny = index.tz_localize("UTC").tz_convert("America/New_York")
-    off = np.where(ny.map(lambda t: t.dst() != pd.Timedelta(0)), 3, 2)
-    return (index.hour.to_numpy() - off) % 24
 
 
 def sim(idx, p, lr, sr, lx, sx, thr, tiers=False):
@@ -46,12 +38,9 @@ def main(path):
     y = np.where(lr > 0.5, 1, np.where(sr > 0.5, 2, 0))
     ok = ~np.isnan(X).any(axis=1) & ~np.isnan(lr) & ~np.isnan(sr)
     yr = h.index.year.to_numpy()
-    hu = utc_hours(h.index)
-    Xu = X.copy(); Xu[:, 10] = np.sin(2 * np.pi * hu / 24); Xu[:, 11] = np.cos(2 * np.pi * hu / 24)
-    a100 = pd.Series(atr).rolling(100).mean()  # atr is ATR(14); use the 100-bar mean as ATR(100)
-    regime = (a100 > a100.rolling(500).mean()).to_numpy()
+    regime = T.regime_on(atr)
 
-    variants = {"broker hours": (X, False), "UTC hours": (Xu, False), "UTC + regime filter": (Xu, True)}
+    variants = {"no filter": (X, False), "regime filter (EA)": (X, True)}
     for name, (XX, use_regime) in variants.items():
         allr, flat_eq, tier_eq, flat_dd, tier_dd, rows = [], 1.0, 1.0, 0.0, 0.0, []
         peak_f = peak_t = 1.0

@@ -4,11 +4,16 @@
     pip install numpy pandas scikit-learn skl2onnx onnxruntime
     python train_gold_model.py XAUUSD_M5_....csv
 
-M5 bars are grouped into H1 bars. Each H1 bar gets 12 features, all computed from closed bars only; features() in the
-EA uses the same formulas, so keep the two in sync. The label asks, from the next bar's open: does price reach +TP ATR
+M5 bars are grouped into H1 bars. Each H1 bar gets 12 features, all computed from closed bars only; Features() in the
+EA uses the same formulas, so keep the two in sync. Hour inputs are in UTC, so a broker on another clock sees the same
+model: the export's broker time is taken as New York + 7 hours (UTC+2, UTC+3 in US summer time), as most MT5 gold
+brokers run. The EA only trades in the volatility regime (ATR(14) averaged over 100 bars above its 500-bar average). The label asks, from the next bar's open: does price reach +TP ATR
 before -SL ATR within 48 bars (long win, class 1), the mirror image (short win, class 2), or neither (class 0)? A bar
-where the stop and the target are both touched counts as the stop. Training: 2004-2019. Threshold picked on
-2020-2022. Test: 2023 onward, never touched while building the model.
+where the stop and the target are both touched counts as the stop.
+
+Rolling retrain: the model is trained on the 5 years before the last 12 months of the file, and the threshold is
+picked on those last 12 months. Retrain on a fresh export every few months. walk_forward.py shows how this
+scheme did on every year since 2011 (each year traded by a model that never saw it).
 """
 import sys
 import numpy as np
@@ -28,6 +33,19 @@ def load_h1(path):
     return h
 
 
+def utc_hours(index):
+    """UTC hour of broker-time bars, broker time = New York + 7 h (US DST rules from pandas' time zone data)."""
+    ny = (index - pd.Timedelta(hours=7)).tz_localize("America/New_York", ambiguous=False, nonexistent="shift_forward")
+    off = -(ny.map(lambda t: t.utcoffset()).to_series().dt.total_seconds().to_numpy() / 3600)  # 4 in summer, 5 in winter
+    return ((index.hour.to_numpy() - 7 + off) % 24).astype(int)
+
+
+def regime_on(atr14):
+    """True while ATR(14) averaged over 100 bars is above its own 500-bar average (the EA trades only then)."""
+    a = pd.Series(atr14).rolling(100).mean()
+    return (a > a.rolling(500).mean()).to_numpy()
+
+
 def features(h):
     o, hi, lo, c = (h[k].to_numpy() for k in ("open", "high", "low", "close"))
     prev = np.r_[np.nan, c[:-1]]
@@ -44,7 +62,7 @@ def features(h):
     f["vol"] = atr14 / atr100
     f["body"] = (c - o) / atr14
     f["range"] = (hi - lo) / atr14
-    hour = h.index.hour.to_numpy()
+    hour = utc_hours(h.index)
     f["hsin"] = np.sin(2 * np.pi * hour / 24); f["hcos"] = np.cos(2 * np.pi * hour / 24)
     X = np.column_stack(list(f.values())).astype(np.float32)
     # Row i = features at the close of bar i; the trade opens at bar i+1's open
@@ -104,35 +122,33 @@ def main(path, out="gold_model.onnx"):
     lr, sr, lx, sx = outcomes(h, atr)
     y = np.where(lr > 0.5, 1, np.where(sr > 0.5, 2, 0))
     ok = ~np.isnan(X).any(axis=1) & ~np.isnan(lr) & ~np.isnan(sr)
-    yr = h.index.year.to_numpy()
-    tr, va, te = ok & (yr <= 2019), ok & (yr >= 2020) & (yr <= 2022), ok & (yr >= 2023)
-    print(f"H1 bars {len(h)}, train {tr.sum()}, pick {va.sum()}, test {te.sum()}; class mix (train) {np.bincount(y[tr]) / tr.sum()}")
-    # (HistGradientBoosting doesn't convert to ONNX with current skl2onnx, so the classic one)
+    t = h.index
+    pick_from = t[-1] - pd.Timedelta(days=365)
+    tr = ok & (t >= pick_from - pd.Timedelta(days=5 * 365)) & (t < pick_from)
+    va = ok & (t >= pick_from) & regime_on(atr)
+    print(f"H1 bars {len(h)}; training {t[tr][0]:%Y-%m-%d} to {t[tr][-1]:%Y-%m-%d} ({tr.sum()} bars), "
+          f"threshold picked on {pick_from:%Y-%m-%d} to {t[-1]:%Y-%m-%d} (volatility regime only)")
     clf = GradientBoostingClassifier(n_estimators=200, learning_rate=0.05, max_depth=3, min_samples_leaf=200, subsample=0.5,
                                      random_state=7).fit(X[tr], y[tr])
+    vi = np.where(va)[0]
+    pv = clf.predict_proba(X[vi])
     best = None
-    for thr in (0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65):
-        idx = np.where(va)[0]
-        s = simulate(idx, clf.predict_proba(X[idx]), lr, sr, lx, sx, thr)
-        print(f"  pick 2020-2022 thr {thr:.2f}: {s}")
-        if s.get("trades", 0) >= 60 and (best is None or s["totalR"] > best[1]["totalR"]):
+    for thr in (0.35, 0.40, 0.45, 0.50):
+        s = simulate(vi, pv, lr, sr, lx, sx, thr)
+        print(f"  threshold {thr:.2f}: {s}")
+        if s.get("trades", 0) >= 20 and (best is None or s["totalR"] > best[1]["totalR"]):
             best = (thr, s)
-    thr = best[0] if best else 0.65
-    for name, m in (("train 2004-2019 (seen)", tr), ("pick 2020-2022", va), ("TEST 2023-2026 (unseen)", te)):
-        idx = np.where(m)[0]
-        print(f"{name:26s} thr {thr:.2f}: {simulate(idx, clf.predict_proba(X[idx]), lr, sr, lx, sx, thr)}")
-    # Baseline: random entries at the same rate, to see whether the model adds anything
-    rng = np.random.default_rng(1); idx = np.where(te)[0]
-    rp = rng.random((len(idx), 3)); rp[:, 0] = 0
-    print(f"{'random entries 2023-2026':26s}        : {simulate(idx, rp, lr, sr, lx, sx, 0.97)}")
+    thr = best[0] if best else 0.45
+    print(f"Threshold {thr:.2f}: set InpThreshold to this in the EA. These are the months it was picked on, not a "
+          f"test: run walk_forward.py for the unseen-years record.")
     from skl2onnx import to_onnx
     onx = to_onnx(clf, X[:1], options={id(clf): {"zipmap": False}}, target_opset={"": 15, "ai.onnx.ml": 3})
     open(out, "wb").write(onx.SerializeToString())
     import onnxruntime as ort
     sess = ort.InferenceSession(out)
-    got = sess.run(None, {sess.get_inputs()[0].name: X[te][:2000]})[1]
-    print(f"ONNX matches scikit-learn: max probability difference {np.abs(got - clf.predict_proba(X[te][:2000])).max():.2e}")
-    print(f"saved {out}; threshold {thr:.2f}; inputs [1,{N_FEATURES}] float, outputs label + probabilities [none, long, short]")
+    got = sess.run(None, {sess.get_inputs()[0].name: X[vi][:2000]})[1]
+    print(f"ONNX matches scikit-learn: max probability difference {np.abs(got - clf.predict_proba(X[vi][:2000])).max():.2e}")
+    print(f"saved {out}; inputs [1,{N_FEATURES}] float, outputs label + probabilities [none, long, short]")
 
 
 if __name__ == "__main__":

@@ -4,8 +4,9 @@
 //| XAUUSD M5 export. Put gold_model.onnx next to this file, compile   |
 //| (F7) and attach to any XAUUSD chart: it always works on H1 bars.  |
 //| Features() must match features() in train_gold_model.py.          |
-//| Unseen test 2023-2026 at 0.5% risk: 457 trades, PF 1.07, +9.8%,   |
-//| max drawdown 9.3%. A thin edge: forward-test on demo first.       |
+//| Hour inputs are UTC; it trades only in the volatility regime.     |
+//| Walk-forward 2011-2026 (every year unseen): PF about 1.0-1.04,    |
+//| drawdowns 11-29%. NOT a proven edge: run it on demo only.         |
 //+------------------------------------------------------------------+
 #property copyright "QuantBot"
 #property version   "1.00"
@@ -15,7 +16,7 @@
 #resource "gold_model.onnx" as uchar ExtModel[]
 
 input group "Model"
-input double InpThreshold    = 0.40;     // Min model probability to trade (picked on 2020-2022)
+input double InpThreshold    = 0.45;     // Min model probability to trade (printed by train_gold_model.py)
 input group "Risk"
 input double InpRiskPercent  = 0.5;      // Base risk per trade, % of equity
 input double InpMinRisk      = 0.1;      // Risk floor after the confidence multiplier, %
@@ -25,13 +26,15 @@ input double InpSlAtr        = 1.5;      // Stop loss, x ATR(14)
 input double InpTpAtr        = 3.0;      // Take profit, x ATR(14)
 input int    InpMaxBars      = 48;       // Close after this many H1 bars
 input group "Execution"
+input int    InpUtcOffset    = -99;      // Broker UTC offset in hours; -99 = New York + 7 (UTC+2 / +3 in US summer)
+input bool   InpRegimeFilter = true;     // Trade only while ATR(14) over 100 bars is above its 500-bar average
 input double InpMaxSpread    = 0.50;     // Max spread in $ (price), not points: works on 2- and 3-digit quotes
 input int    InpSlippagePts  = 50;       // Max slippage in points
 input ulong  InpMagic        = 88882026; // Magic number
 
 #define N_FEATURES 12
 #define N_CLASSES  3
-#define HISTORY    130
+#define HISTORY    620 // 600 ATR values for the regime filter, plus the TR lookback
 const ENUM_TIMEFRAMES TF = PERIOD_H1;
 
 CTrade   trade;
@@ -106,6 +109,7 @@ bool Features(float &x[], double &atr14)
    atr14 = s14 / 14.0;
    double atr100 = s100 / 100.0;
    if(atr14 <= 0 || atr100 <= 0) return false;
+   if(InpRegimeFilter && !VolatilityRegime(tr)) return false;
    double c = r[0].close;
    const int lags[] = {1, 2, 4, 8, 24};
    for(int j = 0; j < 5; j++) x[j] = (float)((c - r[lags[j]].close) / atr14);
@@ -114,11 +118,52 @@ bool Features(float &x[], double &atr14)
    x[7] = (float)(atr14 / atr100);
    x[8] = (float)((c - r[0].open) / atr14);
    x[9] = (float)((r[0].high - r[0].low) / atr14);
-   MqlDateTime t;
-   TimeToStruct(r[0].time, t);
-   x[10] = (float)MathSin(2 * M_PI * t.hour / 24.0);
-   x[11] = (float)MathCos(2 * M_PI * t.hour / 24.0);
+   int hour = UtcHour(r[0].time);
+   x[10] = (float)MathSin(2 * M_PI * hour / 24.0);
+   x[11] = (float)MathCos(2 * M_PI * hour / 24.0);
    return true;
+}
+
+//--- Same rule as regime_on() in train_gold_model.py: mean of the last 100 ATR(14) values above the mean of the last
+//--- 500 such 100-bar means
+bool VolatilityRegime(const double &tr[])
+{
+   double atr[];
+   ArrayResize(atr, 599);
+   for(int k = 0; k < 599; k++) { double s = 0; for(int j = 0; j < 14; j++) s += tr[k + j]; atr[k] = s / 14.0; }
+   double m[];
+   ArrayResize(m, 500);
+   for(int k = 0; k < 500; k++) { double s = 0; for(int j = 0; j < 100; j++) s += atr[k + j]; m[k] = s / 100.0; }
+   double avg = 0;
+   for(int k = 0; k < 500; k++) avg += m[k];
+   return m[0] > avg / 500.0;
+}
+
+//--- UTC hour of a broker-time bar. Default: broker = New York + 7 h (US summer time from the second Sunday of March
+//--- to the first Sunday of November), as the training data assumes
+int UtcHour(datetime brokerTime)
+{
+   if(InpUtcOffset != -99) return (int)(((brokerTime - InpUtcOffset * 3600) % 86400) / 3600);
+   datetime ny = brokerTime - 7 * 3600;
+   int nyOffset = UsSummerTime(ny) ? 4 : 5;
+   return (int)(((ny + nyOffset * 3600) % 86400) / 3600);
+}
+
+bool UsSummerTime(datetime ny)
+{
+   MqlDateTime t;
+   TimeToStruct(ny, t);
+   datetime start = NthSunday(t.year, 3, 2) + 2 * 3600, end = NthSunday(t.year, 11, 1) + 2 * 3600;
+   return ny >= start && ny < end;
+}
+
+datetime NthSunday(int year, int month, int n)
+{
+   MqlDateTime t = {};
+   t.year = year; t.mon = month; t.day = 1;
+   datetime first = StructToTime(t);
+   TimeToStruct(first, t);
+   return first + (((7 - t.day_of_week) % 7) + 7 * (n - 1)) * 86400;
 }
 
 double Position(const MqlRates &r[], int n, double c)
