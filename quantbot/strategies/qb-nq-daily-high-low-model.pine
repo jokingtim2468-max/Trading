@@ -1,0 +1,85 @@
+// Script: QB NQ Daily High/Low Model
+//@version=5
+// E-mini NQ (NQ1! / MNQ1!), any intraday chart. At each session's open it predicts the day's high and low with a
+// model trained on 26 years of NQ futures daily bars (median quantile regression, scripts/nq_hilo_model.py; the
+// coefficients below are from the model trained on 2020-2025: retrain and paste new ones every few months) and draws them. Optionally it sends QuantBot a sell
+// limit at the predicted high and a buy limit at the predicted low (stop beyond, target at the open), which the app
+// copies to every account in the script's group.
+// Backtest before trusting it: on unseen years the model is only ~6% closer than "open +/- half the average range",
+// and fading its levels on real NQ futures (May 2024 - Oct 2026, 1 contract) ranged from about break-even to large
+// losses depending on the stop. Orders are OFF by default: watch it on the chart / paper first.
+indicator("QB NQ Daily High/Low Model", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ---------- Inputs
+G_O = "Orders (sent to QuantBot)"
+sendOrders = input.bool(false, "Send limit orders to QuantBot", group=G_O)
+qty        = input.int(1, "Contracts", minval=1, group=G_O)
+stopMult   = input.float(0.10, "Stop beyond the level (x 20-day average range)", minval=0.02, step=0.02, group=G_O)
+stratName  = input.string("QB NQ High/Low Model", "QuantBot strategy name", group=G_O)
+G_V = "Visuals"
+colHi  = input.color(color.new(#e5534b, 0), "Predicted high", group=G_V)
+colLo  = input.color(color.new(#3fb950, 0), "Predicted low", group=G_V)
+colOp  = input.color(color.new(#8b949e, 30), "Session open (target)", group=G_V)
+colSl  = input.color(color.new(#d29922, 40), "Stops", group=G_V)
+showLabels = input.bool(true, "Show labels", group=G_V)
+
+// ---------- Daily features (all from finished sessions, except today's open, which is known at the open)
+rngD  = (high - low) / open
+f_rng1  = request.security(syminfo.tickerid, "D", rngD[1], lookahead=barmerge.lookahead_on)
+f_rng5  = request.security(syminfo.tickerid, "D", ta.sma(rngD, 5)[1], lookahead=barmerge.lookahead_on)
+f_rng20 = request.security(syminfo.tickerid, "D", ta.sma(rngD, 20)[1], lookahead=barmerge.lookahead_on)
+f_up1   = request.security(syminfo.tickerid, "D", ((high - open) / open)[1], lookahead=barmerge.lookahead_on)
+f_dn1   = request.security(syminfo.tickerid, "D", ((open - low) / open)[1], lookahead=barmerge.lookahead_on)
+f_ret1  = request.security(syminfo.tickerid, "D", (close / close[1] - 1)[1], lookahead=barmerge.lookahead_on)
+dOpen   = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
+prevC   = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_on)
+f_gap   = dOpen / prevC - 1
+
+// ---------- Model (distance from the open to the day's high / low, as a fraction of price)
+predUp = 0.000592505 + 0.0 * f_rng1 + 0.177698464 * f_rng5 + 0.051697261 * f_rng20 + 0.127616916 * f_up1 + 0.127666710 * f_dn1 - 0.079673588 * f_ret1 - 0.208345827 * f_gap + 0.377091536 * math.abs(f_gap)
+predDn = 0.001341490 + 0.0 * f_rng1 + 0.199719032 * f_rng5 + 0.055891154 * f_rng20 + 0.108281835 * f_up1 + 0.027333957 * f_dn1 - 0.066866496 * f_ret1 - 0.095339909 * f_gap - 0.009287978 * math.abs(f_gap)
+predHi = math.round_to_mintick(dOpen * (1 + math.max(predUp, 0)))
+predLo = math.round_to_mintick(dOpen * (1 - math.max(predDn, 0)))
+stopD  = math.round_to_mintick(stopMult * f_rng20 * dOpen)
+hiStop = predHi + stopD
+loStop = predLo - stopD
+target = math.round_to_mintick(dOpen)
+
+// ---------- Draw once per session
+newDay = ta.change(time("D")) != 0
+var line lHi = na, var line lLo = na, var line lOp = na, var line lHs = na, var line lLs = na
+if newDay and not na(predHi)
+    lHi := line.new(bar_index, predHi, bar_index + 1, predHi, extend=extend.right, color=colHi, width=2)
+    lLo := line.new(bar_index, predLo, bar_index + 1, predLo, extend=extend.right, color=colLo, width=2)
+    lOp := line.new(bar_index, target, bar_index + 1, target, extend=extend.right, color=colOp, style=line.style_dotted)
+    lHs := line.new(bar_index, hiStop, bar_index + 1, hiStop, extend=extend.right, color=colSl, style=line.style_dashed)
+    lLs := line.new(bar_index, loStop, bar_index + 1, loStop, extend=extend.right, color=colSl, style=line.style_dashed)
+    // stop the previous session's lines at this bar
+    for l in array.from(lHi[1], lLo[1], lOp[1], lHs[1], lLs[1])
+        if not na(l)
+            line.set_extend(l, extend.none)
+            line.set_x2(l, bar_index)
+    if showLabels
+        label.new(bar_index, predHi, "Predicted high " + str.tostring(predHi), style=label.style_label_lower_left, color=color.new(colHi, 80), textcolor=colHi, size=size.small)
+        label.new(bar_index, predLo, "Predicted low " + str.tostring(predLo), style=label.style_label_upper_left, color=color.new(colLo, 80), textcolor=colLo, size=size.small)
+
+// ---------- QuantBot messages (one TradingView alert on this script: "Any alert() function call" + the webhook URL)
+qbMsg(ev, px, sl, tp, id) =>
+    str.format('{{"qb":1,"event":"{0}","symbol":"{1}","tf":"{2}","price":{3},"sl":{4},"tp":{5},"qty":{6},"trade_id":"{7}","reason":"","strategy":"{8}","source":"tradingview","time":{9}}}',
+         ev, syminfo.ticker, timeframe.period, str.tostring(px), str.tostring(sl), str.tostring(tp), str.tostring(qty), id, stratName, str.tostring(time))
+dayId = str.format_time(time("D"), "yyyyMMdd", "America/New_York")
+var string prevDay = ""
+if sendOrders and newDay and not na(predHi) and barstate.isrealtime
+    // cancel yesterday's limits if still pending, then place today's
+    if prevDay != ""
+        alert(qbMsg("cancel", target, 0, 0, "QBNQ-H-" + prevDay), alert.freq_once_per_bar)
+        alert(qbMsg("cancel", target, 0, 0, "QBNQ-L-" + prevDay), alert.freq_once_per_bar)
+    alert(qbMsg("sell_limit", predHi, hiStop, target, "QBNQ-H-" + dayId), alert.freq_once_per_bar)
+    alert(qbMsg("buy_limit", predLo, loStop, target, "QBNQ-L-" + dayId), alert.freq_once_per_bar)
+if newDay
+    prevDay := dayId
+
+// Data Window values
+plot(predHi, "Predicted high", color=colHi, display=display.data_window)
+plot(predLo, "Predicted low", color=colLo, display=display.data_window)
+plot(target, "Target (open)", color=colOp, display=display.data_window)
