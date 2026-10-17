@@ -49,7 +49,27 @@ Everything copy trading does goes into an activity log (`CopyEvent`, the newest 
 (`risk $300 / (4 stop x $10) = 7; risking $280.00`), skips and why (group paused, max trades reached, account failed,
 one contract over the risk, no open trade to close, event types that aren't copied), fills, SL / TP moves, closes with
 P&L, XP and balance, max-loss floor moves, rank-ups, pass / fail, orders sent to order URLs (and failures), and setup
-done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Scripts are written with Claude only: each has its own chat (Open its Claude chat) that always uses Claude and
+done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Prop firms: account rules cover LucidPro 25K-150K (evaluation, then funded; trailing max loss on the New York day)
+and FTMO 10K-200K 2-Step (Challenge +10%, Verification +5%, then funded; 5% daily loss on the Prague day, fixed 10%
+max loss). Firm limits are checked when an account is saved: Lucid allows 5 funded accounts per person, FTMO any
+number of accounts but $400,000 of funded capital at once (badges on the groups overview show what's used).
+Auto-withdraw (funded accounts): on the firm's schedule (FTMO every 14 days, 80% split, both editable), when the
+account is flat and in profit, QuantBot takes the profit out, logs your share (`Payout`), and starts the account again
+from its starting balance; the request itself is made in FTMO's Client Area, which has no payout API.
+
+News and trading hours (per group, `server/lib/blackout.js`): no new trades around news from Forex Factory's weekly
+feed and FTMO's economic calendar (`server/news.js`, every 30 minutes, kept in `data/news.json`; impacts and minutes
+before / after are settings), 2 minutes either side of FTMO's restricted events (matched on FTMO's instruments, e.g.
+"USD + US INDICES + XAUUSD"), on blocked weekdays, in blocked hours and on blocked dates or weeks. Times are in the
+PC's time zone. Stops, targets and closes still follow; each blocked signal is logged with the reason.
+
+MT5 (FTMO and other MT5 accounts): turn on "Place the trades on this MT5 account" and run the QuantBot Copier EA
+(`mt5/QuantBotCopier.mq5`, downloadable from the account) on that account's terminal, on the same PC or VPS as
+QuantBot. It asks `http://127.0.0.1:<port>/mt5/<key>/<account>/poll` every second for orders (open / modify / close,
+in 0.01 lots on the account's own symbol via the symbol map, e.g. `MGC1!=XAUUSD`) and reports each fill or error
+to `/ack`; fills, slippage and rejections go in the activity log.
+
+Scripts are written with Claude only: each has its own chat (Open its Claude chat) that always uses Claude and
 saves every new version Claude writes as the script's code. Each script also has a folder next to QuantBot's logs
 (`<install folder>/scripts/<script>/`, or `data/scripts/` from source) with `CLAUDE.md` (where it trades, results,
 recent warnings, your notes), the code, `activity.log`, `trades.csv`, `summary.json` and `notes.md`; QuantBot

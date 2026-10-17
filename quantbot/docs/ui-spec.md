@@ -159,6 +159,23 @@ Nothing grows or zooms any more. Everything fades with a short slide.
   - Evaluate: 8 stat tiles, 4 per row (Net P&L, Win rate, Profit factor, Per trade, Avg win / loss, Max drawdown,
     Best / worst, Avg hold), a 180 px primary equity area chart, then tables By script, By account, By group, By exit
     and Longs vs shorts; **Export trades CSV** top right.
+- **Account dialog, prop accounts:** Stage select (Evaluation / Challenge / Verification / Funded) with the firm's
+  rules as the hint; a red line under it when the firm's limit is reached (Save is disabled). Funded accounts get a
+  bordered box: a "Withdraw profit automatically every 14 days" switch, Your split % and Every (days).
+- **Account dialog, MT5:** a bordered box with a "Place the trades on this MT5 account" switch and, on the right, the
+  EA status (green "EA connected 3s ago", muted "EA not connected yet"); then Symbol map, the Copier address with a
+  copy button, and three numbered steps with a "Download QuantBot Copier" link.
+- **Account cards:** a muted pill "<firm> <stage>" (e.g. "FTMO Funded") and "· $3,200.00 out" after the balance once
+  money is withdrawn.
+- **Groups overview:** firm badges on the right of "Groups": "Lucid funded 3/5", "FTMO funded $300K / $400K"
+  (chart-4 yellow when full).
+- **News and trading hours** (in the open group, above the Tradovate guide): calendar-off icon in chart-4, a pill
+  "Open for new trades" (green) or "No new trades now" (yellow, with the reason under it), "Times in <zone> (this PC)"
+  on the right. Then: Block news switch with minutes before / after; source chips (Forex Factory, FTMO calendar) and
+  impact chips (High, Medium, Low, Holiday); FTMO restricted events switch; Blocked days chips Sun-Sat; Blocked hours
+  (time pairs as removable chips, two time fields and +); Blocked dates and weeks (date range, note, +); and "Next
+  news blocks for <symbol>" (FTMO-restricted ones in yellow) with Refresh and when the calendars last updated.
+- **Activity log:** new chips "News & hours" (block, yellow pill) and "Payouts" (payout, green pill).
 - **Drag and drop:** drops follow the pointer (the target under the cursor), not the card's size. The page only
   auto-scrolls when dragging into the outer 10% of the window.
 - **No wrapping:** numbers, labels and table cells stay on one line (they truncate); activity lines show one line and
