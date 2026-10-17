@@ -20,6 +20,7 @@ import { createMt5Bridge } from './mt5.js';
 import { createPayouts } from './payouts.js';
 import { pcZone } from './lib/blackout.js';
 import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
+import { createTrainer } from './train.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -56,7 +57,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -172,6 +173,22 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     return send(res, 200, await signals.receive(body, { local: true }));
   }
 
+  // Train page: Unsloth fine-tuning in Docker
+  if (req.method === 'GET' && url.pathname === '/api/train/status') return send(res, 200, { ...(await trainer.status()), models: trainer.models, defaults: trainer.defaults, image_name: trainer.image });
+  if (req.method === 'POST' && url.pathname === '/api/train/pull') { if (!json()) return send(res, 415, { error: 'JSON required' }); return send(res, 200, trainer.pull()); }
+  if (req.method === 'GET' && url.pathname === '/api/train/runs') return send(res, 200, { runs: trainer.runs() });
+  if (req.method === 'POST' && url.pathname === '/api/train/start') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    return send(res, 200, await trainer.start(JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}')));
+  }
+  const trainRun = url.pathname.match(/^\/api\/train\/runs\/([0-9a-z-]+)(\/stop)?$/i);
+  if (trainRun) {
+    const [, id, action] = trainRun;
+    if (req.method === 'GET' && !action) { const r = trainer.run(id); return r ? send(res, 200, r) : send(res, 404, { error: 'No such run' }); }
+    if (req.method === 'POST' && action === '/stop') { if (!json()) return send(res, 415, { error: 'JSON required' }); return send(res, 200, await trainer.stop(id)); }
+    if (req.method === 'DELETE' && !action) return send(res, 200, trainer.remove(id));
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/invoke') {
     // A JSON content type forces a CORS preflight for cross-site requests, which this server never approves
     if (!String(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'JSON required' });
@@ -261,6 +278,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
+  const trainer = createTrainer({ dataDir, market, log: app?.log });
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
@@ -330,7 +348,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);

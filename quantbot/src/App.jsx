@@ -15,6 +15,7 @@ import TestHistory from '@/pages/TestHistory';
 import PnlCalendar from '@/pages/PnlCalendar';
 import Accounts from '@/pages/Accounts';
 import Signals from '@/pages/Signals';
+import Train from '@/pages/Train';
 
 const AuthenticatedApp = () => (
   <Routes>
@@ -27,6 +28,7 @@ const AuthenticatedApp = () => (
       <Route path="/pnl" element={<PnlCalendar />} />
       <Route path="/accounts" element={<Accounts />} />
       <Route path="/signals" element={<Signals />} />
+      <Route path="/train" element={<Train />} />
     </Route>
     <Route path="*" element={<PageNotFound />} />
   </Routes>

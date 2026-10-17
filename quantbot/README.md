@@ -107,6 +107,20 @@ once for a faster version with the same logic. Stop ends a test at once. Bars ca
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
+## Train (Unsloth on your GPU)
+
+The **Train** page fine-tunes a small open model to predict each day's high and low from the 10 days before it,
+then tests it on later days it never saw against a simple guess. It runs Unsloth's official Docker image
+(`unsloth/unsloth:core`) on this PC's NVIDIA GPU.
+
+- Needs: Docker Desktop (WSL 2) and a current NVIDIA driver. The page checks both and downloads the image (about 10 GB).
+- Models: **Qwen3.5 2B** (default, about 5 GB of GPU memory: fits an 8 GB RTX 4060), Qwen3.5 0.8B (quick test),
+  Qwen3 4B in 4-bit (tight on 8 GB).
+- Data: the built-in XAUUSD hourly history, or your own MT5 export.
+- Each run is a folder in `data/train/<id>`: config, train/test data, `events.jsonl`, the LoRA adapter, test
+  predictions and `result.json`. The training script is `train/unsloth/qb_train.py` (it also runs on its own:
+  `python qb_train.py <folder>`).
+
 ## Install on Windows
 
 Download **QuantBot-Setup-x.y.z.exe** from the [latest release](https://github.com/jokingtim2468-max/Trading/releases/latest),
