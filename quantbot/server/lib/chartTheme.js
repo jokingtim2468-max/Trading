@@ -1,18 +1,24 @@
 // The Terminal chart's look: one settings object, its presets, and the check every change (preset, the AI chart
 // editor, a hand edit) goes through. Shared by the server (stores versions) and the page (draws the chart).
-export const DEFAULT_CHART = {
+const DARK = {
   background: '#131722', grid: '#1e222d', text: '#b2b5be', up: '#089981', down: '#f23645',
   wickUp: '', wickDown: '', hollow: false, crosshair: '#787b86', prediction: '#e8c468', showGrid: true, showPrediction: true,
 };
+// The default look: gray background with white rising and black falling candles
+export const DEFAULT_CHART = {
+  ...DARK, background: '#2f3033', grid: '#3a3b3f', text: '#d1d4dc', up: '#ffffff', down: '#0b0b0c',
+  wickUp: '#e0e0e0', wickDown: '#0b0b0c', crosshair: '#9598a1',
+};
 
 export const CHART_PRESETS = [
-  { id: 'dark', name: 'Dark', settings: { ...DEFAULT_CHART } },
-  { id: 'black', name: 'Black background', settings: { ...DEFAULT_CHART, background: '#000000', grid: '#141414' } },
-  { id: 'gray', name: 'Gray background', settings: { ...DEFAULT_CHART, background: '#2f3033', grid: '#3a3b3f', text: '#d1d4dc' } },
-  { id: 'bw', name: 'Black & white candles', settings: { ...DEFAULT_CHART, background: '#000000', grid: '#161616', up: '#ffffff', down: '#4a4a4a', wickUp: '#d9d9d9', wickDown: '#8a8a8a' } },
-  { id: 'light', name: 'Light', settings: { ...DEFAULT_CHART, background: '#ffffff', grid: '#f0f3fa', text: '#131722', up: '#089981', down: '#f23645', crosshair: '#9598a1' } },
-  { id: 'hollow', name: 'Hollow candles', settings: { ...DEFAULT_CHART, hollow: true } },
-  { id: 'quantbot', name: 'QuantBot', settings: { ...DEFAULT_CHART, background: '#272725', grid: '#31312f', text: '#a8a59f', up: '#21c45d', down: '#ef4343', prediction: '#5fb7f2' } },
+  { id: 'graybw', name: 'Gray · B&W candles', settings: { ...DEFAULT_CHART } },
+  { id: 'dark', name: 'Dark', settings: { ...DARK } },
+  { id: 'black', name: 'Black background', settings: { ...DARK, background: '#000000', grid: '#141414' } },
+  { id: 'gray', name: 'Gray background', settings: { ...DARK, background: '#2f3033', grid: '#3a3b3f', text: '#d1d4dc' } },
+  { id: 'bw', name: 'Black & white candles', settings: { ...DARK, background: '#000000', grid: '#161616', up: '#ffffff', down: '#4a4a4a', wickUp: '#d9d9d9', wickDown: '#8a8a8a' } },
+  { id: 'light', name: 'Light', settings: { ...DARK, background: '#ffffff', grid: '#f0f3fa', text: '#131722', up: '#089981', down: '#f23645', crosshair: '#9598a1' } },
+  { id: 'hollow', name: 'Hollow candles', settings: { ...DARK, hollow: true } },
+  { id: 'quantbot', name: 'QuantBot', settings: { ...DARK, background: '#272725', grid: '#31312f', text: '#a8a59f', up: '#21c45d', down: '#ef4343', prediction: '#5fb7f2' } },
 ];
 
 const COLOR_KEYS = ['background', 'grid', 'text', 'up', 'down', 'wickUp', 'wickDown', 'crosshair', 'prediction'];

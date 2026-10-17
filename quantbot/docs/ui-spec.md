@@ -332,3 +332,10 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
   at 100 %. Reduced motion turns this and the sheen off.
 - **Errors:** a red panel with the reason, **Try again**, and **Open the installed version** when one exists.
 - **Version** bottom-left: `v1.0.0 · commit · date`, 11 px `#6F6C66`.
+
+### Terminal: default chart look and toasts
+- Default preset **Gray · B&W candles** (`graybw`): background `#2f3033`, grid `#3a3b3f`, text `#d1d4dc`, rising candles `#ffffff` (wick `#e0e0e0`), falling candles `#0b0b0c`, crosshair `#9598a1`. Right-click → Reset to default applies it; the old dark look is the **Dark** preset.
+- Toasts (TradingView style): bottom-right stack, max 4, newest on top. Card `#1e222d`, border `#363a45`, radius 12px, 340px wide, shadow `0 16px 40px rgba(0,0,0,.55)`.
+  Round tinted icon (buy `#2962ff`, sell/stop/error `#f23645`, take profit `#089981`, close `#d1d4dc`), bold white title, gray `#9598a1` detail lines, X to dismiss.
+  A 2px bar in the icon color runs down over 5 s, then the toast closes; hovering pauses it. Slides in from the right, fades out (none in calm mode).
+  Titles: Order executed · Take profit modified · Stop loss modified · Position close sent · Order rejected.

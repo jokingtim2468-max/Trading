@@ -30,12 +30,15 @@ describe('Chart settings', () => {
     let reply = '';
     const t = createTerminal({ dataDir: dir, db: null, signals: null, ask: async () => reply });
     assert.equal(t.chart().versions.length, 1);
+    assert.equal(t.chart().settings.background, '#2f3033', 'gray background with black and white candles by default');
+    assert.equal(t.chart().settings.up, '#ffffff');
     t.preset('black');
     assert.equal(t.chart().settings.background, '#000000');
+    const blackUp = t.chart().settings.up;
     t.set({ up: '#ffffff' }, 'white up candles');
     assert.equal(t.chart().versions.length, 3);
     t.revert();
-    assert.equal(t.chart().settings.up, DEFAULT_CHART.up);
+    assert.equal(t.chart().settings.up, blackUp);
     t.restore(1);
     assert.equal(t.chart().settings.background, DEFAULT_CHART.background);
     assert.throws(() => t.set({ fontSize: 40 }), /isn't a chart setting/);

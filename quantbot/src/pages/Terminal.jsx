@@ -9,6 +9,7 @@ import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
 import ChartEditor from '@/components/terminal/ChartEditor';
+import Toasts from '@/components/terminal/Toasts';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub,
   ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
@@ -97,7 +98,8 @@ export default function Terminal() {
   const [accounts, setAccounts] = useState([]);
   const [positions, setPositions] = useState([]);
   const [ticket, setTicket] = useState({ side: 'buy', qty: '1', sl: '', tp: '' });
-  const [msg, setMsg] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const toast = (t) => setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
 
   useEffect(() => { fetch('/api/terminal/chart').then((r) => r.json()).then(setChart).catch(() => {}); }, []);
   const loadTrading = useCallback(async () => {
@@ -142,16 +144,20 @@ export default function Terminal() {
 
   const chartCall = async (p, body) => setChart(await post(`/api/terminal/chart/${p}`, body));
   const place = async (event, extra = {}) => {
-    setMsg(null);
     try {
       const r = await post('/api/terminal/order', { group_id: groupId, event, symbol, price: last, qty: ticket.qty, sl: ticket.sl, tp: ticket.tp, ...extra });
       const where = group?.name || 'the group';
-      const text = event === 'set_tp' ? `Take profit moved to ${f2(extra.tp)} on ${where}`
-        : event === 'set_sl' ? `Stop loss moved to ${f2(extra.sl)} on ${where}`
-          : event === 'close' ? `Close sent to ${where}` : `${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.qty} ${symbol} sent to ${where}`;
-      setMsg({ ok: true, text: `${text} · ${r.trade_id || 'all'}` });
+      const n = members.filter((a) => (a.status || 'active') === 'active').length;
+      const id = r.trade_id ? `Order ${r.trade_id}` : 'All Terminal trades';
+      const title = event === 'set_tp' ? 'Take profit modified' : event === 'set_sl' ? 'Stop loss modified'
+        : event === 'close' ? 'Position close sent' : 'Order executed';
+      const lines = event === 'set_tp' ? [`TP ${f2(extra.tp)} · ${symbol}`, `${id} · ${where}`]
+        : event === 'set_sl' ? [`SL ${f2(extra.sl)} · ${symbol}`, `${id} · ${where}`]
+          : event === 'close' ? [`${symbol} at ${f2(last)}`, `${id} · ${where}`]
+            : [`${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
+      toast({ kind: event, title, lines });
       loadTrading();
-    } catch (e) { setMsg({ ok: false, text: e.message }); }
+    } catch (e) { toast({ kind: 'error', title: 'Order rejected', lines: [e.message] }); }
   };
   const priceLabel = clickPrice != null ? f2(clickPrice) : '';
 
@@ -225,7 +231,7 @@ export default function Terminal() {
                 </ContextMenuSub>
                 <ContextMenuSeparator className="bg-[#2a2e39] my-1" />
                 <ContextMenuItem className={ITEM} disabled={(chart?.versions?.length || 0) < 2} onSelect={() => chartCall('revert')} data-testid="menu-revert"><Undo2 className="w-4 h-4" />Revert last change</ContextMenuItem>
-                <ContextMenuItem className={ITEM} onSelect={() => chartCall('preset', { id: 'dark' })}><RotateCcw className="w-4 h-4" />Reset to default</ContextMenuItem>
+                <ContextMenuItem className={ITEM} onSelect={() => chartCall('preset', { id: 'graybw' })}><RotateCcw className="w-4 h-4" />Reset to default</ContextMenuItem>
                 {priceLabel && (
                   <>
                     <ContextMenuSeparator className="bg-[#2a2e39] my-1" />
@@ -294,12 +300,12 @@ export default function Terminal() {
               className={`w-full h-11 rounded-[10px] text-white font-semibold transition-[filter] hover:brightness-110 disabled:opacity-40 ${ticket.side === 'buy' ? 'bg-[#2962ff]' : 'bg-[#f23645]'}`}>
               {ticket.side === 'buy' ? 'Buy' : 'Sell'} {ticket.qty || 0} {symbol}
             </button>
-            {msg && <p className={`text-xs text-center animate-in fade-in-0 duration-pop calm:animate-none ${msg.ok ? 'text-[#089981]' : 'text-[#f23645]'}`} data-testid="ticket-msg">{msg.text}</p>}
             <p className="text-[11px] text-center text-[#5d606b]" title="Firm rules, news blocks and one trade per account apply; MT5 accounts place it through the QuantBot Copier EA">Goes to every active account in the group</p>
           </div>
         </div>
       </div>
 
+      <Toasts items={toasts} onClose={(id) => setToasts((v) => v.filter((x) => x.id !== id))} />
       {editor && (
         <ChartEditor chart={chart} busy={busy} onClose={() => setEditor(false)}
           onPreset={(id) => chartCall('preset', { id })} onRevert={() => chartCall('revert')} onRestore={(n) => chartCall('restore', { n })}
