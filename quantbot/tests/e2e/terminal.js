@@ -77,6 +77,25 @@ await p.screenshot({ path: `${OUT}/a4-chart.png` });
 await tid('tab-orders').click(); await p.waitForTimeout(300);
 ok((await tid('order-row').count()) === 1, 'orders tab');
 await tid('open-settings').click(); await p.waitForTimeout(400); await p.screenshot({ path: `${OUT}/a5-settings.png` }); await p.keyboard.press('Escape');
+// One-click: size 0.5 from the top-left box, the ticket's stop goes with it
+await tid('type-market').click();
+await tid('oneclick-qty').fill('0.49'); await tid('oneclick-qty-up').click();
+ok((await tid('oneclick-qty').inputValue()) === '0.5', 'one-click size steps by 0.01 under 1 lot');
+await tid('oneclick-buy').click(); await p.waitForTimeout(2500);
+let oc = (await (await fetch(`${base}/api/terminal/positions`)).json()).positions;
+ok(oc.length === 2 && oc.every((x) => x.qty === 0.5 && x.sl != null), `one-click buy 0.5 on both accounts with the ticket's stop: ${oc.map((x) => x.qty).join(', ')}`);
+const tbox = await tid('toasts').boundingBox();
+ok(tbox && tbox.y < 120 && tbox.x > 600, 'toasts at the top right');
+// Hold the mouse 1 s on a control: what it is, what it does, how to use it
+await tid('flatten-all').hover(); await p.waitForTimeout(400);
+ok((await tid('hover-help').count()) === 0, 'no help before 1 second');
+await p.waitForTimeout(900);
+ok(/Emergency exit/.test(await tid('hover-help').innerText()), 'help after 1 second');
+await tid('oneclick-buy').hover(); await p.waitForTimeout(1300);
+ok(/One-click buy/.test(await tid('hover-help').innerText()), 'one-click help');
+await p.screenshot({ path: `${OUT}/a5b-oneclick-help.png` });
+await tid('entry-trail').hover(); await p.waitForTimeout(1300);
+await p.screenshot({ path: `${OUT}/a5c-trail-help.png` });
 // Flatten all
 await tid('flatten-all').click(); await p.waitForTimeout(2500);
 const after = await (await fetch(`${base}/api/terminal/positions`)).json();

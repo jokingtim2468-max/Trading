@@ -26,7 +26,7 @@ function Toast({ t, onClose, life, side }) {
         <span className="mt-0.5 w-7 h-7 shrink-0 rounded-full flex items-center justify-center" style={{ background: `${color}22`, color }}><Icon className="w-4 h-4" /></span>
         <div className="min-w-0">
           <div className="text-[13px] font-semibold text-white">{t.title}</div>
-          {t.lines?.map((l, i) => <div key={i} className="text-xs text-[#9598a1] tabular-nums truncate">{l}</div>)}
+          {t.lines?.map((l, i) => <div key={i} className="text-xs text-[#9598a1] tabular-nums break-words line-clamp-3">{l}</div>)}
         </div>
       </div>
       <button type="button" aria-label="Dismiss" onClick={() => setOut(true)} className="absolute top-2.5 right-2.5 w-6 h-6 rounded-md flex items-center justify-center text-[#787b86] hover:bg-[#2a2e39] hover:text-white"><X className="w-3.5 h-3.5" /></button>

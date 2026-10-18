@@ -124,6 +124,8 @@ Trading tools (`npm run test:terminal` drives all of them in a browser):
   blocked, and an order without a stop is blocked while the guard is on (accounts with no limits set always pass).
   The ticket lists every account's room; the orange dashed line on the chart is where price would fail the
   account with the least room (on its open trade, else on the ticket if it filled).
+- **One-click trading** (top left of the chart): SELL / size / BUY places a market order on one click with the ticket's stop and target.
+- **Hover help**: hold the mouse on any control for 1 second to see what it is, what it does and how to use it.
 - **Flatten all** (top right, or Alt+X): closes every Terminal trade on every group and cancels every pending order.
 - **$ Risk sizing**: pick dollars per account and a stop; each account gets lots = risk / (stop distance x $ per point).
 - **Limit and stop orders**: a *limit* waits for a better price (buy below the price, sell above) and fills when price

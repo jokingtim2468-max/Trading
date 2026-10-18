@@ -1,9 +1,13 @@
 // The Terminal's per-PC preferences (toasts, sounds, alerts) and drawings, kept in this browser
 const KEY = 'quantbot.terminal.prefs';
-export const PREFS = { toastPos: 'br', toastSecs: 5, sound: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
+export const PREFS = { v: 2, oneClickQty: '1', toastPos: 'tr', toastSecs: 5, sound: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
 
 export function readPrefs() {
-  try { return { ...PREFS, ...(JSON.parse(localStorage.getItem(KEY)) || {}) }; } catch { return { ...PREFS }; }
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY)) || {};
+    // v2: toasts moved to the top right
+    return { ...PREFS, ...saved, ...(saved.v === 2 ? {} : { v: 2, toastPos: 'tr' }) };
+  } catch { return { ...PREFS }; }
 }
 export function writePrefs(p) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private window */ } }
 

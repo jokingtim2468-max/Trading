@@ -349,7 +349,12 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Entry pill buttons: BE, Trail (yellow `#e8c468` when on), ½, X. The Trail box opens under the pill (zoom-in pop). A stop at break-even moves its pill to the left of the chart so it never covers the entry pill.
 - Drawings: blue `#2962ff` 2px lines, rectangles with 12% fill; Fibonacci levels gray `#787b86`, 0.5 and 0.618 yellow `#e8c468`, labels `#9598a1` 10px; selected drawing white with a red round X at its end.
 - News: red `#f23645` dashed vertical line at 70% opacity, 10px bold label at the top.
-- Toast kinds and icon colors: alert bell `#e8c468`, news calendar `#f23645`, pending clock `#2962ff`, trailing stop `#e8c468`. Default corner: bottom right of the chart (clear of the ticket, price scale and positions), other corners and 3 / 5 / 8 / 15 s in the gear menu.
+- Toast kinds and icon colors: alert bell `#e8c468`, news calendar `#f23645`, pending clock `#2962ff`, trailing stop `#e8c468`. Default corner: top right of the chart, under the top bar (clear of the ticket and price scale); detail lines wrap up to 3 lines, other corners and 3 / 5 / 8 / 15 s in the gear menu.
 - Replay bar: 42px, `#1e222d`, under the top bar, slides down; Replay button turns solid blue `#2962ff` while on; ticket says "Practice (replay)".
 - Bottom panel tabs: Positions / Orders / Alerts (Practice in replay), selected tab white with a 2px `#2962ff` underline.
 - Journal page: app theme cards (`bg-card`, rounded-xl), profit `text-chart-2`, loss `text-destructive`, chart thumbnails 40x28 opening full size on a 70% black backdrop.
+
+### Terminal: one-click trading and hover help
+- One-click box, top left of the chart under the OHLC row: red `#f23645` SELL (price on top, 13px semibold; "SELL" 10px under), size field with − / + in `#1e222d`, blue `#2962ff` BUY. 8px radius, `#363a45` border, shadow `0 6px 18px rgba(0,0,0,.45)`. Size steps 0.01 under 1 lot, else 1; remembered on this PC. It uses the ticket's stop / target and the rule guard still applies.
+- Hover help: hold the mouse on any Terminal control for 1 second. Card 280px, `#1e222d`, border `#363a45`, radius 10px, white 13px semibold title, `#b2b5be` 12px text, zoom-in pop; below the control, or above near the bottom of the screen. Hides on click or scroll. Texts live in `src/lib/terminalTips.js`.
+- Sounds (Web Audio sine, no files): order filled / moved = two rising notes 660 → 880 Hz; alert or news = 660 → 880 → 660 Hz; error / rejected = falling 523 → 392 Hz. Notes 0.12 s apart, each 0.2 s with a soft attack, quiet (gain 0.15). Off in the gear menu.

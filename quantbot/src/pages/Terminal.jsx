@@ -17,6 +17,7 @@ import TerminalChart from '@/components/terminal/TerminalChart';
 import ChartEditor from '@/components/terminal/ChartEditor';
 import Toasts from '@/components/terminal/Toasts';
 import OrderTicket from '@/components/terminal/OrderTicket';
+import HoverHelp from '@/components/terminal/HoverHelp';
 import BottomPanel from '@/components/terminal/BottomPanel';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub,
@@ -302,7 +303,7 @@ export default function Terminal() {
   // Practice trades in replay: nothing goes to the accounts
   const practiceOrder = (event, extra = {}) => {
     if (event === 'buy' || event === 'sell') {
-      const qty = ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
+      const qty = extra.qty ? Number(extra.qty) || 1 : ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
       const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: ticket.sl === '' ? null : Number(ticket.sl), tp: ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
       setPractice((p) => ({ ...p, open: [...p.open, t] }));
       toast({ kind: event, title: 'Practice order filled', lines: [`${event === 'buy' ? 'Buy' : 'Sell'} ${qty} ${symbol} at ${f2(last)}`] });
@@ -320,8 +321,10 @@ export default function Terminal() {
   };
 
   const place = async (event, extra = {}) => {
-    if (replay) return practiceOrder(event, extra);
-    const pendingType = extra.event?.includes('_') ? extra.event : (event === 'buy' || event === 'sell') && ticket.type !== 'market' && !extra.trade_id ? `${event}_${ticket.type}` : null;
+    if (replay) return practiceOrder(event, extra.oneClick ? { ...extra, qty: prefs.oneClickQty } : extra);
+    const { oneClick, ...more } = extra;
+    extra = oneClick ? { ...more, qty: prefs.oneClickQty, risk_usd: '', at: '' } : more;
+    const pendingType = extra.event?.includes('_') ? extra.event : (event === 'buy' || event === 'sell') && ticket.type !== 'market' && !extra.trade_id && !oneClick ? `${event}_${ticket.type}` : null;
     try {
       const body = { group_id: groupId, guard: prefs.guard, ...(event === 'buy' || event === 'sell' ? ticketBody({ event: pendingType || event, price: last, at: ticket.at }) : { event, symbol, price: last }), ...extra };
       const r = await post('/api/terminal/order', body);
@@ -338,7 +341,7 @@ export default function Terminal() {
           : event === 'set_sl' ? [`SL ${f2(extra.sl)} · ${symbol}`, `${id} · ${where}`]
             : event === 'close' ? [`${symbol} at ${f2(last)}${extra.fraction ? ' · the rest stays open' : ''}`, `${id} · ${where}`]
               : event === 'trail' ? [r.trail ? `${r.trail.dist} points behind the price · ${symbol}` : 'Off', `${id} · ${where}`]
-                : [`${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.sizing === 'risk' ? `$${ticket.risk} risk` : ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
+                : [`${event === 'buy' ? 'Buy' : 'Sell'} ${oneClick ? prefs.oneClickQty : ticket.sizing === 'risk' ? `$${ticket.risk} risk` : ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
         toast({ kind: event === 'trail' ? 'trail' : event, title, lines });
         if (event === 'buy' || event === 'sell') snap(r.trade_id, 'open');
         if (event === 'close' && extra.trade_id && !extra.fraction) snap(extra.trade_id, 'close');
@@ -402,9 +405,9 @@ export default function Terminal() {
     <div className="h-screen flex flex-col bg-[#131722] text-[#d1d4dc] text-[13px] overflow-hidden" data-testid="terminal">
       {/* Top bar */}
       <div className="h-[46px] shrink-0 flex items-center gap-1 px-2.5 border-b border-[#2a2e39]">
-        <Link to="/" className="p-2 rounded-md hover:bg-[#2a2e39]" aria-label="Back"><ArrowLeft className="w-4 h-4" /></Link>
+        <Link to="/" className="p-2 rounded-md hover:bg-[#2a2e39]" aria-label="Back" data-testid="back"><ArrowLeft className="w-4 h-4" /></Link>
         <LogoMark className="w-6 h-6" />
-        <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setReplay((r) => r && { ...r, idx: null, playing: false }); setPractice({ open: [], closed: [] }); }} aria-label="Symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
+        <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setReplay((r) => r && { ...r, idx: null, playing: false }); setPractice({ open: [], closed: [] }); }} aria-label="Symbol" data-testid="symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
           {SYMBOLS.map((s) => <option key={s} value={s} className="bg-[#1e222d]">{s}</option>)}
         </select>
         <div className="w-px h-5 bg-[#2a2e39] mx-1.5" />
@@ -424,12 +427,12 @@ export default function Terminal() {
             {groups.map((g) => <option key={g.id} value={g.id} className="bg-[#1e222d]">{g.name}</option>)}
           </select>
         </label>
-        <span className={`px-2 inline-flex items-center gap-1.5 ${mt5.length && live === mt5.length ? 'text-[#089981]' : 'text-[#787b86]'}`}>
+        <span data-testid="mt5-status" className={`px-2 inline-flex items-center gap-1.5 ${mt5.length && live === mt5.length ? 'text-[#089981]' : 'text-[#787b86]'}`}>
           <span className={`w-2 h-2 rounded-full ${mt5.length && live === mt5.length ? 'bg-[#089981]' : 'bg-[#5d606b]'}`} />
           {mt5.length ? `MT5 ${live}/${mt5.length}` : `${members.length} account${members.length === 1 ? '' : 's'}`}
         </span>
         <SettingsMenu prefs={prefs} setPrefs={setPrefs} />
-        <button type="button" onClick={flatten} disabled={!!replay} title="Close every Terminal trade on every account and cancel every pending order (Alt+X)"
+        <button type="button" onClick={flatten} disabled={!!replay}
           className="h-8 px-3 rounded-md bg-[#f23645] text-white font-semibold inline-flex items-center gap-1.5 hover:brightness-110 disabled:opacity-40" data-testid="flatten-all"><OctagonX className="w-4 h-4" />Flatten all</button>
       </div>
 
@@ -451,9 +454,9 @@ export default function Terminal() {
         {/* Tool rail */}
         <div className="w-[52px] shrink-0 border-r border-[#2a2e39] flex flex-col items-center gap-1.5 pt-2.5">
           {tools.map(([id, Icon, label]) => (
-            <button key={id} type="button" aria-label={label} title={label} onClick={() => setTool(id)} className={`w-9 h-9 rounded-md flex items-center justify-center ${tool === id ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tool-${id}`}><Icon className="w-5 h-5" /></button>
+            <button key={id} type="button" aria-label={label} onClick={() => setTool(id)} className={`w-9 h-9 rounded-md flex items-center justify-center ${tool === id ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tool-${id}`}><Icon className="w-5 h-5" /></button>
           ))}
-          <button type="button" aria-label="Remove all lines and drawings" title="Remove all lines and drawings" onClick={() => { setHlines([]); setDrawings([]); }} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
+          <button type="button" aria-label="Remove all lines and drawings" data-testid="tool-clear" onClick={() => { setHlines([]); setDrawings([]); }} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -468,6 +471,8 @@ export default function Terminal() {
                 </span>
               )}
             </div>
+            <OneClick last={last} qty={prefs.oneClickQty} setQty={(oneClickQty) => setPrefs({ oneClickQty })} disabled={replay ? last == null : !groupId || last == null}
+              onTrade={(side) => place(side, { oneClick: true })} />
             {!bars && <div className="absolute inset-0 flex items-center justify-center text-[#787b86] z-10">{market.error || `Loading ${symbol}${market.progress ? ` (${market.progress})` : ''}…`}</div>}
             <ContextMenu>
               <ContextMenuTrigger asChild>
@@ -542,6 +547,7 @@ export default function Terminal() {
           onPlace={() => place(ticket.side)} />
       </div>
 
+      <HoverHelp />
       <Toasts items={toasts} pos={prefs.toastPos} secs={prefs.toastSecs} onClose={(id) => setToasts((v) => v.filter((x) => x.id !== id))} />
       {editor && (
         <ChartEditor chart={chart} busy={busy} onClose={() => setEditor(false)}
@@ -582,5 +588,28 @@ function SettingsMenu({ prefs, setPrefs }) {
         <Switch k="newsToast" label="Toast 5 minutes before news" />
       </PopoverContent>
     </Popover>
+  );
+}
+
+// One-click trading (top left of the chart, like TradingView): Sell / size / Buy, a market order on one click
+function OneClick({ last, qty, setQty, disabled, onTrade }) {
+  const n = Number(qty) || 0;
+  const bump = (d) => { const step = (d > 0 ? n < 1 : n <= 1) ? 0.01 : 1; setQty(String(Math.max(0.01, Math.round((n + d * step) * 100) / 100))); };
+  const btn = 'h-[38px] w-[78px] flex flex-col items-center justify-center leading-none transition-[filter] hover:brightness-110 active:brightness-90 disabled:opacity-40';
+  return (
+    <div className="absolute left-3 top-9 z-10 flex items-stretch rounded-[8px] overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,.45)] border border-[#363a45] bg-[#1e222d]" data-testid="oneclick">
+      <button type="button" disabled={disabled} onClick={() => onTrade('sell')} className={`${btn} bg-[#f23645] text-white`} data-testid="oneclick-sell">
+        <span className="text-[13px] font-semibold tabular-nums">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">SELL</span>
+      </button>
+      <div className="flex items-center">
+        <button type="button" onClick={() => bump(-1)} aria-label="Smaller size" className="w-5 h-full text-[#787b86] hover:text-white" data-testid="oneclick-qty-down">−</button>
+        <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" aria-label="One-click size"
+          className="w-12 h-full bg-transparent text-center text-[13px] text-[#d1d4dc] tabular-nums outline-none" data-testid="oneclick-qty" />
+        <button type="button" onClick={() => bump(1)} aria-label="Bigger size" className="w-5 h-full text-[#787b86] hover:text-white" data-testid="oneclick-qty-up">+</button>
+      </div>
+      <button type="button" disabled={disabled} onClick={() => onTrade('buy')} className={`${btn} bg-[#2962ff] text-white`} data-testid="oneclick-buy">
+        <span className="text-[13px] font-semibold tabular-nums">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">BUY</span>
+      </button>
+    </div>
   );
 }
