@@ -92,6 +92,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
   const quotes = new Map();
   const predicting = new Map();
   let ticking = false;
+  let lastOrderAt = 0;
   const queued = new Map(); // symbol -> [price, quote] of the newest tick waiting
 
   async function guard(groupId, t = null) {
@@ -155,6 +156,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
     // Orders from the page: one group, through the copier like any script's signals
     async order(body) {
       const t0 = process.hrtime.bigint(); // the app's checks start: rule guard, group, prices, then the copier
+      lastOrderAt = Date.now();
       const b = body || {};
       const event = String(b.event || '');
       if (!EVENTS.includes(event) && !PENDING[event] && !['cancel', 'move_pending', 'trail'].includes(event)) throw bad(`Order must be one of ${[...EVENTS, ...Object.keys(PENDING), 'cancel', 'move_pending', 'trail'].join(', ')}`);
@@ -355,6 +357,17 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       return { ok: true, url: `/api/terminal/snap/${name}` };
     },
     snapFile: (name) => path.join(snaps, path.basename(String(name))),
+    // Runs the order checks (rule guard, sizing, limits) a few hundred times with no side effects, so the first real
+    // orders after start or after MT5 connects already run compiled (cold, an order takes ~1-2 ms instead of ~0.5)
+    async warm() {
+      const groups = await run('CopyGroup', 'filter', {});
+      for (let i = 0; i < 300; i++) {
+        // One step per event-loop turn, and never while real orders are coming in
+        await new Promise((r) => setImmediate(r));
+        if (Date.now() - lastOrderAt < 3000) return;
+        for (const g of groups) await guard(g.id, { event: i % 2 ? 'sell' : 'buy', symbol: 'XAUUSD', price: 2000 + i, sl: i % 2 ? 2010 + i : 1990 + i, qty: 1 });
+      }
+    },
     predictions: () => Object.values(book.predictions).sort((a, b) => String(a.day).localeCompare(String(b.day))),
     // Every group and account on one screen: balance, today, total, room before the limits, open trades, MT5 link
     async overview(lanes = []) {

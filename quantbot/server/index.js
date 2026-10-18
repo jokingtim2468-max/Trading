@@ -353,6 +353,8 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     onTick: (t) => terminal.tick(t.symbol, t.bid, t).then((r) => { if (r.fired.length || r.moved.length || r.alerts.length) lane.emit('book', r); }).catch(() => {}),
   });
   terminal.onBook = (r) => lane.emit('book', r);
+  lane.subscribe((type, d) => { if (type === 'lane' && d.up) terminal.warm().catch(() => {}); });
+  setTimeout(() => terminal.warm().catch(() => {}), 3000).unref?.();
   const lockTimer = setInterval(() => terminal.sweepLocks().catch((e) => app?.log?.(`profit lock: ${e.message}`)), 5000);
   lockTimer.unref?.();
   const payouts = createPayouts({ db: entityDb, note: copier.note });
