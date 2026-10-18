@@ -43,6 +43,7 @@ export default function PnlCalendar() {
         <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
         <h1 className="font-heading text-lg font-semibold">PnL calendar</h1>
         <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">Closed trades from your saved strategy tests (UTC days)</span>
+        <Link to="/journal" className="ml-auto text-sm text-primary hover:underline" data-testid="pnl-journal">Trading journal</Link>
       </header>
       {!anchor ? <div className="flex justify-center py-20"><ChartLoader className="w-20 h-12" /></div> : (
         <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-5">

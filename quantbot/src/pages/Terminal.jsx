@@ -1,52 +1,67 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Crosshair, Minus, Trash2, Pencil, Palette, Undo2, RotateCcw, ShieldAlert, Target } from 'lucide-react';
+import {
+  ArrowLeft, Bell, BookOpen, Crosshair, Minus, Trash2, Pencil, Palette, Undo2, RotateCcw, ShieldAlert, Target, OctagonX,
+  History, Settings2, TrendingUp, Square, Sigma, Play, Pause, StepForward, X, Clock,
+} from 'lucide-react';
 import { LineStyle } from 'lightweight-charts';
 import { client } from '@/api/client';
 import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
+import { mergeCandles, sliceBars, stepPractice, closePractice } from '@/lib/terminalLive';
+import { readPrefs, writePrefs, readDrawings, writeDrawings, chime } from '@/lib/terminalPrefs';
+import { toBroker } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
 import ChartEditor from '@/components/terminal/ChartEditor';
 import Toasts from '@/components/terminal/Toasts';
+import OrderTicket from '@/components/terminal/OrderTicket';
+import BottomPanel from '@/components/terminal/BottomPanel';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuSub,
   ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 const SYMBOLS = ['XAUUSD', 'US100'];
-const TFS = [['M1', 2], ['M5', 6], ['M15', 14], ['H1', 60], ['H4', 200], ['D1', 1500]]; // timeframe, days shown
+const TFS = [['M1', 2, 1], ['M5', 6, 5], ['M15', 14, 15], ['H1', 60, 60], ['H4', 200, 240], ['D1', 1500, 1440]]; // timeframe, days shown, minutes
+const DAY = 86400000;
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const post = (p, body) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); return j; });
 const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : '–');
 const MENU = `${POP} min-w-[248px] rounded-[14px] border-[#363a45] bg-[#1e222d]/95 backdrop-blur-xl p-1.5 text-[#d1d4dc] shadow-[0_18px_48px_rgba(0,0,0,.55)]`;
 const ITEM = 'h-[34px] gap-2.5 rounded-[9px] px-2.5 text-[13px] focus:bg-[#2a2e39] focus:text-white data-[state=open]:bg-[#2a2e39]';
+const NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell limit', sell_stop: 'Sell stop' };
 
-function useMarket(symbol, tf) {
-  const [state, setState] = useState({ bars: null, daily: null, error: '', progress: null });
+// range: { from, to } for replay, else the timeframe's usual window up to today
+function useMarket(symbol, tf, range) {
+  const [state, setState] = useState({ bars: null, daily: null, error: '', progress: null, key: '' });
+  const from0 = range?.from, to0 = range?.to;
   useEffect(() => {
     let live = true;
     const days = TFS.find((t) => t[0] === tf)[1];
-    const to = day(Date.now()), from = day(Date.now() - days * 86400000);
+    const to = to0 || day(Date.now()), from = from0 || day(Date.now() - days * DAY);
     setState((s) => ({ ...s, bars: null, error: '' }));
     const ds = { market: true, id: symbol, symbol };
     Promise.all([
       loadBars(ds, { tf, from, to, onProgress: (d, t) => live && setState((s) => ({ ...s, progress: t ? `${d}/${t}` : null })) }),
-      loadBars(ds, { tf: 'D1', from: day(Date.now() - 45 * 86400000), to }),
-    ]).then(([bars, daily]) => live && setState({ bars, daily, error: '', progress: null }))
+      loadBars(ds, { tf: 'D1', from: day(Date.parse(to) - 45 * DAY), to }),
+    ]).then(([bars, daily]) => live && setState({ bars, daily, error: '', progress: null, key: `${symbol}|${tf}|${from0 || ''}|${to0 || ''}` }))
       .catch((e) => live && setState({ bars: null, daily: null, error: e.message, progress: null }));
     return () => { live = false; };
-  }, [symbol, tf]);
-  return state;
+  }, [symbol, tf, from0, to0]);
+  return [state, setState];
 }
 
-// Today's predicted high / low: the trained model's when the daily loop has one, else the simple guess the model is
-// tested against (today's open +/- half the 20-day average range)
-function guessLevels(daily) {
-  if (!daily || daily.time.length < 21) return [];
-  const n = daily.time.length, o = daily.open[n - 1];
+// Today's high / low: the local model's when it answered, else the simple guess it is tested against (today's open
+// +/- half the 20-day average range)
+function guessLevels(daily, upto = Infinity) {
+  if (!daily) return [];
+  const n = Math.min(daily.time.length, upto);
+  if (n < 21) return [];
+  const o = daily.open[n - 1];
   let sum = 0;
   for (let i = n - 21; i < n - 1; i++) sum += (daily.high[i] - daily.low[i]) / daily.open[i];
   const half = (sum / 20) / 2;
@@ -58,37 +73,28 @@ function guessLevels(daily) {
 }
 
 // Dollars per 1.00 price move per unit: MT5 gold is 100 oz per lot, the index CFD $1 per point
-const pointValueOf = (symbol, members) => (members.some((a) => a.platform === 'MT5') ? (symbol === 'XAUUSD' ? 100 : 1) : 1);
-
-const Row = ({ k, v, tone }) => (
-  <div className="flex items-center justify-between"><span className="text-[#787b86]">{k}</span>
-    <span className={`tabular-nums ${tone === 'loss' ? 'text-[#f23645]' : tone === 'profit' ? 'text-[#089981]' : 'text-[#d1d4dc]'}`}>{v}</span></div>
-);
-
-// A number field with - / + buttons
-function Stepper({ label, value, onChange, step, min, base = 0, placeholder, hint, hintTone, testid }) {
-  const bump = (d) => { const v = value === '' ? Number(base) || 0 : Number(value) || 0; onChange(String(Math.max(min ?? -Infinity, Math.round((v + d) * 100) / 100))); };
-  return (
-    <label className="block space-y-1">
-      <span className="flex items-center justify-between text-xs text-[#787b86]">{label}
-        {hint && <span className={`tabular-nums ${hintTone === 'loss' ? 'text-[#f23645]' : 'text-[#089981]'}`}>{hint}</span>}</span>
-      <span className="flex h-9 rounded-lg bg-[#1e222d] border border-[#2a2e39] focus-within:border-[#2962ff] overflow-hidden">
-        <button type="button" aria-label={`${label} down`} onClick={() => bump(-step)} className="w-8 text-[#787b86] hover:bg-[#2a2e39] hover:text-white">−</button>
-        <input value={value} onChange={(e) => onChange(e.target.value)} inputMode="decimal" placeholder={placeholder} data-testid={testid}
-          className="flex-1 min-w-0 bg-transparent text-center text-[13px] text-[#d1d4dc] tabular-nums outline-none placeholder:text-[#5d606b]" />
-        <button type="button" aria-label={`${label} up`} onClick={() => bump(step)} className="w-8 text-[#787b86] hover:bg-[#2a2e39] hover:text-white">+</button>
-      </span>
-    </label>
-  );
-}
+const pointValueOf = (symbol, members) => (members.some((a) => a.platform === 'MT5') || !members.length ? (symbol === 'XAUUSD' ? 100 : 1) : 1);
 
 export default function Terminal() {
+  const [prefs, setPrefsState] = useState(readPrefs);
+  const setPrefs = (p) => setPrefsState((old) => { const next = { ...old, ...p }; writePrefs(next); return next; });
   const [symbol, setSymbol] = useState('XAUUSD');
   const [tf, setTf] = useState('M15');
-  const market = useMarket(symbol, tf);
+  const tfMin = TFS.find((t) => t[0] === tf)[2];
+  const [replay, setReplay] = useState(null); // { date, idx, playing, speed }
+  const range = useMemo(() => {
+    if (!replay) return null;
+    const days = TFS.find((t) => t[0] === tf)[1];
+    const start = Date.parse(`${replay.date}T00:00:00Z`);
+    return { from: day(start - days * DAY), to: day(Math.min(Date.now(), start + Math.max(days, 5) * DAY)) };
+  }, [replay?.date, tf]);
+  const [market, setMarket] = useMarket(symbol, tf, range);
   const [chart, setChart] = useState(null);
   const [tool, setTool] = useState('cross');
   const [hlines, setHlines] = useState([]);
+  const [drawings, setDrawingsState] = useState(() => readDrawings('XAUUSD'));
+  const setDrawings = (list) => { setDrawingsState(list); writeDrawings(symbol, list); };
+  useEffect(() => { setDrawingsState(readDrawings(symbol)); }, [symbol]);
   const [hover, setHover] = useState(null);
   const [clickPrice, setClickPrice] = useState(null);
   const [editor, setEditor] = useState(false);
@@ -96,10 +102,19 @@ export default function Terminal() {
   const [groups, setGroups] = useState([]);
   const [groupId, setGroupId] = useState('');
   const [accounts, setAccounts] = useState([]);
-  const [positions, setPositions] = useState([]);
-  const [ticket, setTicket] = useState({ side: 'buy', qty: '1', sl: '', tp: '' });
+  const [book, setBook] = useState({ positions: [], pending: [], alerts: [], trails: {} });
+  const positions = book.positions;
+  const [ticket, setTicket] = useState({ side: 'buy', type: 'market', at: '', sizing: 'lots', qty: '1', risk: '250', sl: '', tp: '' });
   const [toasts, setToasts] = useState([]);
-  const toast = (t) => setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
+  const [guardRows, setGuardRows] = useState([]);
+  const [pred, setPred] = useState(null);
+  const [news, setNews] = useState([]);
+  const [practice, setPractice] = useState({ open: [], closed: [] });
+  const shot = useRef(null);
+  const toast = (t) => {
+    setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
+    if (prefs.sound) chime(t.kind === 'error' ? 'error' : t.kind === 'alert' || t.kind === 'news' ? 'alert' : 'ok');
+  };
 
   useEffect(() => { fetch('/api/terminal/chart').then((r) => r.json()).then(setChart).catch(() => {}); }, []);
   const loadTrading = useCallback(async () => {
@@ -107,59 +122,281 @@ export default function Terminal() {
       client.entities.CopyGroup.list(), client.entities.TradingAccount.list(),
       fetch(`/api/terminal/positions${groupId ? `?group=${groupId}` : ''}`).then((r) => r.json()),
     ]);
-    setGroups(g); setAccounts(a); setPositions(p.positions || []);
+    setGroups(g); setAccounts(a); setBook({ positions: p.positions || [], pending: p.pending || [], alerts: p.alerts || [], trails: p.trails || {} });
     if (!groupId && g[0]) setGroupId(g[0].id);
   }, [groupId]);
   useEffect(() => { loadTrading().catch(() => {}); const t = setInterval(() => loadTrading().catch(() => {}), 5000); return () => clearInterval(t); }, [loadTrading]);
 
-  const bars = market.bars;
+  // Replay: start on the first bar of the chosen day
+  const allBars = market.bars;
+  useEffect(() => {
+    // Only the replay's own bars (not the live chart's, still showing while they load)
+    if (!replay || replay.idx != null || !allBars || market.key !== `${symbol}|${tf}|${range?.from}|${range?.to}`) return;
+    const start = Date.parse(`${replay.date}T00:00:00Z`);
+    let i = allBars.time.findIndex((t) => t >= start);
+    if (i < 0) i = allBars.time.length - 1;
+    setReplay((r) => r && { ...r, idx: Math.max(1, i) });
+  }, [allBars, replay, market.key]);
+  const bars = useMemo(() => (replay?.idx != null ? sliceBars(allBars, replay.idx + 1) : replay ? null : allBars), [allBars, replay?.idx, !!replay]);
   const last = bars && bars.time.length ? bars.close[bars.time.length - 1] : null;
   const shown = hover || (bars && bars.time.length ? { open: bars.open.at(-1), high: bars.high.at(-1), low: bars.low.at(-1), close: last } : null);
-  const levels = useMemo(() => guessLevels(market.daily), [market.daily]);
-  const trades = useMemo(() => groupTrades(positions.filter((t) => t.symbol === symbol)), [positions, symbol]);
+
+  // Live: the latest minute candles every 10 s fold into the chart, then the server checks pending orders,
+  // trailing stops and alerts against the new price
+  const lastSent = useRef(null);
+  useEffect(() => {
+    if (replay) return undefined;
+    let live = true;
+    const pull = async () => {
+      try {
+        const q = await (await fetch(`/api/terminal/quote?symbol=${symbol}`)).json();
+        if (!live || !q.candles?.length) return;
+        setMarket((s) => (s.bars ? { ...s, bars: mergeCandles(s.bars, q.candles, tfMin * 60000) } : s));
+      } catch { /* offline: keep the chart as it is */ }
+    };
+    pull();
+    const t = setInterval(pull, 10000);
+    return () => { live = false; clearInterval(t); };
+  }, [symbol, tf, !!replay]);
+  useEffect(() => {
+    if (replay || last == null || lastSent.current === `${symbol}|${last}`) return;
+    lastSent.current = `${symbol}|${last}`;
+    post('/api/terminal/tick', { symbol, price: last }).then((r) => {
+      for (const f of r.fired || []) {
+        toast(f.error ? { kind: 'error', title: `${NAME[f.event]} not filled`, lines: [f.error] }
+          : { kind: f.event.startsWith('buy') ? 'buy' : 'sell', title: `${NAME[f.event]} filled`, lines: [`${f.symbol} at ${f2(f.price)} (order price ${f2(f.at)})`, groups.find((g) => g.id === f.group_id)?.name || ''] });
+      }
+      for (const m of r.moved || []) toast({ kind: 'trail', title: 'Trailing stop moved', lines: [`SL ${f2(m.sl)} · ${symbol}`] });
+      for (const a of r.alerts || []) toast({ kind: 'alert', title: `${a.symbol} ${a.above ? 'rose to' : 'fell to'} ${f2(a.price)}`, lines: [`Price ${f2(a.hit)}${a.note ? ` · ${a.note}` : ''}`] });
+      if ((r.fired || []).length || (r.moved || []).length || (r.alerts || []).length) loadTrading();
+    }).catch(() => {});
+  }, [last, symbol, !!replay]);
+
+  // The local model's high / low for today (once a day per symbol), else the simple guess
+  useEffect(() => {
+    setPred(null);
+    const d = market.daily;
+    if (replay || !d || d.time.length < 10) return;
+    const daily = Array.from(d.time).map((t, i) => ({ time: t, open: d.open[i], high: d.high[i], low: d.low[i], close: d.close[i] }));
+    post('/api/terminal/predict', { symbol, daily }).then((p) => setPred(p)).catch((e) => setPred({ error: e.message }));
+  }, [market.daily, symbol, !!replay]);
+  const levels = useMemo(() => {
+    if (replay) return guessLevels(market.daily, market.daily ? Array.from(market.daily.time).filter((t) => t <= (bars?.time.at(-1) ?? 0)).length : 0);
+    if (pred?.high) {
+      return [
+        { price: pred.high, title: `Model high${pred.confidence != null ? ` ${pred.confidence}%` : ''}`, color: '#e8c468' },
+        { price: pred.low, title: `Model low${pred.confidence != null ? ` ${pred.confidence}%` : ''}`, color: '#e8c468' },
+        ...guessLevels(market.daily).filter((l) => l.title === 'Open'),
+      ];
+    }
+    return guessLevels(market.daily);
+  }, [market.daily, pred, replay, bars]);
+
+  // Alerts when price touches the model's high / low (once a day each)
+  const touched = useRef(new Set());
+  const prevLast = useRef(null);
+  useEffect(() => {
+    const prev = prevLast.current;
+    prevLast.current = last;
+    if (replay || !prefs.levelAlerts || prev == null || last == null || prev === last) return;
+    for (const l of levels.filter((x) => /high|low/i.test(x.title))) {
+      const key = `${symbol}|${day(Date.now())}|${l.title}`;
+      if (touched.current.has(key) || (prev - l.price) * (last - l.price) > 0) continue;
+      touched.current.add(key);
+      toast({ kind: 'alert', title: `${symbol} touched the ${l.title.replace(/ \d+%$/, '')}`, lines: [`${f2(l.price)} · price ${f2(last)}`] });
+    }
+  }, [last]);
+
+  // Upcoming high-impact USD news: a line on the chart, and a toast 5 minutes before
+  useEffect(() => {
+    if (!prefs.newsMarkers && !prefs.newsToast) { setNews([]); return undefined; }
+    const load = () => fetch('/api/news').then((r) => r.json()).then((j) => {
+      const seen = new Set();
+      setNews((j.events || []).filter((e) => e.impact === 'high' && /USD/.test(e.currency)).map((e) => {
+        const at = Date.parse(e.time);
+        return { key: `${e.title}|${at}`, at, time: Math.floor(toBroker(at) / 1000), title: e.title, label: `${e.title.slice(0, 26)} ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` };
+      }).filter((e) => !seen.has(e.key) && seen.add(e.key)));
+    }).catch(() => {});
+    load();
+    const t = setInterval(load, 10 * 60000);
+    return () => clearInterval(t);
+  }, [prefs.newsMarkers, prefs.newsToast]);
+  const warned = useRef(new Set());
+  useEffect(() => {
+    if (!prefs.newsToast) return undefined;
+    const check = () => {
+      for (const n of news) {
+        const left = n.at - Date.now();
+        if (left > 0 && left <= 5 * 60000 && !warned.current.has(n.key)) {
+          warned.current.add(n.key);
+          toast({ kind: 'news', title: `${n.title} in ${Math.max(1, Math.round(left / 60000))} min`, lines: ['High-impact USD news: spreads widen and price can jump', 'Firms with news rules block new trades around it'] });
+        }
+      }
+    };
+    check();
+    const t = setInterval(check, 15000);
+    return () => clearInterval(t);
+  }, [news, prefs.newsToast]);
+
+  const group = groups.find((g) => g.id === groupId);
+  const members = accounts.filter((a) => a.group_id === groupId);
+  const active = members.filter((a) => (a.status || 'active') === 'active');
+  const mt5 = members.filter((a) => a.platform === 'MT5');
+  const live = mt5.filter((a) => a.daemon_state === 'connected').length;
+  const pv = pointValueOf(symbol, members);
+
+  const tradesLive = useMemo(() => groupTrades(positions.filter((t) => t.symbol === symbol)), [positions, symbol]);
+  const trades = replay ? practice.open : tradesLive;
+  const entryAt = ticket.type === 'market' || replay ? last : Number(ticket.at);
+  const ticketBody = (extra = {}) => ({
+    event: ticket.side, symbol, price: entryAt, sl: ticket.sl, tp: ticket.tp,
+    ...(ticket.sizing === 'risk' ? { risk_usd: ticket.risk, qty: 1 } : { qty: ticket.qty }), ...extra,
+  });
+
+  // Rule guard: each account's room, the ticket's size and risk per account, and where price would fail it
+  useEffect(() => {
+    if (replay || !groupId) { setGuardRows([]); return undefined; }
+    const t = setTimeout(() => {
+      post('/api/terminal/guard', { group_id: groupId, ticket: entryAt ? ticketBody() : null }).then((r) => setGuardRows(r.accounts || [])).catch(() => {});
+    }, 250);
+    return () => clearTimeout(t);
+  }, [groupId, ticket, entryAt != null ? Math.round(entryAt * 4) : null, positions.length, !!replay]);
+  const limitLine = useMemo(() => {
+    if (replay || last == null) return null;
+    const open = guardRows.filter((r) => r.open?.fail != null && r.open.symbol === symbol).map((r) => ({ r, price: r.open.fail }));
+    const pick = open.length ? open : guardRows.filter((r) => r.ticket?.fail != null).map((r) => ({ r, price: r.ticket.fail }));
+    if (!pick.length) return null;
+    const best = pick.sort((a, b) => Math.abs(a.price - last) - Math.abs(b.price - last))[0];
+    return { price: best.price, color: '#ff9800', title: `Limit ${best.r.name} · ${best.r.rule}${open.length ? '' : ' (if filled)'}`, style: LineStyle.Dashed, width: 2 };
+  }, [guardRows, last, symbol, !!replay]);
+
   const lines = useMemo(() => [
     ...hlines.map((p) => ({ price: p, color: '#2962ff', title: '' })),
     ...(ticket.sl ? [{ price: Number(ticket.sl), color: '#f23645', title: 'SL', style: LineStyle.Dotted }] : []),
     ...(ticket.tp ? [{ price: Number(ticket.tp), color: '#089981', title: 'TP', style: LineStyle.Dotted }] : []),
+    ...(ticket.type !== 'market' && ticket.at && !replay ? [{ price: Number(ticket.at), color: '#9598a1', title: ticket.type === 'limit' ? 'Limit' : 'Stop', style: LineStyle.Dotted }] : []),
+    ...(limitLine ? [limitLine] : []),
     // Trades opened by scripts: plain lines (the Terminal's own trades get the draggable overlay)
-    ...trades.filter((t) => !t.closable).flatMap((t) => [
+    ...(replay ? [] : tradesLive.filter((t) => !t.closable).flatMap((t) => [
       { price: t.entry, color: t.side === 'long' ? '#2962ff' : '#f23645', title: `${t.side === 'long' ? 'Buy' : 'Sell'} ${t.qty}${t.accounts > 1 ? ` × ${t.accounts}` : ''}`, width: 2 },
       ...(t.sl != null ? [{ price: t.sl, color: '#f23645', title: 'SL', style: LineStyle.Dashed }] : []),
       ...(t.tp != null ? [{ price: t.tp, color: '#089981', title: 'TP', style: LineStyle.Dashed }] : []),
-    ]),
-  ], [hlines, ticket.sl, ticket.tp, trades]);
-
-  const group = groups.find((g) => g.id === groupId);
-  const members = accounts.filter((a) => a.group_id === groupId);
-  const mt5 = members.filter((a) => a.platform === 'MT5');
-  const live = mt5.filter((a) => a.daemon_state === 'connected').length;
+    ])),
+  ], [hlines, ticket.sl, ticket.tp, ticket.type, ticket.at, tradesLive, limitLine, !!replay]);
 
   // Live risk / reward of the ticket's stop and target across the group
   const preview = useMemo(() => {
-    const n = Math.max(1, members.filter((a) => (a.status || 'active') === 'active').length);
-    const t = { side: ticket.side === 'buy' ? 'long' : 'short', entry: last, qty: Number(ticket.qty) || 0, point_value: pointValueOf(symbol, members) };
-    const at = (p) => (p === '' || p == null || last == null ? '' : `${usdSigned(moneyAt(t, Number(p), n).total)}${n > 1 ? ` · ${n} acc` : ''}`);
+    const n = replay ? 1 : Math.max(1, active.length);
+    const sizes = guardRows.map((r) => r.ticket?.qty).filter((q) => q != null);
+    const qty = ticket.sizing === 'risk' && !replay ? (sizes[0] ?? 0) : Number(ticket.qty) || 0;
+    const t = { side: ticket.side === 'buy' ? 'long' : 'short', entry: entryAt, qty, point_value: pv };
+    const at = (p) => (p === '' || p == null || entryAt == null ? '' : `${usdSigned(moneyAt(t, Number(p), n).total)}${n > 1 ? ` · ${n} acc` : ''}`);
     return { sl: at(ticket.sl), tp: at(ticket.tp) };
-  }, [ticket, last, symbol, members]);
+  }, [ticket, entryAt, pv, active.length, guardRows, !!replay]);
 
   const chartCall = async (p, body) => setChart(await post(`/api/terminal/chart/${p}`, body));
+  const snap = (tradeId, kind) => setTimeout(() => {
+    try { const image = shot.current?.screenshot(); if (image && tradeId) post('/api/terminal/snapshot', { trade_id: tradeId, kind, image }).catch(() => {}); } catch { /* chart gone */ }
+  }, 700);
+
+  // Practice trades in replay: nothing goes to the accounts
+  const practiceOrder = (event, extra = {}) => {
+    if (event === 'buy' || event === 'sell') {
+      const qty = ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
+      const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: ticket.sl === '' ? null : Number(ticket.sl), tp: ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
+      setPractice((p) => ({ ...p, open: [...p.open, t] }));
+      toast({ kind: event, title: 'Practice order filled', lines: [`${event === 'buy' ? 'Buy' : 'Sell'} ${qty} ${symbol} at ${f2(last)}`] });
+    } else if (event === 'close') {
+      setPractice((p) => {
+        const out = p.open.filter((t) => !extra.trade_id || t.trade_id === extra.trade_id);
+        const done = out.map((t) => closePractice(t, last));
+        done.forEach((d) => toast({ kind: 'close', title: 'Practice trade closed', lines: [`${usdSigned(d.pnl)} at ${f2(last)}`] }));
+        return { open: p.open.filter((t) => !out.includes(t)), closed: [...p.closed, ...done] };
+      });
+    } else if (event === 'set_sl' || event === 'set_tp') {
+      const k = event === 'set_sl' ? 'sl' : 'tp';
+      setPractice((p) => ({ ...p, open: p.open.map((t) => (t.trade_id === extra.trade_id ? { ...t, [k]: extra[k] } : t)) }));
+    }
+  };
+
   const place = async (event, extra = {}) => {
+    if (replay) return practiceOrder(event, extra);
+    const pendingType = extra.event?.includes('_') ? extra.event : (event === 'buy' || event === 'sell') && ticket.type !== 'market' && !extra.trade_id ? `${event}_${ticket.type}` : null;
     try {
-      const r = await post('/api/terminal/order', { group_id: groupId, event, symbol, price: last, qty: ticket.qty, sl: ticket.sl, tp: ticket.tp, ...extra });
+      const body = { group_id: groupId, guard: prefs.guard, ...(event === 'buy' || event === 'sell' ? ticketBody({ event: pendingType || event, price: last, at: ticket.at }) : { event, symbol, price: last }), ...extra };
+      const r = await post('/api/terminal/order', body);
       const where = group?.name || 'the group';
-      const n = members.filter((a) => (a.status || 'active') === 'active').length;
       const id = r.trade_id ? `Order ${r.trade_id}` : 'All Terminal trades';
-      const title = event === 'set_tp' ? 'Take profit modified' : event === 'set_sl' ? 'Stop loss modified'
-        : event === 'close' ? 'Position close sent' : 'Order executed';
-      const lines = event === 'set_tp' ? [`TP ${f2(extra.tp)} · ${symbol}`, `${id} · ${where}`]
-        : event === 'set_sl' ? [`SL ${f2(extra.sl)} · ${symbol}`, `${id} · ${where}`]
-          : event === 'close' ? [`${symbol} at ${f2(last)}`, `${id} · ${where}`]
-            : [`${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
-      toast({ kind: event, title, lines });
+      if (r.copied === 0) {
+        toast({ kind: 'error', title: event === 'buy' || event === 'sell' ? 'Order not copied' : 'Nothing changed', lines: r.reasons?.length ? r.reasons : ['No account took it'] });
+      } else if (pendingType) {
+        toast({ kind: 'pending', title: `${NAME[pendingType]} placed`, lines: [`${symbol} at ${f2(Number(body.at))}`, `Fills when the price ${pendingType.endsWith('limit') ? 'comes back to it' : 'pushes through it'} · ${where}`] });
+      } else {
+        const title = { set_tp: 'Take profit modified', set_sl: 'Stop loss modified', close: extra.fraction ? 'Half closed' : 'Position close sent', trail: 'Trailing stop' }[event] || 'Order executed';
+        const n = active.length;
+        const lines = event === 'set_tp' ? [`TP ${f2(extra.tp)} · ${symbol}`, `${id} · ${where}`]
+          : event === 'set_sl' ? [`SL ${f2(extra.sl)} · ${symbol}`, `${id} · ${where}`]
+            : event === 'close' ? [`${symbol} at ${f2(last)}${extra.fraction ? ' · the rest stays open' : ''}`, `${id} · ${where}`]
+              : event === 'trail' ? [r.trail ? `${r.trail.dist} points behind the price · ${symbol}` : 'Off', `${id} · ${where}`]
+                : [`${event === 'buy' ? 'Buy' : 'Sell'} ${ticket.sizing === 'risk' ? `$${ticket.risk} risk` : ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
+        toast({ kind: event === 'trail' ? 'trail' : event, title, lines });
+        if (event === 'buy' || event === 'sell') snap(r.trade_id, 'open');
+        if (event === 'close' && extra.trade_id && !extra.fraction) snap(extra.trade_id, 'close');
+      }
       loadTrading();
     } catch (e) { toast({ kind: 'error', title: 'Order rejected', lines: [e.message] }); }
   };
+  const flatten = async () => {
+    try {
+      const r = await post('/api/terminal/flatten', { price: last });
+      toast({ kind: 'close', title: 'Everything flattened', lines: [`${r.trades} trade${r.trades === 1 ? '' : 's'} closed on ${r.groups} group${r.groups === 1 ? '' : 's'}`, `${r.cancelled} pending order${r.cancelled === 1 ? '' : 's'} cancelled`] });
+      loadTrading();
+    } catch (e) { toast({ kind: 'error', title: 'Flatten failed', lines: [e.message] }); }
+  };
+  const addAlert = async (price) => {
+    try { await post('/api/terminal/alert', { symbol, price, now: last }); toast({ kind: 'alert', title: 'Alert set', lines: [`${symbol} ${price > last ? 'rises to' : 'falls to'} ${f2(price)}`] }); loadTrading(); } catch (e) { toast({ kind: 'error', title: 'Alert not set', lines: [e.message] }); }
+  };
+  const pendingAt = (event, price) => place(event.split('_')[0], { event, at: price, price: last });
+
+  // Replay: step / play
+  const step = useCallback(() => {
+    setReplay((r) => {
+      if (!r || r.idx == null || !allBars || r.idx >= allBars.time.length - 1) return r && { ...r, playing: false };
+      const i = r.idx + 1;
+      const bar = { high: allBars.high[i], low: allBars.low[i], close: allBars.close[i] };
+      setPractice((p) => {
+        const { open, closed } = stepPractice(p.open, bar);
+        closed.forEach((c) => toast({ kind: c.pnl >= 0 ? 'set_tp' : 'set_sl', title: c.reason === 'stop' ? 'Practice stop hit' : 'Practice target hit', lines: [`${usdSigned(c.pnl)} at ${f2(c.exit)}`] }));
+        return { open, closed: [...p.closed, ...closed] };
+      });
+      return { ...r, idx: i };
+    });
+  }, [allBars]);
+  useEffect(() => {
+    if (!replay?.playing) return undefined;
+    const t = setInterval(step, 1000 / replay.speed);
+    return () => clearInterval(t);
+  }, [replay?.playing, replay?.speed, step]);
+  const practiceSum = useMemo(() => ({
+    open: practice.open, closed: practice.closed,
+    pnl: Math.round((practice.closed.reduce((s, t) => s + t.pnl, 0) + (last != null ? practice.open.reduce((s, t) => s + closePractice(t, last).pnl, 0) : 0)) * 100) / 100,
+  }), [practice, last]);
+
+  // Keys: Alt+X flattens everything; in replay, → steps and space plays / pauses
+  useEffect(() => {
+    const key = (e) => {
+      if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
+      if (e.altKey && (e.key === 'x' || e.key === 'X') && !replay) { e.preventDefault(); flatten(); }
+      if (replay && e.key === 'ArrowRight') { e.preventDefault(); step(); }
+      if (replay && e.key === ' ') { e.preventDefault(); setReplay((r) => r && { ...r, playing: !r.playing }); }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  });
+
   const priceLabel = clickPrice != null ? f2(clickPrice) : '';
+  const above = clickPrice != null && last != null && clickPrice > last;
+  const tools = [['cross', Crosshair, 'Crosshair'], ['hline', Minus, 'Horizontal line: click the chart'], ['trend', TrendingUp, 'Trendline: drag on the chart'], ['rect', Square, 'Rectangle: drag on the chart'], ['fib', Sigma, 'Fibonacci retracement: drag from the swing high to the low (or low to high)']];
 
   return (
     <div className="h-screen flex flex-col bg-[#131722] text-[#d1d4dc] text-[13px] overflow-hidden" data-testid="terminal">
@@ -167,15 +404,18 @@ export default function Terminal() {
       <div className="h-[46px] shrink-0 flex items-center gap-1 px-2.5 border-b border-[#2a2e39]">
         <Link to="/" className="p-2 rounded-md hover:bg-[#2a2e39]" aria-label="Back"><ArrowLeft className="w-4 h-4" /></Link>
         <LogoMark className="w-6 h-6" />
-        <select value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="Symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
+        <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setReplay((r) => r && { ...r, idx: null, playing: false }); setPractice({ open: [], closed: [] }); }} aria-label="Symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
           {SYMBOLS.map((s) => <option key={s} value={s} className="bg-[#1e222d]">{s}</option>)}
         </select>
         <div className="w-px h-5 bg-[#2a2e39] mx-1.5" />
         {TFS.map(([t]) => (
-          <button key={t} type="button" onClick={() => setTf(t)} className={`h-8 px-2.5 rounded-md transition-colors ${tf === t ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tf-${t}`}>{t}</button>
+          <button key={t} type="button" onClick={() => { setTf(t); setReplay((r) => r && { ...r, idx: null, playing: false }); }} className={`h-8 px-2.5 rounded-md transition-colors ${tf === t ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tf-${t}`}>{t}</button>
         ))}
         <div className="w-px h-5 bg-[#2a2e39] mx-1.5" />
         <button type="button" onClick={() => setEditor(true)} className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-editor"><Pencil className="w-4 h-4" />Edit chart</button>
+        <button type="button" onClick={() => { if (replay) { setReplay(null); setPractice({ open: [], closed: [] }); } else setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); }}
+          className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${replay ? 'bg-[#2962ff] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid="open-replay"><History className="w-4 h-4" />Replay</button>
+        <Link to="/journal" className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-journal"><BookOpen className="w-4 h-4" />Journal</Link>
         <div className="flex-1" />
         <label className="h-8 px-2.5 rounded-md border border-[#2a2e39] inline-flex items-center gap-2">
           <span className="text-[#787b86]">Trade on</span>
@@ -188,15 +428,32 @@ export default function Terminal() {
           <span className={`w-2 h-2 rounded-full ${mt5.length && live === mt5.length ? 'bg-[#089981]' : 'bg-[#5d606b]'}`} />
           {mt5.length ? `MT5 ${live}/${mt5.length}` : `${members.length} account${members.length === 1 ? '' : 's'}`}
         </span>
+        <SettingsMenu prefs={prefs} setPrefs={setPrefs} />
+        <button type="button" onClick={flatten} disabled={!!replay} title="Close every Terminal trade on every account and cancel every pending order (Alt+X)"
+          className="h-8 px-3 rounded-md bg-[#f23645] text-white font-semibold inline-flex items-center gap-1.5 hover:brightness-110 disabled:opacity-40" data-testid="flatten-all"><OctagonX className="w-4 h-4" />Flatten all</button>
       </div>
+
+      {replay && (
+        <div className="h-[42px] shrink-0 flex items-center gap-2 px-3 border-b border-[#2a2e39] bg-[#1e222d] animate-in fade-in-0 slide-in-from-top-1 duration-pop ease-pop calm:animate-none" data-testid="replay-bar">
+          <History className="w-4 h-4 text-[#2962ff]" /><span className="font-semibold text-white">Replay</span>
+          <input type="date" value={replay.date} max={day(Date.now() - DAY)} min="2004-01-01" onChange={(e) => { if (e.target.value) { setReplay({ ...replay, date: e.target.value, idx: null, playing: false }); setPractice({ open: [], closed: [] }); } }}
+            className="h-7 px-2 rounded-md bg-[#131722] border border-[#363a45] text-[#d1d4dc] outline-none [color-scheme:dark]" data-testid="replay-date" aria-label="Replay from" />
+          <button type="button" onClick={() => setReplay({ ...replay, playing: !replay.playing })} aria-label={replay.playing ? 'Pause' : 'Play'} className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-play">{replay.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}</button>
+          <button type="button" onClick={step} aria-label="Next candle" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-step"><StepForward className="w-4 h-4" /></button>
+          {[1, 2, 5, 10].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
+          <span className="text-[#787b86] tabular-nums">{bars?.time.length ? new Date(bars.time.at(-1)).toISOString().slice(0, 16).replace('T', ' ') : ''} · → next candle · space play</span>
+          <span className="ml-auto tabular-nums">Practice P&L <b className={practiceSum.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(practiceSum.pnl)}</b></span>
+          <button type="button" onClick={() => { setReplay(null); setPractice({ open: [], closed: [] }); }} aria-label="Leave replay" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><X className="w-4 h-4" /></button>
+        </div>
+      )}
 
       <div className="flex-1 flex min-h-0">
         {/* Tool rail */}
         <div className="w-[52px] shrink-0 border-r border-[#2a2e39] flex flex-col items-center gap-1.5 pt-2.5">
-          {[['cross', Crosshair, 'Crosshair'], ['hline', Minus, 'Horizontal line: click the chart']].map(([id, Icon, label]) => (
+          {tools.map(([id, Icon, label]) => (
             <button key={id} type="button" aria-label={label} title={label} onClick={() => setTool(id)} className={`w-9 h-9 rounded-md flex items-center justify-center ${tool === id ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tool-${id}`}><Icon className="w-5 h-5" /></button>
           ))}
-          <button type="button" aria-label="Remove all lines" title="Remove all lines" onClick={() => setHlines([])} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
+          <button type="button" aria-label="Remove all lines and drawings" title="Remove all lines and drawings" onClick={() => { setHlines([]); setDrawings([]); }} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -205,15 +462,34 @@ export default function Terminal() {
             <div className="absolute left-3 top-2 z-10 flex items-center gap-3 pointer-events-none">
               <span className="font-semibold text-white">{symbol} · {tf}</span>
               {shown && <span className="text-[#787b86]">O <b className="font-normal text-[#d1d4dc]">{f2(shown.open)}</b> H <b className="font-normal text-[#d1d4dc]">{f2(shown.high)}</b> L <b className="font-normal text-[#d1d4dc]">{f2(shown.low)}</b> C <b className="font-normal text-[#d1d4dc]">{f2(shown.close)}</b></span>}
-              {levels.length > 0 && <span className="px-2 py-0.5 rounded-full text-xs bg-[#e8c468]/15 text-[#e8c468]">Simple guess high / low (the trained model's lines replace it)</span>}
+              {levels.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs bg-[#e8c468]/15 text-[#e8c468]" title={pred?.why || pred?.error || ''} data-testid="levels-chip">
+                  {pred?.high ? `Model high / low · ${pred.confidence ?? '–'}% confidence` : replay ? 'Simple guess high / low for that day' : `Simple guess high / low${pred?.error ? ' (local model not answering)' : ''}`}
+                </span>
+              )}
             </div>
             {!bars && <div className="absolute inset-0 flex items-center justify-center text-[#787b86] z-10">{market.error || `Loading ${symbol}${market.progress ? ` (${market.progress})` : ''}…`}</div>}
             <ContextMenu>
               <ContextMenuTrigger asChild>
                 <div className="absolute inset-0">
                   <TerminalChart bars={bars} settings={chart?.settings} levels={levels} lines={lines} tool={tool} trades={trades} last={last}
+                    pending={replay ? [] : book.pending.filter((p) => p.symbol === symbol)} trails={book.trails}
                     onModify={(t, kind, price) => place(kind === 'tp' ? 'set_tp' : 'set_sl', { [kind]: price, price: last, trade_id: t.trade_id })}
                     onCloseTrade={(t) => place('close', { price: last, trade_id: t.trade_id })}
+                    onBreakEven={(t) => place('set_sl', { sl: Number(t.entry), price: last, trade_id: t.trade_id })}
+                    onHalf={(t) => {
+                      if (!replay) return place('close', { price: last, trade_id: t.trade_id, fraction: 0.5 });
+                      const cut = Math.floor((t.qty / 2) * 100) / 100;
+                      if (!(cut > 0)) return;
+                      const piece = closePractice({ ...t, qty: cut }, last);
+                      setPractice((p) => ({ open: p.open.map((x) => (x.trade_id === t.trade_id ? { ...x, qty: Math.round((x.qty - cut) * 100) / 100 } : x)), closed: [...p.closed, piece] }));
+                      toast({ kind: 'close', title: 'Half closed (practice)', lines: [`${usdSigned(piece.pnl)} locked in`] });
+                    }}
+                    onTrail={(t, dist) => (replay ? setPractice((p) => ({ ...p, open: p.open.map((x) => (x.trade_id === t.trade_id ? { ...x, trail: dist || null } : x)) })) : place('trail', { trade_id: t.trade_id, distance: dist, price: last }))}
+                    onMovePending={(p, at) => post('/api/terminal/order', { event: 'move_pending', id: p.id, at, price: last, group_id: p.group_id }).then(() => { toast({ kind: 'pending', title: `${NAME[p.event]} moved`, lines: [`${p.symbol} at ${f2(at)}`] }); loadTrading(); }).catch((e) => toast({ kind: 'error', title: 'Order not moved', lines: [e.message] }))}
+                    onCancelPending={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(() => { toast({ kind: 'close', title: `${NAME[p.event]} cancelled`, lines: [`${p.symbol} at ${f2(p.at)}`] }); loadTrading(); })}
+                    drawings={drawings} onDrawingsChange={setDrawings} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
+                    onReady={(api) => { shot.current = api; }}
                     onAddLine={(p) => setHlines((h) => [...h, p])} onPriceAt={setClickPrice} onCrosshair={setHover} />
                 </div>
               </ContextMenuTrigger>
@@ -235,6 +511,16 @@ export default function Terminal() {
                 {priceLabel && (
                   <>
                     <ContextMenuSeparator className="bg-[#2a2e39] my-1" />
+                    {!replay && (above
+                      ? <>
+                        <ContextMenuItem className={ITEM} onSelect={() => pendingAt('sell_limit', clickPrice)} data-testid="menu-sell-limit"><Clock className="w-4 h-4 text-[#f23645]" />Sell limit at {priceLabel}</ContextMenuItem>
+                        <ContextMenuItem className={ITEM} onSelect={() => pendingAt('buy_stop', clickPrice)} data-testid="menu-buy-stop"><Clock className="w-4 h-4 text-[#2962ff]" />Buy stop at {priceLabel}</ContextMenuItem>
+                      </>
+                      : <>
+                        <ContextMenuItem className={ITEM} onSelect={() => pendingAt('buy_limit', clickPrice)} data-testid="menu-buy-limit"><Clock className="w-4 h-4 text-[#2962ff]" />Buy limit at {priceLabel}</ContextMenuItem>
+                        <ContextMenuItem className={ITEM} onSelect={() => pendingAt('sell_stop', clickPrice)} data-testid="menu-sell-stop"><Clock className="w-4 h-4 text-[#f23645]" />Sell stop at {priceLabel}</ContextMenuItem>
+                      </>)}
+                    {!replay && <ContextMenuItem className={ITEM} onSelect={() => addAlert(clickPrice)} data-testid="menu-alert"><Bell className="w-4 h-4" />Alert at {priceLabel}</ContextMenuItem>}
                     <ContextMenuItem className={ITEM} onSelect={() => setHlines((h) => [...h, clickPrice])}><Minus className="w-4 h-4" />Horizontal line at {priceLabel}</ContextMenuItem>
                     <ContextMenuItem className={ITEM} onSelect={() => setTicket((t) => ({ ...t, sl: priceLabel }))}><ShieldAlert className="w-4 h-4" />Stop loss at {priceLabel}</ContextMenuItem>
                     <ContextMenuItem className={ITEM} onSelect={() => setTicket((t) => ({ ...t, tp: priceLabel }))}><Target className="w-4 h-4" />Take profit at {priceLabel}</ContextMenuItem>
@@ -244,73 +530,57 @@ export default function Terminal() {
             </ContextMenu>
           </div>
 
-          {/* Positions */}
-          <div className="h-[190px] shrink-0 border-t border-[#2a2e39] flex flex-col" data-testid="terminal-positions">
-            <div className="flex items-center gap-5 px-3.5 py-2 border-b border-[#2a2e39]">
-              <span className="font-semibold text-white border-b-2 border-[#2962ff] pb-1">Positions {positions.length}</span>
-              <span className="ml-auto text-[11px] text-[#5d606b]">Charts by <a className="hover:text-[#787b86]" href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noreferrer">TradingView Lightweight Charts™</a></span>
-              <button type="button" disabled={!positions.some((t) => t.closable)} onClick={() => place('close', { price: last })} className="px-2.5 py-0.5 rounded-md border border-[#f23645]/40 text-[#f23645] disabled:opacity-40">Close all</button>
-            </div>
-            <div className="overflow-y-auto">
-              <div className="grid grid-cols-[1.3fr_.9fr_.6fr_.6fr_.9fr_.9fr_.9fr_.6fr] px-3.5 py-1.5 text-xs text-[#787b86]"><span>Account</span><span>Symbol</span><span>Side</span><span>Size</span><span>Entry</span><span>Stop</span><span>Target</span><span /></div>
-              {!positions.length && <div className="px-3.5 py-3 text-[#5d606b]">No open positions{group ? ` on ${group.name}` : ''}.</div>}
-              {positions.map((t) => (
-                <div key={t.id} className="grid grid-cols-[1.3fr_.9fr_.6fr_.6fr_.9fr_.9fr_.9fr_.6fr] items-center px-3.5 py-1.5 border-t border-[#1e222d]">
-                  <span className="truncate">{t.account}</span><span>{t.symbol}</span>
-                  <span className={t.side === 'long' ? 'text-[#2962ff]' : 'text-[#f23645]'}>{t.side === 'long' ? 'Buy' : 'Sell'}</span>
-                  <span className="tabular-nums">{t.qty}</span><span className="tabular-nums">{f2(t.entry)}</span><span className="tabular-nums">{f2(t.sl)}</span><span className="tabular-nums">{f2(t.tp)}</span>
-                  <button type="button" disabled={!t.closable} title={t.closable ? '' : 'Opened by a script: it closes when the script says so'} onClick={() => place('close', { price: last, trade_id: t.trade_id })} className="h-6 rounded-md border border-[#363a45] hover:bg-[#2a2e39] disabled:opacity-40">Close</button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <BottomPanel positions={positions} pending={book.pending} alerts={book.alerts} practice={practiceSum} replay={!!replay} group={group}
+            onClose={(t) => place('close', { price: last, trade_id: t.trade_id })} onCloseAll={() => place('close', { price: last })}
+            onCancel={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(loadTrading)}
+            onRemoveAlert={(a) => post('/api/terminal/alert', { remove: a.id }).then(loadTrading)} />
         </div>
 
-        {/* Order ticket */}
-        <div className="w-[300px] shrink-0 border-l border-[#2a2e39] flex flex-col" data-testid="order-ticket">
-          <div className="px-3.5 pt-3.5 pb-3 border-b border-[#2a2e39]">
-            <div className="flex items-baseline justify-between">
-              <span className="text-white font-semibold">{symbol}</span>
-              <span className="text-[11px] text-[#787b86]">Market order</span>
-            </div>
-            <div className="mt-2.5 grid grid-cols-2 gap-1 p-1 rounded-[10px] bg-[#1e222d]">
-              {[['sell', 'Sell'], ['buy', 'Buy']].map(([side, label]) => (
-                <button key={side} type="button" onClick={() => setTicket((t) => ({ ...t, side }))} data-testid={`side-${side}`}
-                  className={`h-11 rounded-lg flex flex-col items-center justify-center transition-colors ${ticket.side === side ? (side === 'buy' ? 'bg-[#2962ff] text-white' : 'bg-[#f23645] text-white') : 'text-[#787b86] hover:text-[#d1d4dc]'}`}>
-                  <span className="text-[11px] leading-none">{label}</span>
-                  <span className="text-[15px] font-semibold tabular-nums leading-tight">{f2(last)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto px-3.5 py-3 flex flex-col gap-3">
-            <Stepper label="Size" value={ticket.qty} step={1} min={0.01} onChange={(v) => setTicket((t) => ({ ...t, qty: v }))} testid="ticket-qty" />
-            <Stepper label="Stop loss" value={ticket.sl} step={1} placeholder="None" base={last} onChange={(v) => setTicket((t) => ({ ...t, sl: v }))} testid="ticket-sl"
-              hint={preview.sl} hintTone="loss" />
-            <Stepper label="Take profit" value={ticket.tp} step={1} placeholder="None" base={last} onChange={(v) => setTicket((t) => ({ ...t, tp: v }))} testid="ticket-tp"
-              hint={preview.tp} hintTone="profit" />
-            <div className="rounded-[10px] bg-[#1e222d] px-3 py-2.5 text-xs space-y-1.5">
-              <Row k="Accounts" v={`${members.filter((a) => (a.status || 'active') === 'active').length} in ${group?.name || '–'}`} />
-              <Row k="Risk" v={preview.sl || '–'} tone={preview.sl ? 'loss' : ''} />
-              <Row k="Reward" v={preview.tp || '–'} tone={preview.tp ? 'profit' : ''} />
-            </div>
-          </div>
-          <div className="p-3.5 border-t border-[#2a2e39] space-y-2">
-            <button type="button" disabled={!groupId || last == null} onClick={() => place(ticket.side)} data-testid="ticket-place"
-              className={`w-full h-11 rounded-[10px] text-white font-semibold transition-[filter] hover:brightness-110 disabled:opacity-40 ${ticket.side === 'buy' ? 'bg-[#2962ff]' : 'bg-[#f23645]'}`}>
-              {ticket.side === 'buy' ? 'Buy' : 'Sell'} {ticket.qty || 0} {symbol}
-            </button>
-            <p className="text-[11px] text-center text-[#5d606b]" title="Firm rules, news blocks and one trade per account apply; MT5 accounts place it through the QuantBot Copier EA">Goes to every active account in the group</p>
-          </div>
-        </div>
+        <OrderTicket symbol={symbol} last={last} ticket={ticket} setTicket={setTicket} preview={preview} guardRows={guardRows}
+          guardOn={prefs.guard} setGuardOn={(guard) => setPrefs({ guard })} group={group} activeCount={active.length} replay={!!replay}
+          canPlace={replay ? last != null : !!groupId && last != null && (ticket.type === 'market' || Number(ticket.at) > 0)}
+          onPlace={() => place(ticket.side)} />
       </div>
 
-      <Toasts items={toasts} onClose={(id) => setToasts((v) => v.filter((x) => x.id !== id))} />
+      <Toasts items={toasts} pos={prefs.toastPos} secs={prefs.toastSecs} onClose={(id) => setToasts((v) => v.filter((x) => x.id !== id))} />
       {editor && (
         <ChartEditor chart={chart} busy={busy} onClose={() => setEditor(false)}
           onPreset={(id) => chartCall('preset', { id })} onRevert={() => chartCall('revert')} onRestore={(n) => chartCall('restore', { n })}
           onSend={async (message) => { setBusy(true); try { const r = await post('/api/terminal/chart/edit', { message }); setChart(r); return r; } finally { setBusy(false); } }} />
       )}
     </div>
+  );
+}
+
+// Toasts, sounds and alerts
+function SettingsMenu({ prefs, setPrefs }) {
+  const Switch = ({ k, label }) => (
+    <button type="button" onClick={() => setPrefs({ [k]: !prefs[k] })} className="w-full flex items-center justify-between py-1.5 text-left" aria-pressed={prefs[k]} data-testid={`pref-${k}`}>
+      <span>{label}</span>
+      <span className={`relative w-7 h-4 rounded-full transition-colors ${prefs[k] ? 'bg-[#2962ff]' : 'bg-[#363a45]'}`}><span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left] ${prefs[k] ? 'left-3.5' : 'left-0.5'}`} /></span>
+    </button>
+  );
+  const corners = [['tl', 'Top left'], ['tr', 'Top right'], ['bl', 'Bottom left'], ['br', 'Bottom right']];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="Terminal settings" className="w-8 h-8 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="open-settings"><Settings2 className="w-4 h-4" /></button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className={`${POP} w-[280px] rounded-[14px] border-[#363a45] bg-[#1e222d]/95 backdrop-blur-xl p-3.5 text-[13px] text-[#d1d4dc] shadow-[0_18px_48px_rgba(0,0,0,.55)]`} data-testid="settings-menu">
+        <div className="text-xs text-[#787b86] mb-1.5">Notifications</div>
+        <div className="grid grid-cols-2 gap-1 mb-2">
+          {corners.map(([id, label]) => <button key={id} type="button" onClick={() => setPrefs({ toastPos: id })} className={`h-7 rounded-md text-xs ${prefs.toastPos === id ? 'bg-[#2962ff] text-white' : 'bg-[#131722] hover:bg-[#2a2e39]'}`} data-testid={`pref-pos-${id}`}>{label}</button>)}
+        </div>
+        <div className="flex items-center justify-between py-1.5"><span>Stay for</span>
+          <span className="flex gap-1">{[3, 5, 8, 15].map((s) => <button key={s} type="button" onClick={() => setPrefs({ toastSecs: s })} className={`h-6 px-2 rounded-md text-xs ${prefs.toastSecs === s ? 'bg-[#2962ff] text-white' : 'bg-[#131722] hover:bg-[#2a2e39]'}`}>{s}s</button>)}</span>
+        </div>
+        <Switch k="sound" label="Sounds" />
+        <div className="h-px bg-[#2a2e39] my-1.5" />
+        <div className="text-xs text-[#787b86] my-1.5">Alerts</div>
+        <Switch k="levelAlerts" label="When price touches the model's high / low" />
+        <Switch k="newsMarkers" label="News lines on the chart" />
+        <Switch k="newsToast" label="Toast 5 minutes before news" />
+      </PopoverContent>
+    </Popover>
   );
 }

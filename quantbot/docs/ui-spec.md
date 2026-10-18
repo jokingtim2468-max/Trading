@@ -339,3 +339,17 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
   Round tinted icon (buy `#2962ff`, sell/stop/error `#f23645`, take profit `#089981`, close `#d1d4dc`), bold white title, gray `#9598a1` detail lines, X to dismiss.
   A 2px bar in the icon color runs down over 5 s, then the toast closes; hovering pauses it. Slides in from the right, fades out (none in calm mode).
   Titles: Order executed · Take profit modified · Stop loss modified · Position close sent · Order rejected.
+
+### Terminal: trading tools
+- Order types: Market / Limit / Stop segmented control (`#1e222d` track, `#2a2e39` selected), one gray `#787b86` line under it saying what the type does. Size: Lots / $ Risk switch.
+- Rule guard card: border `#2a2e39`, radius 10px, shield icon `#089981` when on, switch `#089981` / `#363a45`. One row per account: dot green `#089981`, the lowest account orange `#ff9800`, a blocked one red `#f23645`; "risk of room" on the right.
+- Lowest-limit line: orange `#ff9800`, dashed, 2px, title "Limit <account> · <rule>".
+- Flatten all: solid red `#f23645` button, white bold text, top bar far right. Shortcut Alt+X.
+- Pending orders: dashed line in the side color (buy `#2962ff`, sell `#f23645`), dark `#1e222d` pill with a dashed border, drag to move, X to cancel.
+- Entry pill buttons: BE, Trail (yellow `#e8c468` when on), ½, X. The Trail box opens under the pill (zoom-in pop). A stop at break-even moves its pill to the left of the chart so it never covers the entry pill.
+- Drawings: blue `#2962ff` 2px lines, rectangles with 12% fill; Fibonacci levels gray `#787b86`, 0.5 and 0.618 yellow `#e8c468`, labels `#9598a1` 10px; selected drawing white with a red round X at its end.
+- News: red `#f23645` dashed vertical line at 70% opacity, 10px bold label at the top.
+- Toast kinds and icon colors: alert bell `#e8c468`, news calendar `#f23645`, pending clock `#2962ff`, trailing stop `#e8c468`. Default corner: bottom right of the chart (clear of the ticket, price scale and positions), other corners and 3 / 5 / 8 / 15 s in the gear menu.
+- Replay bar: 42px, `#1e222d`, under the top bar, slides down; Replay button turns solid blue `#2962ff` while on; ticket says "Practice (replay)".
+- Bottom panel tabs: Positions / Orders / Alerts (Practice in replay), selected tab white with a 2px `#2962ff` underline.
+- Journal page: app theme cards (`bg-card`, rounded-xl), profit `text-chart-2`, loss `text-destructive`, chart thumbnails 40x28 opening full size on a 70% black backdrop.

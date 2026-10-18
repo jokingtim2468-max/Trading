@@ -117,6 +117,35 @@ positions with Close / Close all. Right-click the chart for presets, revert and 
 chat where the local model (or your default model) changes the chart's look. It can only change chart settings, every
 change is a version you can revert or restore (`data/terminal/chart.json`).
 
+Trading tools (`npm run test:terminal` drives all of them in a browser):
+
+- **Rule guard** (on by default): before an order goes out, each active account's room before its daily loss limit
+  and its max drawdown is checked against the order's risk; an order that would break a rule on any account is
+  blocked, and an order without a stop is blocked while the guard is on (accounts with no limits set always pass).
+  The ticket lists every account's room; the orange dashed line on the chart is where price would fail the
+  account with the least room (on its open trade, else on the ticket if it filled).
+- **Flatten all** (top right, or Alt+X): closes every Terminal trade on every group and cancels every pending order.
+- **$ Risk sizing**: pick dollars per account and a stop; each account gets lots = risk / (stop distance x $ per point).
+- **Limit and stop orders**: a *limit* waits for a better price (buy below the price, sell above) and fills when price
+  comes back to it; a *stop* waits for a breakout (buy above, sell below) and fills when price pushes through it.
+  From the ticket or by right-clicking the chart; drag the dashed line to move one, X to cancel.
+- On the Terminal's own trades: **BE** moves the stop to the entry, **Trail** keeps the stop N points behind the price
+  (only ever tightening), **½** closes half (MT5 gets a partial close), X closes it.
+- **Drawings**: trendline, rectangle and Fibonacci retracement from the tool rail, kept per symbol in this browser;
+  click one to select it, Delete or its X removes it.
+- **Alerts**: right-click a price for an alert; optional alerts when price touches the model's high / low; high-impact
+  USD news as a red line on the chart and a toast 5 minutes before. Sounds, toast corner and duration in the gear menu.
+- **Model lines**: the first time the Terminal opens each day, the local model is asked for the day's high / low with
+  a confidence (kept in `data/terminal/book.json`); until it answers, the simple guess is shown.
+- **Replay**: pick any date in the downloaded history, step candle by candle (→, space to play, 1-10x) and practice
+  with the same ticket; practice trades never reach an account.
+- **Journal** (`/journal`, also linked from the PnL calendar): every closed trade, logged automatically, with chart
+  pictures at open and close, a setup and a note per trade, win rate, profit factor and average R per setup, and
+  history import from MT5 (History, Positions, saved as CSV / tab file) or any CSV with the usual columns.
+
+Pending orders, trailing stops and alerts are checked against the live price while the Terminal is open (the latest
+Dukascopy minute candles, every 10 seconds); MT5 accounts still get plain market orders when one fills.
+
 ## Train (Unsloth on your GPU)
 
 The **Train** page fine-tunes a small open model to predict each day's high and low from the 10 days before it,

@@ -1,4 +1,4 @@
-import { Plus, X, FlaskConical, History, CalendarDays, ArrowLeftRight, Wallet, Cpu, Radio, CandlestickChart } from 'lucide-react';
+import { Plus, X, FlaskConical, History, CalendarDays, ArrowLeftRight, Wallet, Cpu, Radio, CandlestickChart, BookOpen } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import GroupPills from './GroupPills';
 import ProfileFooter from './ProfileFooter';
@@ -48,6 +48,10 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
           <Link to="/terminal" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><CandlestickChart className="w-4 h-4 text-primary" /></span>
             Terminal
+          </Link>
+          <Link to="/journal" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
+            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><BookOpen className="w-4 h-4 text-primary" /></span>
+            Journal
           </Link>
           <Link to="/train" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Cpu className="w-4 h-4 text-primary" /></span>

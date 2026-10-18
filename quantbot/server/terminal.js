@@ -209,7 +209,12 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       if (event === 'set_tp' && tp == null) throw Object.assign(new Error('set_tp needs tp'), { status: 400 });
       const saved = await signals.receive(JSON.stringify(msg), { scriptId: script.id, groupId: group.id, local: true });
       log(`terminal: ${event} ${msg.symbol} on ${group.name}`);
-      return { ok: true, signal: saved.id, trade_id: msg.trade_id };
+      // Nothing copied (news block, max trades, every account skipped): say why instead of "executed"
+      if (saved.copied === 0) {
+        const why = (await run('CopyEvent', 'filter', { signal_id: saved.id })).filter((e) => e.level === 'warn' || e.level === 'error').map((e) => e.message.replace(/^[^:]+: /, ''));
+        return { ok: true, copied: 0, reasons: [...new Set(why)].slice(0, 3), signal: saved.id, trade_id: msg.trade_id };
+      }
+      return { ok: true, copied: saved.copied ?? null, signal: saved.id, trade_id: msg.trade_id };
     },
     // Each active account's room before its firm rules fail it, where price would fail it on its open trades, and
     // for a ticket: the size, risk and whether it fits
@@ -305,7 +310,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
           return out;
         })().finally(() => predicting.delete(key)));
       }
-      return predicting.get(key);
+      return predicting.get(key).catch((e) => { throw Object.assign(new Error(`The model didn't give a prediction: ${e.message}`), { status: 503 }); });
     },
     // A chart picture for the journal, saved on every account's copy of the trade
     async snapshot(tradeId, kind, image) {
