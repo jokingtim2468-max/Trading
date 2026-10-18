@@ -126,7 +126,35 @@ export function accountRoom(a, now = Date.now()) {
   const toFloor = floor == null ? Infinity : balance - floor;
   const toDaily = daily ? daily - (dayStart - balance) : Infinity;
   const room = Math.min(toFloor, toDaily);
-  return { balance, floor, dailyFloor: daily ? dayStart - daily : null, toFloor, toDaily, room, rule: toDaily < toFloor ? 'daily loss limit' : 'max drawdown' };
+  return { balance, floor, dayStart, dayPnl: balance - dayStart, zone, dailyFloor: daily ? dayStart - daily : null, toFloor, toDaily, room, rule: toDaily < toFloor ? 'daily loss limit' : 'max drawdown' };
+}
+
+// A group's extra protection (all off by default): { lock: $ day profit that stops new trades, lockMode 'block' |
+// 'breakeven' (also moves stops to entry), streak: losses in a row that start a cooldown, cooldown: minutes,
+// consistency: % cap on the best day's share of the total profit }. closed: the account's closed trades.
+export function protectionFor(rules, a, closed, now = Date.now()) {
+  const p = rules || {};
+  const out = { blocked: null, lock: null, streak: null, consistency: null };
+  const r = accountRoom(a, now);
+  if (Number(p.lock) > 0) {
+    out.lock = { at: Number(p.lock), day: Math.round(r.dayPnl * 100) / 100, hit: r.dayPnl >= Number(p.lock), mode: p.lockMode === 'breakeven' ? 'breakeven' : 'block' };
+    if (out.lock.hit) out.blocked = `daily profit lock: up $${money2(r.dayPnl)} today (lock at $${money2(p.lock)})`;
+  }
+  const list = [...closed].sort((x, y) => String(y.closed_at).localeCompare(String(x.closed_at)));
+  if (Number(p.streak) > 0) {
+    let n = 0;
+    for (const t of list) { if (t.pnl < 0) n++; else break; }
+    const until = n >= Number(p.streak) && list[0] ? Date.parse(list[0].closed_at) + (Number(p.cooldown) || 30) * 60000 : 0;
+    out.streak = { losses: n, at: Number(p.streak), until: until > now ? new Date(until).toISOString() : null };
+    if (until > now && !out.blocked) out.blocked = `${n} losses in a row: cooldown until ${new Date(until).toISOString().slice(11, 16)} UTC`;
+  }
+  if (Number(p.consistency) > 0) {
+    const days = new Map();
+    for (const t of list) { const d = dayIn(Date.parse(t.closed_at), r.zone); days.set(d, (days.get(d) || 0) + (Number(t.pnl) || 0)); }
+    const total = [...days.values()].reduce((s, v) => s + v, 0), best = Math.max(0, ...days.values());
+    out.consistency = { best: Math.round(best * 100) / 100, total: Math.round(total * 100) / 100, pct: total > 0 ? Math.round((best / total) * 100) : null, cap: Number(p.consistency) };
+  }
+  return out;
 }
 
 export function pointValue(symbol) {

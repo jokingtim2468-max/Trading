@@ -364,3 +364,10 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ### Terminal: price feed and speed badge
 - Top bar, right of the MT5 count: 1.5px dot + text 12px tabular. Live: green `#089981`, pulsing dot, "MT5 live <bid> / <ask>"; then gray `#9598a1` "· app 0.62 ms" (checks to order sent) and "· fill 23 ms" (sent to MT5's confirmation). No EA: gray `#5d606b` "Delayed price".
 - Order toasts add a line "Checked and sent to MT5 in 0.62 ms" when the order went over the fast lane.
+
+### Terminal: protection, templates, sessions
+- Protection (inside the Rule guard card): "Protection" link `#9598a1` with a sliders icon opens a form on `#131722` at 60%: inputs 64px, blank = off; lock mode as two 24px buttons (selected `#2962ff`). Under each account: gray `#787b86` 11px lines, orange `#ff9800` when the lock is hit, the cooldown is running or the best day is over the cap.
+- Templates: chips 24px tall, round, `#363a45` border, above the ticket fields; "+ Template" dashed.
+- Sessions: full-height bands at 6% opacity: Asia `#e8c468`, London `#2962ff`, New York `#089981`, 10px label at the bottom; hidden on H4 and D1. PDH / PDL: gray `#9598a1` long-dashed price lines.
+- Hotkeys: gear menu rows, key buttons 44px min, blue while waiting for a key; master switch off by default.
+- Overview page and the Journal's Weekly report / Model scorecard use the app theme cards (`bg-card`, rounded-xl), profit `text-chart-2`, loss `text-destructive`.

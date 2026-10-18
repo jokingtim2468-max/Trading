@@ -145,6 +145,24 @@ Trading tools (`npm run test:terminal` drives all of them in a browser):
   pictures at open and close, a setup and a note per trade, win rate, profit factor and average R per setup, and
   history import from MT5 (History, Positions, saved as CSV / tab file) or any CSV with the usual columns.
 
+More protection and speed (all per group or per PC, off unless set):
+
+- **Daily profit lock**: when an account is up the set amount today, new trades stop; with "+ stops to entry" the
+  Terminal's open trades on that group also get their stops moved to break-even (checked every 5 s).
+- **Loss-streak cooldown**: after N losses in a row, trading pauses for M minutes.
+- **Consistency meter**: each account's best day as a % of its total profit, orange when over the firm's cap.
+- **Hotkeys** (gear menu, off by default: single keys trade for real): B / S buy or sell at the one-click size, C
+  closes all, E stops to break-even, H closes half; every key can be changed.
+- **Order templates**: save the ticket (side, type, size, stop and target as distances) and refill it in one click.
+- **Auto bracket**: every new trade without a stop gets one N points away and a target at R times that.
+- **Sessions**: Asia / London / New York shaded in each city's own hours, and yesterday's high / low (PDH / PDL).
+- **Weekly report** (Journal; a toast on Sunday / Monday): profit, win rate, average R, best / worst setup and day,
+  rule-breaks blocked; Save as PDF prints it.
+- **Model scorecard** (Journal): the model's saved daily highs / lows against what happened, and the hit rate by the
+  confidence it gave, so you can see whether to trust it.
+- **Overview** (`/overview`): every group and account with balance, today, total, room before the firm's limits,
+  open trades and how its MT5 is connected.
+
 **MT5 fast lane (live gold prices and instant orders).** The QuantBot Copier EA (v2) keeps one socket open to the
 app (127.0.0.1, the app's port + 1; add `127.0.0.1` under MT5 Tools > Options > Expert Advisors > Allow WebRequest
 next to the Copier address). Over it the EA streams its chart's live ticks, and every order is pushed to MT5 the

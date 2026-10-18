@@ -1,6 +1,9 @@
 // The Terminal's per-PC preferences (toasts, sounds, alerts) and drawings, kept in this browser
 const KEY = 'quantbot.terminal.prefs';
-export const PREFS = { v: 2, oneClickQty: '1', toastPos: 'tr', toastSecs: 5, sound: true, voice: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
+export const PREFS = {
+  v: 2, oneClickQty: '1', sessions: true, templates: [], bracket: { on: false, slPts: 5, tpR: 2 },
+  hotkeys: false, keys: { buy: 'b', sell: 's', closeAll: 'c', breakeven: 'e', half: 'h' },
+  toastPos: 'tr', toastSecs: 5, sound: true, voice: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
 
 export function readPrefs() {
   try {

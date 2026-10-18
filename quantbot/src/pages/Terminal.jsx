@@ -9,9 +9,9 @@ import { client } from '@/api/client';
 import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
-import { mergeCandles, sliceBars, stepPractice, closePractice } from '@/lib/terminalLive';
+import { mergeCandles, sliceBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
 import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
-import { toBroker } from '../../server/market/brokerTime.js';
+import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
 import ChartEditor from '@/components/terminal/ChartEditor';
@@ -122,6 +122,14 @@ export default function Terminal() {
   };
 
   useEffect(() => { fetch('/api/terminal/chart').then((r) => r.json()).then(setChart).catch(() => {}); }, []);
+  // Sunday and Monday: last week's report is ready (once a week)
+  useEffect(() => {
+    const d = new Date(), wd = d.getDay();
+    if (wd !== 0 && wd !== 1) return;
+    const key = `quantbot.weekly.${new Date(d - ((wd + 6) % 7) * 86400000).toISOString().slice(0, 10)}`;
+    try { if (localStorage.getItem(key)) return; localStorage.setItem(key, '1'); } catch { return; }
+    setTimeout(() => toast({ kind: 'pending', title: 'Your weekly report is ready', lines: ['Profit, best and worst setup, rule-breaks and average R', 'Open the Journal to see it or save it as a PDF'] }), 1500);
+  }, []);
   const loadTrading = useCallback(async () => {
     const [g, a, p] = await Promise.all([
       client.entities.CopyGroup.list(), client.entities.TradingAccount.list(),
@@ -297,7 +305,7 @@ export default function Terminal() {
       post('/api/terminal/guard', { group_id: groupId, ticket: entryAt ? ticketBody() : null }).then((r) => setGuardRows(r.accounts || [])).catch(() => {});
     }, 250);
     return () => clearTimeout(t);
-  }, [groupId, ticket, entryAt != null ? Math.round(entryAt * 4) : null, positions.length, !!replay]);
+  }, [groupId, ticket, entryAt != null ? Math.round(entryAt * 4) : null, positions.length, !!replay, JSON.stringify(group?.protect || null)]);
   const limitLine = useMemo(() => {
     if (replay || last == null) return null;
     const open = guardRows.filter((r) => r.open?.fail != null && r.open.symbol === symbol).map((r) => ({ r, price: r.open.fail }));
@@ -307,7 +315,22 @@ export default function Terminal() {
     return { price: best.price, color: '#ff9800', title: `Limit ${best.r.name} · ${best.r.rule}${open.length ? '' : ' (if filled)'}`, style: LineStyle.Dashed, width: 2 };
   }, [guardRows, last, symbol, !!replay]);
 
+  // Session boxes (Asia, London, New York) over the bars on screen, in the chart's broker time
+  const sessions = useMemo(() => {
+    if (!prefs.sessions || !bars?.time.length || tfMin >= 240) return [];
+    const toUtc = (b) => b - brokerOffsetHours(b) * 3600000;
+    return sessionBoxes(toUtc(bars.time[0]), toUtc(bars.time.at(-1))).map((x) => ({ ...x, from: Math.floor(toBroker(x.from) / 1000), to: Math.floor(toBroker(x.to) / 1000) }));
+  }, [prefs.sessions, bars?.time[0], bars?.time.length, tfMin]);
+  // Yesterday's high / low
+  const prevDay = useMemo(() => {
+    const d = market.daily;
+    if (!prefs.sessions || !d || d.time.length < 2) return [];
+    const i = replay && bars ? Math.max(1, Array.from(d.time).filter((t) => t <= bars.time.at(-1)).length - 1) : d.time.length - 1;
+    return [{ price: d.high[i - 1], color: '#9598a1', title: 'PDH', style: LineStyle.LargeDashed }, { price: d.low[i - 1], color: '#9598a1', title: 'PDL', style: LineStyle.LargeDashed }];
+  }, [market.daily, prefs.sessions, replay, bars?.time.length]);
+
   const lines = useMemo(() => [
+    ...prevDay,
     ...hlines.map((p) => ({ price: p, color: '#2962ff', title: '' })),
     ...(ticket.sl ? [{ price: Number(ticket.sl), color: '#f23645', title: 'SL', style: LineStyle.Dotted }] : []),
     ...(ticket.tp ? [{ price: Number(ticket.tp), color: '#089981', title: 'TP', style: LineStyle.Dotted }] : []),
@@ -319,7 +342,7 @@ export default function Terminal() {
       ...(t.sl != null ? [{ price: t.sl, color: '#f23645', title: 'SL', style: LineStyle.Dashed }] : []),
       ...(t.tp != null ? [{ price: t.tp, color: '#089981', title: 'TP', style: LineStyle.Dashed }] : []),
     ])),
-  ], [hlines, ticket.sl, ticket.tp, ticket.type, ticket.at, tradesLive, limitLine, !!replay]);
+  ], [hlines, ticket.sl, ticket.tp, ticket.type, ticket.at, tradesLive, limitLine, !!replay, prevDay]);
 
   // Live risk / reward of the ticket's stop and target across the group
   const preview = useMemo(() => {
@@ -361,6 +384,12 @@ export default function Terminal() {
     const { oneClick, ...more } = extra;
     extra = oneClick ? { ...more, qty: prefs.oneClickQty, risk_usd: '', at: '' } : more;
     const pendingType = extra.event?.includes('_') ? extra.event : (event === 'buy' || event === 'sell') && ticket.type !== 'market' && !extra.trade_id && !oneClick ? `${event}_${ticket.type}` : null;
+    // Auto bracket: a new trade without a stop gets the default stop (and a target at the default R)
+    if ((event === 'buy' || event === 'sell') && prefs.bracket?.on && !extra.trade_id && !(extra.sl ?? ticket.sl)) {
+      const at = pendingType ? Number(extra.at ?? ticket.at) : last, d = Number(prefs.bracket.slPts) || 5, dir = event === 'buy' ? 1 : -1;
+      const r = (v) => Math.round(v * 100) / 100;
+      extra = { ...extra, sl: r(at - dir * d), tp: ticket.tp || r(at + dir * d * (Number(prefs.bracket.tpR) || 2)) };
+    }
     try {
       const body = { group_id: groupId, guard: prefs.guard, ...(event === 'buy' || event === 'sell' ? ticketBody({ event: pendingType || event, price: last, at: ticket.at }) : { event, symbol, price: last }), ...extra };
       const r = await post('/api/terminal/order', body);
@@ -385,6 +414,20 @@ export default function Terminal() {
       }
       loadTrading();
     } catch (e) { toast({ kind: 'error', title: 'Order rejected', lines: [e.message] }); }
+  };
+  // Order templates: side, type, size and the stop / target as distances from the price
+  const saveTemplate = (name) => {
+    const e = entryAt;
+    const t = { name, side: ticket.side, type: ticket.type, sizing: ticket.sizing, qty: ticket.qty, risk: ticket.risk,
+      slPts: ticket.sl && e ? Math.round(Math.abs(e - Number(ticket.sl)) * 100) / 100 : null, tpPts: ticket.tp && e ? Math.round(Math.abs(Number(ticket.tp) - e) * 100) / 100 : null };
+    setPrefs({ templates: [...(prefs.templates || []).filter((x) => x.name !== name), t] });
+    toast({ kind: 'pending', title: 'Template saved', lines: [`${name}: ${t.side} ${t.sizing === 'risk' ? `$${t.risk} risk` : t.qty}${t.slPts ? ` · stop ${t.slPts}` : ''}${t.tpPts ? ` · target ${t.tpPts}` : ''}`] });
+  };
+  const applyTemplate = (t) => {
+    const e = t.type === 'market' || !t.type ? last : Number(ticket.at) || last;
+    const dir = t.side === 'buy' ? 1 : -1, r = (v) => String(Math.round(v * 100) / 100);
+    setTicket((k) => ({ ...k, side: t.side, type: t.type || 'market', sizing: t.sizing, qty: t.qty, risk: t.risk,
+      sl: t.slPts && e ? r(e - dir * t.slPts) : '', tp: t.tpPts && e ? r(e + dir * t.tpPts) : '' }));
   };
   const flatten = async () => {
     try {
@@ -425,8 +468,17 @@ export default function Terminal() {
   // Keys: Alt+X flattens everything; in replay, → steps and space plays / pauses
   useEffect(() => {
     const key = (e) => {
-      if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName)) return;
+      if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.dataset?.testid?.startsWith('hotkey-')) return;
       if (e.altKey && (e.key === 'x' || e.key === 'X') && !replay) { e.preventDefault(); flatten(); }
+      // Hotkeys (changeable in the gear menu): buy / sell at the one-click size, close all, break-even, half
+      if (!prefs.hotkeys || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return;
+      const k = e.key.toLowerCase(), keys = prefs.keys || {};
+      const mine = trades.filter((t) => t.closable);
+      if (k === keys.buy) { e.preventDefault(); place('buy', { oneClick: true }); }
+      else if (k === keys.sell) { e.preventDefault(); place('sell', { oneClick: true }); }
+      else if (k === keys.closeAll && mine.length) { e.preventDefault(); place('close', { price: last }); }
+      else if (k === keys.breakeven) mine.forEach((t) => place('set_sl', { sl: Number(t.entry), price: last, trade_id: t.trade_id }));
+      else if (k === keys.half) mine.forEach((t) => place('close', { price: last, trade_id: t.trade_id, fraction: 0.5 }));
       if (replay && e.key === 'ArrowRight') { e.preventDefault(); step(); }
       if (replay && e.key === ' ') { e.preventDefault(); setReplay((r) => r && { ...r, playing: !r.playing }); }
     };
@@ -536,7 +588,7 @@ export default function Terminal() {
                     onTrail={(t, dist) => (replay ? setPractice((p) => ({ ...p, open: p.open.map((x) => (x.trade_id === t.trade_id ? { ...x, trail: dist || null } : x)) })) : place('trail', { trade_id: t.trade_id, distance: dist, price: last }))}
                     onMovePending={(p, at) => post('/api/terminal/order', { event: 'move_pending', id: p.id, at, price: last, group_id: p.group_id }).then(() => { toast({ kind: 'pending', title: `${NAME[p.event]} moved`, lines: [`${p.symbol} at ${f2(at)}`] }); loadTrading(); }).catch((e) => toast({ kind: 'error', title: 'Order not moved', lines: [e.message] }))}
                     onCancelPending={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(() => { toast({ kind: 'close', title: `${NAME[p.event]} cancelled`, lines: [`${p.symbol} at ${f2(p.at)}`] }); loadTrading(); })}
-                    drawings={drawings} onDrawingsChange={setDrawings} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
+                    drawings={drawings} onDrawingsChange={setDrawings} sessions={sessions} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
                     onReady={(api) => { shot.current = api; }}
                     onAddLine={(p) => setHlines((h) => [...h, p])} onPriceAt={setClickPrice} onCrosshair={setHover} />
                 </div>
@@ -587,7 +639,10 @@ export default function Terminal() {
         <OrderTicket symbol={symbol} last={last} ticket={ticket} setTicket={setTicket} preview={preview} guardRows={guardRows}
           guardOn={prefs.guard} setGuardOn={(guard) => setPrefs({ guard })} group={group} activeCount={active.length} replay={!!replay}
           canPlace={replay ? last != null : !!groupId && last != null && (ticket.type === 'market' || Number(ticket.at) > 0)}
-          onPlace={() => place(ticket.side)} />
+          onPlace={() => place(ticket.side)}
+          onProtect={(rules) => post('/api/terminal/protect', { group_id: groupId, rules }).then(() => { toast({ kind: 'trail', title: 'Protection saved', lines: [group?.name || ''] }); loadTrading(); }).catch((e) => toast({ kind: 'error', title: 'Not saved', lines: [e.message] }))}
+          templates={prefs.templates || []} onSaveTemplate={saveTemplate} onApplyTemplate={applyTemplate}
+          onRemoveTemplate={(t) => setPrefs({ templates: (prefs.templates || []).filter((x) => x.name !== t.name) })} />
       </div>
 
       <HoverHelp />
@@ -646,6 +701,23 @@ function SettingsMenu({ prefs, setPrefs }) {
         <Switch k="levelAlerts" label="When price touches the model's high / low" />
         <Switch k="newsMarkers" label="News lines on the chart" />
         <Switch k="newsToast" label="Toast 5 minutes before news" />
+        <Switch k="sessions" label="Sessions and yesterday's high / low" />
+        <div className="h-px bg-[#2a2e39] my-1.5" />
+        <div className="text-xs text-[#787b86] my-1.5">Auto bracket</div>
+        <button type="button" onClick={() => setPrefs({ bracket: { ...prefs.bracket, on: !prefs.bracket?.on } })} className="w-full flex items-center justify-between py-1.5 text-left" aria-pressed={!!prefs.bracket?.on} data-testid="pref-bracket">
+          <span>Every new trade gets a stop and target</span>
+          <span className={`relative w-7 h-4 rounded-full transition-colors ${prefs.bracket?.on ? 'bg-[#2962ff]' : 'bg-[#363a45]'}`}><span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-[left] ${prefs.bracket?.on ? 'left-3.5' : 'left-0.5'}`} /></span>
+        </button>
+        <div className="flex items-center gap-2 py-1">
+          <span className="flex-1 text-[#9598a1]">Stop (points)</span>
+          <input value={prefs.bracket?.slPts ?? ''} onChange={(e) => setPrefs({ bracket: { ...prefs.bracket, slPts: e.target.value } })} inputMode="decimal" className="w-14 h-6 px-1 rounded-md bg-[#131722] border border-[#363a45] text-center tabular-nums outline-none" data-testid="pref-bracket-sl" />
+          <span className="text-[#9598a1]">Target (R)</span>
+          <input value={prefs.bracket?.tpR ?? ''} onChange={(e) => setPrefs({ bracket: { ...prefs.bracket, tpR: e.target.value } })} inputMode="decimal" className="w-12 h-6 px-1 rounded-md bg-[#131722] border border-[#363a45] text-center tabular-nums outline-none" data-testid="pref-bracket-tp" />
+        </div>
+        <div className="h-px bg-[#2a2e39] my-1.5" />
+        <div className="text-xs text-[#787b86] my-1.5">Hotkeys (click, then press a key)</div>
+        <Switch k="hotkeys" label="Hotkeys on (single keys trade for real)" />
+        <Hotkeys keys={prefs.keys || {}} onChange={(keys) => setPrefs({ keys })} />
       </PopoverContent>
     </Popover>
   );
@@ -670,6 +742,33 @@ function OneClick({ last, qty, setQty, disabled, onTrade }) {
       <button type="button" disabled={disabled} onClick={() => onTrade('buy')} className={`${btn} bg-[#2962ff] text-white`} data-testid="oneclick-buy">
         <span className="text-[13px] font-semibold tabular-nums">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">BUY</span>
       </button>
+    </div>
+  );
+}
+
+function Hotkeys({ keys, onChange }) {
+  const [wait, setWait] = useState(null);
+  const names = [['buy', 'Buy (one-click size)'], ['sell', 'Sell (one-click size)'], ['closeAll', 'Close all'], ['breakeven', 'Stops to break-even'], ['half', 'Close half']];
+  return (
+    <div className="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 items-center" data-testid="hotkeys">
+      {names.map(([id, label]) => (
+        <div key={id} className="contents">
+          <span className="text-[#9598a1]">{label}</span>
+          <button type="button" data-testid={`hotkey-${id}`}
+            onClick={() => setWait(id)}
+            onKeyDown={(e) => {
+              if (wait !== id) return;
+              e.preventDefault(); e.stopPropagation();
+              const k = e.key === 'Escape' || e.key === 'Backspace' ? '' : e.key.toLowerCase();
+              if (k.length > 1 && !/^f\d+$/.test(k)) return;
+              onChange({ ...keys, [id]: k });
+              setWait(null);
+            }}
+            className={`min-w-[44px] h-6 px-2 rounded-md text-xs uppercase ${wait === id ? 'bg-[#2962ff] text-white' : 'bg-[#131722] hover:bg-[#2a2e39]'}`}>
+            {wait === id ? '…' : keys[id] || 'off'}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import { ShieldCheck, ShieldOff } from 'lucide-react';
+import { useState } from 'react';
+import { ShieldCheck, ShieldOff, SlidersHorizontal, Plus, X } from 'lucide-react';
 
 const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : '–');
 const money = (v) => (v == null ? 'no limit' : `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
@@ -43,7 +44,8 @@ const Seg = ({ options, value, onChange, testid }) => (
 
 // The order ticket: side, order type, size in lots or dollar risk, stop / target, and the rule guard (each account's
 // room before its daily loss limit or max drawdown, and whether this order fits)
-export default function OrderTicket({ symbol, last, ticket, setTicket, preview, guardRows, guardOn, setGuardOn, group, activeCount, onPlace, replay, canPlace }) {
+export default function OrderTicket({ symbol, last, ticket, setTicket, preview, guardRows, guardOn, setGuardOn, group, activeCount, onPlace, replay, canPlace, onProtect, templates = [], onSaveTemplate, onApplyTemplate, onRemoveTemplate }) {
+  const [showProtect, setShowProtect] = useState(false);
   const kind = ticket.type || 'market';
   const at = kind === 'market' ? last : Number(ticket.at);
   const blocked = guardOn && !replay ? guardRows.filter((r) => r.ticket && !r.ticket.ok) : [];
@@ -69,6 +71,16 @@ export default function OrderTicket({ symbol, last, ticket, setTicket, preview, 
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-3.5 py-3 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="templates">
+          {templates.map((t) => (
+            <span key={t.name} className="group inline-flex items-center h-6 rounded-full border border-[#363a45] text-[11px] hover:bg-[#2a2e39]">
+              <button type="button" onClick={() => onApplyTemplate?.(t)} className="pl-2.5 pr-1.5 h-full" data-testid="template-apply">{t.name}</button>
+              <button type="button" aria-label={`Remove ${t.name}`} onClick={() => onRemoveTemplate?.(t)} className="pr-1.5 h-full text-[#5d606b] hover:text-[#f23645]"><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+          <button type="button" onClick={() => { const name = window.prompt('Name this template (e.g. Gold scalp)'); if (name?.trim()) onSaveTemplate?.(name.trim()); }}
+            className="inline-flex items-center gap-1 h-6 px-2 rounded-full border border-dashed border-[#363a45] text-[11px] text-[#9598a1] hover:text-white" data-testid="template-save"><Plus className="w-3 h-3" />Template</button>
+        </div>
         {!replay && (
           <div className="space-y-1.5">
             <Seg options={TYPES} value={kind} onChange={(type) => setTicket((t) => ({ ...t, type, at: type === 'market' ? '' : t.at || (last != null ? String(Math.round((last + (((type === 'limit') === (t.side === 'buy')) ? -2 : 2)) * 100) / 100) : '') }))} testid="type" />
@@ -97,14 +109,21 @@ export default function OrderTicket({ symbol, last, ticket, setTicket, preview, 
             </button>
             {!guardRows.length && <p className="text-[#5d606b]">No active accounts in this group.</p>}
             {guardRows.map((r) => (
-              <div key={r.id} className={`flex items-center gap-2 ${r.ticket && !r.ticket.ok ? 'text-[#f23645]' : ''}`} data-testid="guard-row">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.ticket && !r.ticket.ok ? 'bg-[#f23645]' : r === lowest ? 'bg-[#ff9800]' : 'bg-[#089981]'}`} />
-                <span className="truncate">{r.name}</span>
-                <span className="ml-auto tabular-nums text-right" title={r.room != null ? `Left before its ${r.rule}` : 'No loss limits set'}>
-                  {r.ticket?.risk != null ? `${money(r.ticket.risk)} of ` : ''}{money(r.room)}
-                </span>
+              <div key={r.id} data-testid="guard-row">
+                <div className={`flex items-center gap-2 ${r.ticket && !r.ticket.ok ? 'text-[#f23645]' : ''}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.ticket && !r.ticket.ok ? 'bg-[#f23645]' : r === lowest ? 'bg-[#ff9800]' : 'bg-[#089981]'}`} />
+                  <span className="truncate">{r.name}</span>
+                  <span className="ml-auto tabular-nums text-right">
+                    {r.ticket?.risk != null ? `${money(r.ticket.risk)} of ` : ''}{money(r.room)}
+                  </span>
+                </div>
+                {r.protect && <ProtectLine p={r.protect} />}
               </div>
             ))}
+            <button type="button" onClick={() => setShowProtect((v) => !v)} className="w-full flex items-center gap-1.5 text-[#9598a1] hover:text-white" data-testid="protect-open">
+              <SlidersHorizontal className="w-3.5 h-3.5" />Protection{group?.protect && (group.protect.lock || group.protect.streak || group.protect.consistency) ? ' (on)' : ''}
+            </button>
+            {showProtect && <ProtectForm rules={group?.protect} onSave={(r) => { onProtect?.(r); setShowProtect(false); }} />}
             {lowest && <p className="text-[11px] text-[#787b86]" data-testid="guard-lowest">Lowest: <b className="font-medium text-[#ff9800]">{lowest.name}</b>, {money(lowest.room)} before its {lowest.rule}.{(lowest.open?.fail ?? lowest.ticket?.fail) != null ? ` Price fails it at ${f2(lowest.open?.fail ?? lowest.ticket?.fail)} (the orange line).` : ''}</p>}
           </div>
         )}
@@ -121,6 +140,45 @@ export default function OrderTicket({ symbol, last, ticket, setTicket, preview, 
               : 'Goes to every active account in the group'}
         </p>
       </div>
+    </div>
+  );
+}
+
+// Under an account in the rule guard: its profit lock, loss streak and consistency
+function ProtectLine({ p }) {
+  const bits = [];
+  if (p.lock) bits.push([`Day ${p.lock.day >= 0 ? '+' : '−'}$${Math.abs(p.lock.day).toFixed(2)} of $${p.lock.at} lock`, p.lock.hit]);
+  if (p.streak) bits.push([p.streak.until ? `Cooldown until ${p.streak.until.slice(11, 16)} UTC` : `${p.streak.losses} loss${p.streak.losses === 1 ? '' : 'es'} in a row (pause at ${p.streak.at})`, !!p.streak.until]);
+  if (p.consistency && p.consistency.pct != null) bits.push([`Best day ${p.consistency.pct}% of profit (cap ${p.consistency.cap}%)`, p.consistency.pct > p.consistency.cap]);
+  return (
+    <div className="pl-3.5 text-[11px] leading-snug space-y-0.5" data-testid="protect-line">
+      {bits.map(([t, warn]) => <div key={t} className={warn ? 'text-[#ff9800]' : 'text-[#787b86]'}>{t}</div>)}
+    </div>
+  );
+}
+
+// The group's protection rules: daily profit lock, loss-streak cooldown, consistency cap (0 = off)
+function ProtectForm({ rules, onSave }) {
+  const [r, setR] = useState({ lock: '', lockMode: 'block', streak: '', cooldown: 30, consistency: '', ...(rules || {}) });
+  const field = (k, label, hint, testid) => (
+    <label className="flex items-center gap-2" data-testid={testid}>
+      <span className="flex-1 text-[#9598a1]">{label}<span className="block text-[10px] text-[#5d606b]">{hint}</span></span>
+      <input value={r[k] || ''} onChange={(e) => setR({ ...r, [k]: e.target.value })} inputMode="decimal" placeholder="off"
+        className="w-16 h-7 px-1.5 rounded-md bg-[#131722] border border-[#363a45] text-center tabular-nums outline-none focus:border-[#2962ff]" />
+    </label>
+  );
+  return (
+    <div className="rounded-lg bg-[#131722]/60 p-2.5 space-y-2 animate-in fade-in-0 slide-in-from-top-1 duration-pop ease-pop calm:animate-none" data-testid="protect-form">
+      {field('lock', 'Daily profit lock ($)', 'Up this much today: stop new trades', 'protect-lock')}
+      <div className="flex gap-1">
+        {[['block', 'Block new trades'], ['breakeven', '+ stops to entry']].map(([id, l]) => (
+          <button key={id} type="button" onClick={() => setR({ ...r, lockMode: id })} className={`flex-1 h-6 rounded-md text-[11px] ${r.lockMode === id ? 'bg-[#2962ff] text-white' : 'bg-[#1e222d] text-[#9598a1]'}`} data-testid={`protect-mode-${id}`}>{l}</button>
+        ))}
+      </div>
+      {field('streak', 'Losses in a row', 'Then pause trading', 'protect-streak')}
+      {field('cooldown', 'Pause (minutes)', 'How long the pause lasts', 'protect-cooldown')}
+      {field('consistency', 'Consistency cap (%)', 'Warn when the best day is over this % of total profit', 'protect-consistency')}
+      <button type="button" onClick={() => onSave(r)} className="w-full h-7 rounded-md bg-[#2962ff] text-white text-xs font-semibold" data-testid="protect-save">Save for this group</button>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_CHART, CHART_PRESETS, cleanChartChange, CHART_KEYS } from './lib/chartTheme.js';
-import { accountRoom, copyQty, pointValue, mapSymbol, money2 } from './lib/copyRules.js';
+import { accountRoom, copyQty, pointValue, mapSymbol, money2, protectionFor } from './lib/copyRules.js';
 import { fetchCandles, candlesUrl } from './market/dukascopy.js';
 import { instrument } from './market/instruments.js';
 import { toBroker } from './market/brokerTime.js';
@@ -97,16 +97,22 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
   async function guard(groupId, t = null) {
     const members = (await run('TradingAccount', 'filter', { group_id: groupId })).filter((a) => (a.status || 'active') === 'active');
     const open = await run('AccountTrade', 'filter', { group_id: groupId, status: 'open' });
+    // Extra protection only costs a look at closed trades when the group has a rule on
+    let rules = null;
+    try { rules = (await run('CopyGroup', 'get', groupId)).protect || null; } catch { /* no group */ }
+    const on = rules && (Number(rules.lock) > 0 || Number(rules.streak) > 0 || Number(rules.consistency) > 0);
+    const closed = on ? await run('AccountTrade', 'filter', { group_id: groupId, status: 'closed' }) : [];
     return members.map((a) => {
       const r = accountRoom(a);
-      const row = { id: a.id, name: a.display_name || a.label, balance: r2(r.balance), room: fin(r.room), rule: r.rule, to_floor: fin(r.toFloor), to_daily: fin(r.toDaily) };
+      const row = { id: a.id, name: a.display_name || a.label, balance: r2(r.balance), day_pnl: r2(r.dayPnl), room: fin(r.room), rule: r.rule, to_floor: fin(r.toFloor), to_daily: fin(r.toDaily) };
+      if (on) row.protect = protectionFor(rules, a, closed.filter((x) => x.account_id === a.id));
       const mine = open.filter((x) => x.account_id === a.id);
       if (mine.length) row.open = { symbol: mine[0].symbol, fail: failPrice(mine.filter((x) => x.symbol === mine[0].symbol), r.room) };
       if (t && (t.event === 'buy' || t.event === 'sell')) {
         const pv = pointValue(mapSymbol(a.symbol_map, t.symbol));
         const { qty, stop } = copyQty(a, t, pv);
         const risk = stop > 0 && qty > 0 ? r2(stop * qty * pv) : null;
-        row.ticket = { qty, risk, ok: Number.isFinite(r.room) ? risk != null && risk <= r.room : true,
+        row.ticket = { qty, risk, blocked: row.protect?.blocked || null, ok: !row.protect?.blocked && (Number.isFinite(r.room) ? risk != null && risk <= r.room : true),
           fail: qty > 0 ? failPrice([{ side: t.event === 'buy' ? 'long' : 'short', qty, point_value: pv, entry: t.price }], r.room) : null };
       }
       return row;
@@ -170,6 +176,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
         const rows = await guard(group.id, { event: side, symbol, price: at, sl, qty: num(b.qty) || 1, risk_usd });
         const no = rows.find((r) => r.ticket && !r.ticket.ok);
         if (!no) return;
+        if (no.ticket.blocked) throw bad(`${no.name}: ${no.ticket.blocked}`);
         if (no.ticket.risk == null) throw bad(`Rule guard: add a stop loss so the risk can be checked against ${no.name}'s limits (or switch the guard off)`);
         throw bad(`Rule guard: ${no.name} would risk ${usd(no.ticket.risk)} with ${usd(no.room)} left before its ${no.rule}`);
       };
@@ -348,6 +355,48 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       return { ok: true, url: `/api/terminal/snap/${name}` };
     },
     snapFile: (name) => path.join(snaps, path.basename(String(name))),
+    predictions: () => Object.values(book.predictions).sort((a, b) => String(a.day).localeCompare(String(b.day))),
+    // Every group and account on one screen: balance, today, total, room before the limits, open trades, MT5 link
+    async overview(lanes = []) {
+      const groups = await run('CopyGroup', 'filter', {});
+      const accounts = await run('TradingAccount', 'filter', {});
+      const open = await run('AccountTrade', 'filter', { status: 'open' });
+      const row = (a) => {
+        const r = accountRoom(a);
+        const start = Number(a.start_balance) || 0;
+        return {
+          id: a.id, name: a.display_name || a.label, platform: a.platform, firm: a.firm || '', status: a.status || 'active', status_reason: a.status_reason || '',
+          balance: r2(r.balance), start: r2(start), total: r2(r.balance - start), today: r2(r.dayPnl), target: Number(a.target) || null,
+          room: fin(r.room), rule: r.rule, open: open.filter((t) => t.account_id === a.id).length, mt5: a.platform === 'MT5' ? (lanes.includes(a.id) ? 'fast lane' : a.daemon_state || (a.mt5_seen_at ? 'polling' : 'not connected')) : null,
+        };
+      };
+      const out = groups.map((g) => ({ id: g.id, name: g.name, enabled: g.enabled !== false, protect: g.protect || null, accounts: accounts.filter((a) => a.group_id === g.id).map(row) }));
+      const loose = accounts.filter((a) => !groups.some((g) => g.id === a.group_id));
+      if (loose.length) out.push({ id: '', name: 'Not in a group', enabled: true, accounts: loose.map(row) });
+      return out;
+    },
+    // A group's protection rules (profit lock, loss-streak cooldown, consistency cap)
+    async protect(groupId, rules) {
+      const n = (v, max) => { const x = Number(v); return x > 0 ? Math.min(x, max) : 0; };
+      const clean = { lock: n(rules?.lock, 1e7), lockMode: rules?.lockMode === 'breakeven' ? 'breakeven' : 'block', streak: Math.round(n(rules?.streak, 20)), cooldown: Math.round(n(rules?.cooldown, 1440)) || 30, consistency: Math.round(n(rules?.consistency, 100)) };
+      await run('CopyGroup', 'update', String(groupId), { protect: clean });
+      return clean;
+    },
+    // Profit lock in break-even mode: once an account is up the lock amount today, the Terminal's open trades on
+    // its group get their stops moved to the entry (once per trade)
+    async sweepLocks() {
+      for (const g of await run('CopyGroup', 'filter', {})) {
+        if (!(Number(g.protect?.lock) > 0) || g.protect.lockMode !== 'breakeven') continue;
+        const rows = await guard(g.id);
+        if (!rows.some((r) => r.protect?.lock?.hit)) continue;
+        const open = (await this.positions(g.id)).filter((t) => t.closable && Number(t.sl) !== Number(t.entry));
+        for (const id of new Set(open.map((t) => t.trade_id))) {
+          const t = open.find((x) => x.trade_id === id);
+          await this.order({ event: 'set_sl', group_id: g.id, symbol: t.symbol, sl: t.entry, price: t.entry, trade_id: id, guard: false });
+          log(`terminal: profit lock on ${g.name}, stop to break-even on ${id}`);
+        }
+      }
+    },
     async positions(groupId) {
       const q = { status: 'open', ...(groupId ? { group_id: groupId } : {}) };
       const trades = await run('AccountTrade', 'filter', q, '-opened_at', 200);

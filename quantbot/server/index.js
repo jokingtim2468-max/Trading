@@ -188,6 +188,9 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     if (req.method === 'POST' && p === 'order') return send(res, 200, await terminal.order(await body()));
     if (req.method === 'GET' && p === 'positions') return send(res, 200, await terminal.positionsAll(url.searchParams.get('group')));
     if (req.method === 'POST' && p === 'guard') { const b = await body(); return send(res, 200, { accounts: await terminal.guard(b.group_id, b.ticket || null) }); }
+    if (req.method === 'GET' && p === 'predictions') return send(res, 200, { predictions: terminal.predictions() });
+    if (req.method === 'GET' && p === 'overview') return send(res, 200, { groups: await terminal.overview(lane?.connected() || []) });
+    if (req.method === 'POST' && p === 'protect') { const b = await body(); return send(res, 200, { protect: await terminal.protect(b.group_id, b.rules) }); }
     if (req.method === 'POST' && p === 'flatten') return send(res, 200, await terminal.flatten((await body()).price));
     if (req.method === 'GET' && p === 'quote') {
       // Live MT5 tick when the fast lane has one (last 15 s), else Dukascopy's latest minute candles
@@ -350,6 +353,8 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     onTick: (t) => terminal.tick(t.symbol, t.bid, t).then((r) => { if (r.fired.length || r.moved.length || r.alerts.length) lane.emit('book', r); }).catch(() => {}),
   });
   terminal.onBook = (r) => lane.emit('book', r);
+  const lockTimer = setInterval(() => terminal.sweepLocks().catch((e) => app?.log?.(`profit lock: ${e.message}`)), 5000);
+  lockTimer.unref?.();
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
@@ -440,6 +445,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   const close = async () => {
     news.stop();
     clearInterval(payoutTimer);
+    clearInterval(lockTimer);
     backend.flush();
     await lane.close();
     if (vite) await vite.close();

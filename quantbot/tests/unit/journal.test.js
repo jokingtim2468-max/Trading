@@ -47,3 +47,27 @@ test('replay: the stop is checked before the target, trailing only tightens', ()
   assert.equal(tr.sl, 102);
   assert.equal(stepPractice([tr], { high: 104, low: 102.5, close: 103 }).open[0].sl, 102);
 });
+
+import { zonedUtc, sessionBoxes } from '../../src/lib/terminalLive.js';
+
+test('session times follow each city\'s daylight saving', () => {
+  assert.equal(new Date(zonedUtc('2026-07-15', 9, 30, 'America/New_York')).toISOString(), '2026-07-15T13:30:00.000Z');
+  assert.equal(new Date(zonedUtc('2026-01-15', 9, 30, 'America/New_York')).toISOString(), '2026-01-15T14:30:00.000Z');
+  assert.equal(new Date(zonedUtc('2026-07-15', 8, 0, 'Europe/London')).toISOString(), '2026-07-15T07:00:00.000Z');
+  assert.equal(new Date(zonedUtc('2026-07-15', 9, 0, 'Asia/Tokyo')).toISOString(), '2026-07-15T00:00:00.000Z');
+  const b = sessionBoxes(Date.parse('2026-10-16T00:00:00Z'), Date.parse('2026-10-18T23:00:00Z'));
+  assert.deepEqual([...new Set(b.map((x) => new Date(x.from).toISOString().slice(0, 10)))], ['2026-10-16', '2026-10-19'], 'no weekend sessions');
+});
+
+import { weekStart, weekly, scorecard } from '../../src/lib/journal.js';
+
+test('weekly report and the model scorecard', () => {
+  const w = weekStart('2026-10-14T12:00:00Z');
+  assert.equal(new Date(w).toISOString(), '2026-10-12T00:00:00.000Z');
+  const list = [{ pnl: 300, exit_time: '2026-10-13T10:00:00Z', setup: 'Breakout' }, { pnl: -100, exit_time: '2026-10-14T10:00:00Z', setup: 'Range' }, { pnl: 50, exit_time: '2026-10-20T10:00:00Z' }];
+  const r = weekly(list, w, [{ kind: 'block', created_date: '2026-10-13T09:00:00Z' }, { kind: 'open', created_date: '2026-10-13T09:00:00Z' }]);
+  assert.deepEqual([r.trades, r.net, r.bestSetup.setup, r.worstSetup.setup, r.bestDay.day, r.blocks], [2, 200, 'Breakout', 'Range', '2026-10-13', 1]);
+  const s = scorecard([{ day: '2026-10-13', high: 4740, low: 4690, confidence: 80 }, { day: '2026-10-14', high: 4760, low: 4700, confidence: 40 }],
+    [{ day: '2026-10-13', high: 4745, low: 4688 }, { day: '2026-10-14', high: 4720, low: 4650 }]);
+  assert.deepEqual([s.days, s.hitRate, s.rows[0].hit, s.rows[1].hit, s.buckets[2].hitRate, s.buckets[0].hitRate], [2, 50, true, false, 100, 0]);
+});

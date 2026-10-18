@@ -74,3 +74,34 @@ export function bySetup(list) {
   for (const t of list) { const k = t.setup || 'No setup'; if (!m.has(k)) m.set(k, []); m.get(k).push(t); }
   return [...m.entries()].map(([setup, l]) => ({ setup, ...stats(l) })).sort((a, b) => b.net - a.net);
 }
+
+// Monday 00:00 UTC of a moment's week
+export const weekStart = (t) => { const d = new Date(Date.parse(t)); const day = (d.getUTCDay() + 6) % 7; return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day); };
+
+// One week's report: stats, best and worst setup, best and worst day, and the rule-breaks the app blocked
+export function weekly(list, start, events = []) {
+  const end = start + 7 * 86400000;
+  const inWeek = list.filter((t) => { const x = Date.parse(t.exit_time); return x >= start && x < end; });
+  const days = new Map();
+  for (const t of inWeek) { const d = String(t.exit_time).slice(0, 10); days.set(d, (days.get(d) || 0) + t.pnl); }
+  const dayList = [...days.entries()].map(([day, pnl]) => ({ day, pnl: Math.round(pnl * 100) / 100 })).sort((a, b) => b.pnl - a.pnl);
+  const setups = bySetup(inWeek);
+  const blocks = events.filter((e) => { const x = Date.parse(e.created_date); return x >= start && x < end && ['block', 'limit'].includes(e.kind); });
+  return { start, end, ...stats(inWeek), bestSetup: setups[0] || null, worstSetup: setups.length > 1 ? setups.at(-1) : null, bestDay: dayList[0] || null, worstDay: dayList.length > 1 ? dayList.at(-1) : null, blocks: blocks.length, trades_list: inWeek };
+}
+
+// The model's daily high / low against what happened: daily = [{ day, high, low }] (finished days only)
+export function scorecard(preds, daily) {
+  const byDay = new Map(daily.map((d) => [d.day, d]));
+  const rows = [];
+  for (const p of preds) {
+    const d = byDay.get(p.day);
+    if (!d) continue;
+    const range = d.high - d.low || 1;
+    const hiErr = Math.round((d.high - p.high) * 100) / 100, loErr = Math.round((p.low - d.low) * 100) / 100;
+    rows.push({ ...p, actualHigh: d.high, actualLow: d.low, hiErr, loErr, hit: Math.abs(hiErr) <= range * 0.25 && Math.abs(loErr) <= range * 0.25 });
+  }
+  const bucket = (lo, hi) => { const l = rows.filter((r) => r.confidence != null && r.confidence >= lo && r.confidence < hi); return { label: `${lo}-${hi === 101 ? 100 : hi - 1}%`, days: l.length, hitRate: l.length ? Math.round((l.filter((r) => r.hit).length / l.length) * 100) : null }; };
+  const avg = (k) => (rows.length ? Math.round((rows.reduce((s, r) => s + Math.abs(r[k]), 0) / rows.length) * 100) / 100 : null);
+  return { rows, days: rows.length, hitRate: rows.length ? Math.round((rows.filter((r) => r.hit).length / rows.length) * 100) : null, avgHighErr: avg('hiErr'), avgLowErr: avg('loErr'), buckets: [bucket(0, 50), bucket(50, 70), bucket(70, 101)] };
+}

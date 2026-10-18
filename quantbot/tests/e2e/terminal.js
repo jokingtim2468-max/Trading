@@ -19,7 +19,7 @@ await fetch(`${base}/api/news/refresh`, { method: 'POST' });
 const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 const g = await inv('CopyGroup', 'create', { name: 'FTMO 100k', enabled: true });
 await inv('TradingAccount', 'create', { label: 'FTMO 1', platform: 'MT5', group_id: g.id, status: 'active', start_balance: 100000, balance: 99200, max_loss: 10000, daily_loss: 5000, day_key: day, day_start: 100000 });
-await inv('TradingAccount', 'create', { label: 'FTMO 2', platform: 'MT5', group_id: g.id, status: 'active', start_balance: 100000, balance: 100400, max_loss: 10000, daily_loss: 5000 });
+await inv('TradingAccount', 'create', { label: 'FTMO 2', platform: 'MT5', group_id: g.id, status: 'active', start_balance: 100000, balance: 100400, max_loss: 10000, daily_loss: 5000, day_key: day, day_start: 100000 });
 const b = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
 const p = await b.newPage({ viewport: { width: 1600, height: 900 } });
 const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
@@ -102,6 +102,31 @@ ok(/One-click buy/.test(await tid('hover-help').innerText()), 'one-click help');
 await p.screenshot({ path: `${OUT}/a5b-oneclick-help.png` });
 await tid('entry-trail').hover(); await p.waitForTimeout(1300);
 await p.screenshot({ path: `${OUT}/a5c-trail-help.png` });
+// Protection: a $500 daily profit lock blocks FTMO 2 (up $400 already; set the lock under that)
+await tid('protect-open').click();
+await tid('protect-lock').locator('input').fill('300'); await tid('protect-streak').locator('input').fill('3');
+await tid('protect-save').click(); await p.waitForTimeout(1500);
+ok(/Day \+\$400.00 of \$300 lock/.test(await tid('guard').innerText()), 'FTMO 2 shows its profit lock hit');
+ok(/Rule guard: FTMO 2 would/.test(await tid('ticket-note').innerText()) || await tid('ticket-place').isDisabled(), 'ticket blocked by the lock');
+await p.screenshot({ path: `${OUT}/a5d-protection.png` });
+await tid('protect-open').click(); await tid('protect-lock').locator('input').fill(''); await tid('protect-save').click(); await p.waitForTimeout(1200);
+// Template and auto bracket
+await tid('ticket-sl').fill(String((last - 6).toFixed(2))); await tid('ticket-tp').fill(String((last + 12).toFixed(2)));
+p.once('dialog', (d) => d.accept('Gold scalp'));
+await tid('template-save').click(); await p.waitForTimeout(300);
+await tid('ticket-sl').fill(''); await tid('ticket-tp').fill('');
+await tid('template-apply').click(); await p.waitForTimeout(300);
+ok((await tid('ticket-sl').inputValue()) === (last - 6).toFixed(2).replace(/\.?0+$/, '') || Number(await tid('ticket-sl').inputValue()) === Math.round((last - 6) * 100) / 100, 'template restores the stop distance');
+ok((await tid('session-box').count()) > 0, 'session boxes on the chart');
+// Auto bracket + hotkey: B buys at the one-click size with a 5-point stop and a 2R target
+await tid('ticket-sl').fill(''); await tid('ticket-tp').fill('');
+await tid('open-settings').click(); await p.waitForTimeout(300);
+await tid('pref-bracket').click(); await tid('pref-hotkeys').click();
+await p.keyboard.press('Escape'); await p.waitForTimeout(300);
+await p.mouse.click(box.x + 400, box.y + 300); await p.keyboard.press('b'); await p.waitForTimeout(2000);
+const hk = (await (await fetch(`${base}/api/terminal/positions`)).json()).positions.filter((x) => x.side === 'long');
+ok(hk.length > 0 && hk.every((x) => Math.abs(x.sl - (x.entry - 5)) < 0.02 && Math.abs(x.tp - (x.entry + 10)) < 0.02), `hotkey B bought with the auto bracket: ${hk.map((x) => `${x.entry}/${x.sl}/${x.tp}`).join(', ')}`);
+await tid('open-settings').click(); await p.waitForTimeout(300); await tid('pref-hotkeys').click(); await tid('pref-bracket').click(); await p.keyboard.press('Escape');
 // Flatten all
 await tid('flatten-all').click(); await p.waitForTimeout(2500);
 const after = await (await fetch(`${base}/api/terminal/positions`)).json();
@@ -118,6 +143,7 @@ await p.screenshot({ path: `${OUT}/a6-flatten.png` });
   const ticker = setInterval(() => ea.write(`T|XAUUSD.r|${(last + 0.4).toFixed(2)}|${(last + 0.7).toFixed(2)}|${Date.now()}\n`), 200);
   await p.waitForTimeout(1500);
   ok(/MT5 live/.test(await tid('latency').innerText()), `badge live: ${await tid('latency').innerText()}`);
+  await tid('ticket-sl').fill(String((last - 20).toFixed(2)));
   await tid('oneclick-buy').click(); await p.waitForTimeout(1500);
   ok(/Checked and sent to MT5 in \d/.test(await tid('toasts').innerText()), 'toast shows the app time');
   ok(/app \d+\.\d+ ms/.test(await tid('latency').innerText()) && /fill \d/.test(await tid('latency').innerText()), `badge times: ${await tid('latency').innerText()}`);
@@ -135,6 +161,10 @@ const rb = await tid('replay-bar').innerText();
 const want = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 ok(/Practice P&L/.test(rb) && rb.includes(want), `replay starts on ${want}: ${rb.split('\n').join(' | ')}`);
 await p.screenshot({ path: `${OUT}/a7-replay.png` });
+// Overview
+await p.goto(`${base}/overview`); await p.waitForTimeout(1500);
+ok((await tid('overview-row').count()) === 2, 'overview lists both accounts');
+await p.screenshot({ path: `${OUT}/a9-overview.png`, fullPage: true });
 // Journal
 await p.goto(`${base}/journal`); await p.waitForTimeout(2500);
 ok((await tid('journal-row').count()) >= 4, `journal rows: ${await tid('journal-row').count()}`);
@@ -142,6 +172,7 @@ fs.writeFileSync(`${OUT}/hist.tsv`, 'Time\tPosition\tSymbol\tType\tVolume\tPrice
 await tid('journal-file').setInputFiles(`${OUT}/hist.tsv`); await p.waitForTimeout(1500);
 ok(/1 trade imported/.test(await tid('journal-msg').innerText()), 'history imported');
 await tid('journal-setup').first().selectOption('Breakout'); await p.waitForTimeout(600);
+ok(/Weekly report/.test(await tid('week-report').innerText()) && /Model scorecard/.test(await tid('scorecard').innerText()), 'weekly report and scorecard on the journal');
 await p.screenshot({ path: `${OUT}/a8-journal.png`, fullPage: true });
 fs.rmSync(`${OUT}/hist.tsv`);
 console.log('errors:', errs.filter((e) => !/favicon|404/.test(e)).slice(0, 8));

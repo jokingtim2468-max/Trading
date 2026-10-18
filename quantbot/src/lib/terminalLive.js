@@ -40,3 +40,39 @@ export function stepPractice(open, bar) {
 }
 
 export const closePractice = (t, price, reason = 'manual') => ({ ...t, exit: price, pnl: pnlOf(t, price), reason });
+
+// UTC ms of a wall-clock time in a time zone on a date (DST included): guess, then correct by the zone's offset
+const OFF = new Map();
+function offsetMin(ms, zone) {
+  let f = OFF.get(zone);
+  if (!f) { f = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); OFF.set(zone, f); }
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return (Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(ms / 60000) * 60000) / 60000;
+}
+export function zonedUtc(day, hh, mm, zone) {
+  const guess = Date.parse(`${day}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00Z`);
+  return guess - offsetMin(guess - offsetMin(guess, zone) * 60000, zone) * 60000;
+}
+
+// The trading sessions in local time where they happen
+export const SESSIONS = [
+  { name: 'Asia', zone: 'Asia/Tokyo', from: [9, 0], to: [15, 0], color: '#e8c468' },
+  { name: 'London', zone: 'Europe/London', from: [8, 0], to: [16, 30], color: '#2962ff' },
+  { name: 'New York', zone: 'America/New_York', from: [9, 30], to: [16, 0], color: '#089981' },
+];
+
+// Session boxes for the days between two UTC times, weekdays only -> [{ from, to (UTC ms), name, color }]
+export function sessionBoxes(fromMs, toMs) {
+  const out = [];
+  for (let d = Math.floor(fromMs / 86400000) * 86400000; d <= toMs + 86400000; d += 86400000) {
+    const wd = new Date(d).getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    const day = new Date(d).toISOString().slice(0, 10);
+    for (const s of SESSIONS) {
+      const a = zonedUtc(day, ...s.from, s.zone), b = zonedUtc(day, ...s.to, s.zone);
+      if (b >= fromMs && a <= toMs + 86400000) out.push({ from: a, to: b, name: s.name, color: s.color });
+    }
+    if (out.length > 200) break;
+  }
+  return out;
+}

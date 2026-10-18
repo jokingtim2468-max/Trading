@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { cleanChartChange, DEFAULT_CHART } from '../../server/lib/chartTheme.js';
 import { createTerminal, jsonIn, editorPrompt, failPrice, cleanPrediction } from '../../server/terminal.js';
-import { accountRoom, copyQty } from '../../server/lib/copyRules.js';
+import { accountRoom, copyQty, protectionFor } from '../../server/lib/copyRules.js';
 import { startServer } from '../../server/index.js';
 import { moveAt, moneyAt, usdSigned, groupTrades } from '../../src/lib/tradeMath.js';
 
@@ -94,6 +94,24 @@ describe('Account protection', () => {
     assert.equal(failPrice([{ side: 'long', qty: 1, point_value: 100, entry: 4715 }], 4000), 4675);
     assert.equal(failPrice([{ side: 'short', qty: 2, point_value: 100, entry: 4715 }], 4000), 4735);
   });
+
+  test('profit lock, loss-streak cooldown and the consistency meter', () => {
+    const now = Date.parse('2026-10-14T15:00:00Z');
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(now));
+    const a = { start_balance: 100000, balance: 101600, day_key: day, day_start: 100000 };
+    const t = (pnl, at) => ({ pnl, closed_at: at });
+    const closed = [t(900, '2026-10-12T15:00:00Z'), t(300, '2026-10-13T15:00:00Z'), t(-200, '2026-10-14T14:10:00Z'), t(-150, '2026-10-14T14:40:00Z'), t(-250, '2026-10-14T14:50:00Z')];
+    let p = protectionFor({ lock: 1500 }, a, closed, now);
+    assert.equal(p.lock.hit, true);
+    assert.match(p.blocked, /daily profit lock: up \$1,600.00 today \(lock at \$1,500.00\)/);
+    p = protectionFor({ streak: 3, cooldown: 30 }, { ...a, balance: 99000 }, closed, now);
+    assert.equal(p.streak.losses, 3);
+    assert.match(p.blocked, /3 losses in a row: cooldown until 15:20 UTC/);
+    assert.equal(protectionFor({ streak: 3, cooldown: 5 }, a, closed, now).blocked, null, 'the cooldown is over');
+    p = protectionFor({ consistency: 50 }, a, closed, now);
+    assert.deepEqual(p.consistency, { best: 900, total: 600, pct: 150, cap: 50 });
+  });
+
   test('size by dollar risk', () => {
     assert.equal(copyQty({ platform: 'MT5' }, { price: 4715, sl: 4705, risk_usd: 250 }, 100).qty, 0.25);
     assert.equal(copyQty({ platform: 'MT5', risk_usd: 500 }, { price: 4715, sl: 4705 }, 100).qty, 0.5, "the account's own risk when the order has none");

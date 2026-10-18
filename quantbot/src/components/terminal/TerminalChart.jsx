@@ -14,7 +14,7 @@ const DRAW_TOOLS = ['trend', 'rect', 'fib'];
 export default function TerminalChart({
   bars, settings, levels = [], lines = [], tool, onAddLine, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady,
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [],
 }) {
   const box = useRef(null);
   const chart = useRef(null);
@@ -120,7 +120,7 @@ export default function TerminalChart({
   };
 
   // Where everything on the overlay sits on screen, re-read every frame (the chart scrolls and zooms)
-  const [ys, setYs] = useState({ map: {}, pend: {}, draw: [], news: [], scale: 60, w: 0 });
+  const [ys, setYs] = useState({ map: {}, pend: {}, draw: [], news: [], ses: [], scale: 60, w: 0 });
   const [drag, setDrag] = useState(null); // { key, trade, kind: 'sl' | 'tp' | 'pending', price }
   const [draft, setDraft] = useState(null); // drawing in progress
   const [picked, setPicked] = useState(null); // selected drawing id
@@ -141,16 +141,17 @@ export default function TerminalChart({
         const pt = (q) => ({ x: timeToX(q.time), y: at(q.price) });
         const draw = [...drawings, ...(draft ? [draft] : [])].map((d) => ({ id: d.id, a: pt(d.a), b: pt(d.b) }));
         const nx = news.map((n) => ({ ...n, x: timeToX(n.time) }));
+        const ses = sessions.map((x) => ({ ...x, x1: timeToX(x.from), x2: timeToX(x.to) })).filter((x) => x.x1 != null && x.x2 != null && x.x2 > 0 && x.x1 < (box.current?.clientWidth || 0));
         const scale = chart.current.priceScale('right').width();
         const w = box.current?.clientWidth || 0;
-        const next = { map, pend, draw, news: nx, scale, w };
+        const next = { map, pend, draw, news: nx, ses, scale, w };
         setYs((old) => (JSON.stringify(old) === JSON.stringify(next) ? old : next));
       }
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [trades, pending, drag, drawings, draft, news, barSec]);
+  }, [trades, pending, drag, drawings, draft, news, barSec, sessions]);
 
   const priceAtY = (clientY) => {
     const r = box.current.getBoundingClientRect();
@@ -219,6 +220,12 @@ export default function TerminalChart({
       <div ref={box} onContextMenu={onContext} className={`absolute inset-0 ${tool === 'hline' ? 'cursor-crosshair' : ''}`} data-testid="terminal-chart" />
       {/* Drawings and news */}
       <svg className="absolute inset-0 z-[5] pointer-events-none overflow-hidden" style={{ width: Math.max(0, ys.w - ys.scale), height: '100%' }} data-testid="drawings">
+        {ys.ses.map((x) => (
+          <g key={`${x.name}${x.from}`} data-testid="session-box">
+            <rect x={x.x1} y={0} width={Math.max(1, x.x2 - x.x1)} height="100%" fill={x.color} fillOpacity=".06" />
+            <text x={x.x1 + 4} y={ys.h ? ys.h - 30 : '94%'} fill={x.color} fillOpacity=".7" fontSize="10">{x.name}</text>
+          </g>
+        ))}
         {ys.news.map((n) => n.x != null && n.x > 0 && n.x < ys.w - ys.scale && (
           <g key={n.key} data-testid="news-marker">
             <line x1={n.x} x2={n.x} y1={0} y2="100%" stroke="#f23645" strokeOpacity=".7" strokeDasharray="3 4" />
