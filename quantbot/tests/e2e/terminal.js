@@ -76,7 +76,13 @@ console.log('news lines in view:', await tid('news-marker').count(), '(the fake 
 await p.screenshot({ path: `${OUT}/a4-chart.png` });
 await tid('tab-orders').click(); await p.waitForTimeout(300);
 ok((await tid('order-row').count()) === 1, 'orders tab');
-await tid('open-settings').click(); await p.waitForTimeout(400); await p.screenshot({ path: `${OUT}/a5-settings.png` }); await p.keyboard.press('Escape');
+await tid('open-settings').click(); await p.waitForTimeout(400);
+const wav = path.join(OUT, 'beep.wav');
+{ const n = 4410, b = Buffer.alloc(44 + n * 2); b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(44100, 24); b.writeUInt32LE(88200, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40); fs.writeFileSync(wav, b); }
+await tid('fill-sound-file').setInputFiles(wav); await p.waitForTimeout(500);
+ok(/Fill sound: beep\.wav/.test(await tid('fill-sound').innerText()), 'own fill sound picked');
+fs.rmSync(wav);
+await p.screenshot({ path: `${OUT}/a5-settings.png` }); await p.keyboard.press('Escape');
 // One-click: size 0.5 from the top-left box, the ticket's stop goes with it
 await tid('type-market').click();
 await tid('oneclick-qty').fill('0.49'); await tid('oneclick-qty-up').click();

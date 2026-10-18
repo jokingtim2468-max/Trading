@@ -10,7 +10,7 @@ import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import { mergeCandles, sliceBars, stepPractice, closePractice } from '@/lib/terminalLive';
-import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say } from '@/lib/terminalPrefs';
+import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
 import { toBroker } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
@@ -114,6 +114,8 @@ export default function Terminal() {
   const shot = useRef(null);
   const toast = (t) => {
     setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
+    // A fill with the trader's own sound plays only that; otherwise the chime, then the voice
+    if (t.filled && prefs.voice && prefs.fillSound) { playFile(prefs.fillSound); return; }
     if (prefs.sound) chime(t.kind === 'error' ? 'error' : t.kind === 'news' ? 'news' : t.kind === 'alert' ? 'alert' : 'ok');
     if (prefs.voice && t.filled) say('Order filled');
   };
@@ -583,6 +585,22 @@ function SettingsMenu({ prefs, setPrefs }) {
         </div>
         <Switch k="sound" label="Sounds" />
         <Switch k="voice" label="Say “Order filled”" />
+        <div className="flex items-center gap-1.5 py-1.5" data-testid="fill-sound">
+          <span className="flex-1 truncate">{prefs.fillSound ? `Fill sound: ${prefs.fillSoundName || 'your file'}` : 'Fill sound: PC voice'}</span>
+          <label className="h-6 px-2 rounded-md text-xs bg-[#131722] hover:bg-[#2a2e39] cursor-pointer inline-flex items-center" data-testid="fill-sound-pick">Choose…
+            <input type="file" accept="audio/*" className="hidden" data-testid="fill-sound-file" onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (!f) return;
+              if (f.size > 1024 * 1024) { alert('Pick a sound under 1 MB (a short clip)'); return; }
+              const r = new FileReader();
+              r.onload = () => { setPrefs({ fillSound: r.result, fillSoundName: f.name, voice: true }); playFile(r.result); };
+              r.readAsDataURL(f);
+            }} />
+          </label>
+          <button type="button" onClick={() => (prefs.fillSound ? playFile(prefs.fillSound) : (chime('ok'), say('Order filled')))} className="h-6 px-2 rounded-md text-xs bg-[#131722] hover:bg-[#2a2e39]" data-testid="fill-sound-test">Test</button>
+          {prefs.fillSound && <button type="button" onClick={() => setPrefs({ fillSound: '', fillSoundName: '' })} className="h-6 px-2 rounded-md text-xs bg-[#131722] hover:bg-[#2a2e39]">Reset</button>}
+        </div>
         <div className="h-px bg-[#2a2e39] my-1.5" />
         <div className="text-xs text-[#787b86] my-1.5">Alerts</div>
         <Switch k="levelAlerts" label="When price touches the model's high / low" />

@@ -64,6 +64,8 @@ export const TIPS = {
   'pref-pos-*': ['Toast corner', 'Where notifications appear.'],
   'pref-sound': ['Sounds', 'A short chime for fills, alerts and errors, and a longer one before news.'],
   'pref-voice': ['Voice', 'A voice says “Order filled” when an order fills (uses your PC’s own voice).'],
+  'fill-sound-pick': ['Your fill sound', 'Pick a short audio file (mp3, wav, under 1 MB) to play instead of the voice when an order fills. Kept on this PC only.'],
+  'fill-sound-test': ['Test', 'Plays the fill sound now.'],
   'pref-levelAlerts': ['Model line alerts', 'A notification when price touches today’s predicted high or low.'],
   'pref-newsMarkers': ['News lines', 'Red dashed lines on the chart at upcoming high-impact USD news.'],
   'pref-newsToast': ['News warning', 'A notification 5 minutes before high-impact USD news.'],

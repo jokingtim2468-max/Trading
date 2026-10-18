@@ -46,3 +46,8 @@ export function say(text) {
     setTimeout(() => s.speak(u), 260);
   } catch { /* no speech on this PC */ }
 }
+
+// The trader's own fill sound (an audio file they picked, kept in this browser as a data URL)
+export function playFile(url) {
+  try { const a = new Audio(url); a.volume = 0.9; a.play().catch(() => {}); } catch { /* no audio */ }
+}
