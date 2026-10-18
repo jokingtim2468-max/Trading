@@ -2,7 +2,8 @@
 // events), on blocked weekdays, in blocked time windows and on blocked dates or weeks. Times are in the group's time
 // zone, which is this PC's time zone unless set otherwise. Shared by the server's copier and the app.
 
-export const pcZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+let zone0 = null;
+export const pcZone = () => (zone0 ??= Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
 export const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export const IMPACTS = ['high', 'medium', 'low', 'holiday'];
 
@@ -39,17 +40,30 @@ export function currenciesFor(symbol) {
 }
 
 // Wall-clock parts of a moment in a time zone
+// (formatters cached per zone: building one costs ~0.2 ms on the order path)
+const FMT = new Map();
+const fmt = (tz, kind, opts) => { const k = `${kind}|${tz}`; if (!FMT.has(k)) FMT.set(k, new Intl.DateTimeFormat('en-US', { timeZone: tz, ...opts })); return FMT.get(k); };
 export function partsIn(ms, tz) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23',
+  const p = Object.fromEntries(fmt(tz, 'parts', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hourCycle: 'h23',
   }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
   return { date: `${p.year}-${p.month}-${p.day}`, minutes: Number(p.hour) * 60 + Number(p.minute), weekday: WEEKDAYS.indexOf(p.weekday), hhmm: `${p.hour}:${p.minute}` };
 }
 const toMin = (hhmm) => { const [h, m] = String(hhmm || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
-export const timeIn = (ms, tz) => new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
+export const timeIn = (ms, tz) => fmt(tz, 'time', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(ms));
 
-// News events that block this symbol, each with its blocked window [from, to] in ms
+// News events that block this symbol, each with its blocked window [from, to] in ms (memoized per calendar,
+// rules and symbol: the calendar only changes every 30 minutes, the order path asks on every order)
+const WINDOWS = new WeakMap();
 export function newsWindows(rules, events, symbol) {
+  if (!Array.isArray(events)) return buildWindows(rules, events, symbol);
+  let m = WINDOWS.get(events);
+  if (!m) { m = new Map(); WINDOWS.set(events, m); }
+  const k = `${symbol}|${JSON.stringify(rules || {})}`;
+  if (!m.has(k)) { if (m.size > 200) m.clear(); m.set(k, buildWindows(rules, events, symbol)); }
+  return m.get(k);
+}
+function buildWindows(rules, events, symbol) {
   const r = { ...DEFAULT_BLACKOUT, ...rules };
   const tags = r.currencies?.length ? new Set(r.currencies.map((c) => c.toUpperCase())) : tagsFor(symbol);
   const out = [];

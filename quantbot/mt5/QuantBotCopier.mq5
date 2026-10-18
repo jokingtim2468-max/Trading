@@ -5,9 +5,12 @@
 //| 2. MT5: Tools > Options > Expert Advisors > Allow WebRequest for   |
 //|    listed URL: add the http://127.0.0.1:<port> part of it.        |
 //| 3. Paste the address in QuantBotUrl and allow Algo Trading.       |
+//| Fast lane: the EA also opens a socket to QuantBot (same address,  |
+//| port + 1) to stream live ticks and get orders the moment they're  |
+//| checked, without polling. Polling stays as the fallback.          |
 //+------------------------------------------------------------------+
 #property copyright "QuantBot"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -16,9 +19,16 @@ input string QuantBotUrl = "http://127.0.0.1:5174/mt5/PASTE_KEY/PASTE_ACCOUNT"; 
 input int    PollMs      = 1000;     // How often to ask QuantBot for orders (ms)
 input ulong  Magic       = 26032026; // Magic number of QuantBot's trades
 input int    SlippagePts = 50;       // Max slippage in points
+input bool   FastLane    = true;     // Live ticks to QuantBot and instant orders over a socket
+input int    FastLanePort = 0;       // Socket port (0 = the Copier address's port + 1)
 
 CTrade trade;
 datetime lastWarn = 0;
+int      sock = INVALID_HANDLE;   // fast lane socket
+string   inbuf = "";
+ulong    lastConnect = 0, lastPoll = 0;
+string   laneHost = "127.0.0.1", laneKey = "", laneAccount = "";
+int      lanePort = 0;
 
 int OnInit()
 {
@@ -30,14 +40,85 @@ int OnInit()
       Alert("QuantBot Copier: paste the Copier address from QuantBot into QuantBotUrl.");
       return INIT_PARAMETERS_INCORRECT;
    }
-   EventSetMillisecondTimer(MathMax(250, PollMs));
+   // http://host:port/mt5/<key>/<account> -> the fast lane's host, port, key and account
+   string parts[];
+   int n = StringSplit(QuantBotUrl, '/', parts);
+   if(n >= 6)
+   {
+      laneKey = parts[n - 2]; laneAccount = parts[n - 1];
+      string hp[];
+      if(StringSplit(parts[2], ':', hp) == 2) { laneHost = hp[0]; lanePort = (int)StringToInteger(hp[1]) + 1; }
+   }
+   if(FastLanePort > 0) lanePort = FastLanePort;
+   // 1 ms timer: orders are read as soon as they arrive (Windows timers fire every ~1-16 ms), and on every tick
+   EventSetMillisecondTimer(1);
    Print("QuantBot Copier started for ", AccountInfoString(ACCOUNT_NAME), " #", AccountInfoInteger(ACCOUNT_LOGIN));
    return INIT_SUCCEEDED;
 }
 
-void OnDeinit(const int reason) { EventKillTimer(); }
+void OnDeinit(const int reason) { EventKillTimer(); LaneClose(); }
 
-void OnTimer() { Poll(); }
+void OnTimer()
+{
+   if(FastLane) LaneRead();
+   // The HTTP poll only while the fast lane is down
+   if(sock == INVALID_HANDLE && GetTickCount64() - lastPoll >= (ulong)MathMax(250, PollMs)) { lastPoll = GetTickCount64(); Poll(); }
+}
+
+void OnTick()
+{
+   if(!FastLane) return;
+   LaneRead();
+   MqlTick t;
+   if(sock != INVALID_HANDLE && SymbolInfoTick(_Symbol, t))
+      LaneSend("T|" + _Symbol + "|" + DoubleToString(t.bid, _Digits) + "|" + DoubleToString(t.ask, _Digits) + "|" + (string)t.time_msc + "\n");
+}
+
+//--- Fast lane: one socket to QuantBot, reconnecting every 2 s while it's down
+void LaneClose() { if(sock != INVALID_HANDLE) SocketClose(sock); sock = INVALID_HANDLE; inbuf = ""; }
+
+bool LaneSend(const string text)
+{
+   if(sock == INVALID_HANDLE) return false;
+   uchar data[];
+   int len = StringToCharArray(text, data, 0, WHOLE_ARRAY, CP_UTF8) - 1;
+   if(SocketSend(sock, data, len) != len) { LaneClose(); return false; }
+   return true;
+}
+
+void LaneConnect()
+{
+   if(lanePort <= 0 || laneKey == "" || GetTickCount64() - lastConnect < 2000) return;
+   lastConnect = GetTickCount64();
+   sock = SocketCreate();
+   if(sock == INVALID_HANDLE) return;
+   if(!SocketConnect(sock, laneHost, lanePort, 1000)) { SocketClose(sock); sock = INVALID_HANDLE; return; }
+   LaneSend("H|" + laneKey + "|" + laneAccount + "\n");
+   Print("QuantBot Copier: fast lane connected to ", laneHost, ":", lanePort);
+}
+
+void LaneRead()
+{
+   if(sock == INVALID_HANDLE) { LaneConnect(); return; }
+   if(!SocketIsConnected(sock)) { LaneClose(); return; }
+   uint n = SocketIsReadable(sock);
+   if(n == 0) return;
+   uchar buf[];
+   int got = SocketRead(sock, buf, n, 1);
+   if(got <= 0) return;
+   inbuf += CharArrayToString(buf, 0, got, CP_UTF8);
+   int nl;
+   while((nl = StringFind(inbuf, "\n")) >= 0)
+   {
+      string line = StringSubstr(inbuf, 0, nl);
+      inbuf = StringSubstr(inbuf, nl + 1);
+      if(StringSubstr(line, 0, 2) != "O|") continue;
+      string f[];
+      if(StringSplit(StringSubstr(line, 2), '|', f) < 9) continue;
+      string ack = Execute(f[0], f[1], f[2], f[3], StringToDouble(f[4]), StringToDouble(f[5]), StringToDouble(f[6]), f[7], (ulong)StringToInteger(f[8]));
+      LaneSend("A|" + ack);
+   }
+}
 
 // One HTTP call to QuantBot; "" on failure (printed at most once a minute)
 string Http(const string method, const string path, const string body)

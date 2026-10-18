@@ -9,6 +9,7 @@ export const TIPS = {
   'open-journal': ['Journal', 'Every closed trade with chart pictures, notes, setups, win rate and average R. You can also import your MT5 history there.'],
   'terminal-group': ['Trade on', 'The copy group your orders go to. Every active account in it gets the trade, sized for that account.'],
   'mt5-status': ['Accounts', 'How many MT5 terminals in this group are connected right now (green = all of them).'],
+  latency: ['Price feed and speed', 'Green “MT5 live” = prices stream straight from your MT5 terminal (the QuantBot Copier EA). “app” = how long QuantBot took from its first check to the order leaving for MT5 (aim: under 1 ms). “fill” = from the order leaving to MT5 confirming the fill (your broker’s side). Gray “Delayed price” = no MT5 connected, Dukascopy candles every 10 s.'],
   'open-settings': ['Settings', 'Where toasts appear and for how long, sounds on or off, and which alerts you get.'],
   'flatten-all': ['Flatten all', 'Emergency exit: closes every Terminal trade on every account and cancels every pending order in one click. Shortcut: Alt+X.'],
   'oneclick-sell': ['One-click sell', 'Sells right away at the shown price with the size in the middle: no confirmation. Uses the ticket’s stop and target if you set them. The rule guard still checks it.'],

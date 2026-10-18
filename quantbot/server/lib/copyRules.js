@@ -142,10 +142,24 @@ export function randomName(rand = Math.random) {
 }
 export const randomSeed = (rand = Math.random) => Math.floor(rand() * 2 ** 31).toString(36);
 
+// $1,234.56 without toLocaleString (slow: it builds a number formatter each call)
+export function money2(v) {
+  const [i, d] = Math.abs(Math.round(Number(v) * 100) / 100).toFixed(2).split('.');
+  return `${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${d}`;
+}
+
 // Date of a moment in a time zone (the account's trading day: New York for Lucid, Prague for FTMO)
+// (formatters are cached: building one costs ~0.2 ms, too slow for the order path; en-CA formats as YYYY-MM-DD)
+const DAY_FMT = new Map();
+const DAY_MEMO = new Map(); // zone -> [minute, day] (the date can't change inside a minute)
 export function dayIn(ms, zone = 'America/New_York') {
-  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
-  return `${p.year}-${p.month}-${p.day}`;
+  const minute = Math.floor(ms / 60000), memo = DAY_MEMO.get(zone);
+  if (memo && memo[0] === minute) return memo[1];
+  let f = DAY_FMT.get(zone);
+  if (!f) { f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }); DAY_FMT.set(zone, f); }
+  const day = f.format(new Date(ms));
+  DAY_MEMO.set(zone, [minute, day]);
+  return day;
 }
 export const nyDay = (ms) => dayIn(ms, 'America/New_York');
 

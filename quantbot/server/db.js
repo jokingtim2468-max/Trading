@@ -5,6 +5,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { matches, sortBy, project, aggregate } from './query.js';
 
+// Every open database's pending writes, saved when the app exits
+const OPEN = new Set();
+process.once('exit', () => { for (const flush of OPEN) { try { flush(); } catch { /* disk gone */ } } });
+
 const OPS = ['list', 'filter', 'get', 'create', 'bulkCreate', 'update', 'bulkUpdate', 'delete', 'deleteMany', 'updateMany', 'count', 'aggregate'];
 
 // defaults: { EntityName: { field: value } } from the entity schemas
@@ -32,14 +36,17 @@ export function createDb(dir, userId, defaults = {}) {
     fs.renameSync(`${file(name)}.tmp`, file(name));
   }
 
-  // Saved to disk straight away (chats, accounts, settings survive a crash or a forced close). Only the large trade
-  // table is batched: a saved test adds thousands of trades in one go.
-  const BATCHED = new Set(['Trade']);
+  // Saved to disk in the background, at most 50 ms after a change (300 ms for the large trade table) and on exit:
+  // writing a whole table on every change took milliseconds, too slow for the order path (accounts, chats and
+  // settings still reach the disk within a blink of the change).
+  const DELAY = { Trade: 300, CopyEvent: 1000, Signal: 1000 }; // the big logs: rewritten at most once a second
   const changed = (name) => {
-    if (!BATCHED.has(name)) { write(name); return; }
-    clearTimeout(timers.get(name));
-    timers.set(name, setTimeout(() => write(name), 300));
+    if (timers.has(name)) return;
+    const t = setTimeout(() => write(name), DELAY[name] ?? 50);
+    t.unref?.();
+    timers.set(name, t);
   };
+  OPEN.add(() => { for (const name of [...timers.keys()]) write(name); });
 
   const newRecord = (name, data) => ({
     ...defaults[name], ...data,

@@ -360,3 +360,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Sounds (Web Audio sine, no files): order filled / moved = two rising notes 660 → 880 Hz; alert = 660 → 880 → 660 Hz; news = twice that (660 → 880 three times, 6 beats, about 0.8 s); error / rejected = falling 523 → 392 Hz. Notes 0.12 s apart, each 0.2 s with a soft attack, quiet (gain 0.15). Off in the gear menu.
 - Voice: after a fill's chime a voice says "Order filled" (the PC's own text-to-speech; English natural / Aria / Jenny / Zira voice preferred, rate 1.05). Switch "Say Order filled" in the gear menu.
 - Custom fill sound: gear menu → Fill sound → Choose… (audio file under 1 MB, kept in this browser). When set, a fill plays only that file (no chime, no PC voice); Test plays it, Reset goes back to the PC voice.
+
+### Terminal: price feed and speed badge
+- Top bar, right of the MT5 count: 1.5px dot + text 12px tabular. Live: green `#089981`, pulsing dot, "MT5 live <bid> / <ask>"; then gray `#9598a1` "· app 0.62 ms" (checks to order sent) and "· fill 23 ms" (sent to MT5's confirmation). No EA: gray `#5d606b` "Delayed price".
+- Order toasts add a line "Checked and sent to MT5 in 0.62 ms" when the order went over the fast lane.

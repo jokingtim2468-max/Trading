@@ -107,6 +107,24 @@ await tid('flatten-all').click(); await p.waitForTimeout(2500);
 const after = await (await fetch(`${base}/api/terminal/positions`)).json();
 ok(after.positions.length === 0 && after.pending.length === 0, 'flatten all closed everything');
 await p.screenshot({ path: `${OUT}/a6-flatten.png` });
+// MT5 fast lane: a fake Copier EA streams ticks; the badge goes live and an order shows the app's time
+{
+  const net = await import('node:net');
+  await inv('TradingAccount', 'update', (await inv('TradingAccount', 'filter', { label: 'FTMO 1' }))[0].id, { mt5_on: true });
+  const acc = (await inv('TradingAccount', 'filter', { label: 'FTMO 1' }))[0];
+  const ea = net.connect(app.lane.port(), '127.0.0.1'); ea.setEncoding('utf8');
+  let buf = ''; ea.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (l.startsWith('O|')) ea.write(`A|${l.split('|')[1]}|1|777|${last}|\n`); } });
+  ea.write(`H|${app.signals.key()}|${acc.id}\n`);
+  const ticker = setInterval(() => ea.write(`T|XAUUSD.r|${(last + 0.4).toFixed(2)}|${(last + 0.7).toFixed(2)}|${Date.now()}\n`), 200);
+  await p.waitForTimeout(1500);
+  ok(/MT5 live/.test(await tid('latency').innerText()), `badge live: ${await tid('latency').innerText()}`);
+  await tid('oneclick-buy').click(); await p.waitForTimeout(1500);
+  ok(/Checked and sent to MT5 in \d/.test(await tid('toasts').innerText()), 'toast shows the app time');
+  ok(/app \d+\.\d+ ms/.test(await tid('latency').innerText()) && /fill \d/.test(await tid('latency').innerText()), `badge times: ${await tid('latency').innerText()}`);
+  await p.screenshot({ path: `${OUT}/a6b-mt5-live.png` });
+  clearInterval(ticker); ea.destroy();
+  await tid('flatten-all').click(); await p.waitForTimeout(1500);
+}
 // Replay
 await tid('open-replay').click(); await p.waitForTimeout(5000);
 await tid('sizing-lots').click(); await tid('ticket-sl').fill(''); 

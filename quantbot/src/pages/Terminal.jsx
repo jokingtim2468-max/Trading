@@ -32,6 +32,7 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 const post = (p, body) => fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); return j; });
 const f2 = (n) => (Number.isFinite(n) ? n.toFixed(2) : '–');
+const ms = (us) => (us < 1000 ? `${(us / 1000).toFixed(2)} ms` : `${(us / 1000).toFixed(1)} ms`);
 const MENU = `${POP} min-w-[248px] rounded-[14px] border-[#363a45] bg-[#1e222d]/95 backdrop-blur-xl p-1.5 text-[#d1d4dc] shadow-[0_18px_48px_rgba(0,0,0,.55)]`;
 const ITEM = 'h-[34px] gap-2.5 rounded-[9px] px-2.5 text-[13px] focus:bg-[#2a2e39] focus:text-white data-[state=open]:bg-[#2a2e39]';
 const NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell limit', sell_stop: 'Sell stop' };
@@ -145,16 +146,56 @@ export default function Terminal() {
   const last = bars && bars.time.length ? bars.close[bars.time.length - 1] : null;
   const shown = hover || (bars && bars.time.length ? { open: bars.open.at(-1), high: bars.high.at(-1), low: bars.low.at(-1), close: last } : null);
 
-  // Live: the latest minute candles every 10 s fold into the chart, then the server checks pending orders,
-  // trailing stops and alerts against the new price
+  // Pending fills, trailing stops and alerts from the server (from MT5 ticks, or the chart's price below)
+  const onBook = (r) => {
+    for (const f of r.fired || []) {
+      toast(f.error ? { kind: 'error', title: `${NAME[f.event]} not filled`, lines: [f.error] }
+        : { kind: f.event.startsWith('buy') ? 'buy' : 'sell', filled: true, title: `${NAME[f.event]} filled`, lines: [`${f.symbol} at ${f2(f.price)} (order price ${f2(f.at)})`, `${groups.find((g) => g.id === f.group_id)?.name || ''}${f.push_us != null ? ` · sent to MT5 in ${ms(f.push_us)}` : ''}`] });
+    }
+    for (const m of r.moved || []) toast({ kind: 'trail', title: 'Trailing stop moved', lines: [`SL ${f2(m.sl)} · ${symbol}`] });
+    for (const a of r.alerts || []) toast({ kind: 'alert', title: `${a.symbol} ${a.above ? 'rose to' : 'fell to'} ${f2(a.price)}`, lines: [`Price ${f2(a.hit)}${a.note ? ` · ${a.note}` : ''}`] });
+    if ((r.fired || []).length || (r.moved || []).length || (r.alerts || []).length) loadTrading();
+  };
+  const onBookRef = useRef(onBook);
+  onBookRef.current = onBook;
+
+  // MT5 live: the Copier EA's ticks stream in (server-sent events) and fold into the chart; the server checks
+  // pending orders, trailing stops and alerts on every tick itself. Fill times come back the same way.
+  const [lane, setLane] = useState({ live: false, bid: null, ask: null, fill: null, push: null });
+  const liveAt = useRef(0);
+  useEffect(() => {
+    if (replay) return undefined;
+    const es = new EventSource('/api/terminal/stream');
+    let frame = 0, pendingTick = null;
+    es.addEventListener('tick', (e) => {
+      const t = JSON.parse(e.data);
+      if (t.symbol !== symbol) return;
+      liveAt.current = Date.now();
+      pendingTick = t;
+      // One chart update per frame however fast the ticks come
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        const x = pendingTick;
+        setMarket((s) => (s.bars ? { ...s, bars: mergeCandles(s.bars, [{ time: x.time, open: x.bid, high: x.bid, low: x.bid, close: x.bid }], tfMin * 60000) } : s));
+        setLane((l) => ({ ...l, live: true, bid: x.bid, ask: x.ask }));
+      });
+    });
+    es.addEventListener('book', (e) => onBookRef.current(JSON.parse(e.data)));
+    es.addEventListener('fill', (e) => { const f = JSON.parse(e.data); if (f.ms != null) setLane((l) => ({ ...l, fill: f.ms })); });
+    const stale = setInterval(() => { if (Date.now() - liveAt.current > 10000) setLane((l) => (l.live ? { ...l, live: false } : l)); }, 2000);
+    return () => { es.close(); cancelAnimationFrame(frame); clearInterval(stale); };
+  }, [symbol, tf, !!replay]);
+
+  // Without MT5 ticks: the latest Dukascopy minute candles every 10 s, and the chart's price goes to the server
   const lastSent = useRef(null);
   useEffect(() => {
     if (replay) return undefined;
     let live = true;
     const pull = async () => {
+      if (Date.now() - liveAt.current < 10000) return;
       try {
         const q = await (await fetch(`/api/terminal/quote?symbol=${symbol}`)).json();
-        if (!live || !q.candles?.length) return;
+        if (!live || !q.candles?.length || q.source === 'mt5') return;
         setMarket((s) => (s.bars ? { ...s, bars: mergeCandles(s.bars, q.candles, tfMin * 60000) } : s));
       } catch { /* offline: keep the chart as it is */ }
     };
@@ -163,18 +204,10 @@ export default function Terminal() {
     return () => { live = false; clearInterval(t); };
   }, [symbol, tf, !!replay]);
   useEffect(() => {
-    if (replay || last == null || lastSent.current === `${symbol}|${last}`) return;
+    if (replay || last == null || lane.live || lastSent.current === `${symbol}|${last}`) return;
     lastSent.current = `${symbol}|${last}`;
-    post('/api/terminal/tick', { symbol, price: last }).then((r) => {
-      for (const f of r.fired || []) {
-        toast(f.error ? { kind: 'error', title: `${NAME[f.event]} not filled`, lines: [f.error] }
-          : { kind: f.event.startsWith('buy') ? 'buy' : 'sell', filled: true, title: `${NAME[f.event]} filled`, lines: [`${f.symbol} at ${f2(f.price)} (order price ${f2(f.at)})`, groups.find((g) => g.id === f.group_id)?.name || ''] });
-      }
-      for (const m of r.moved || []) toast({ kind: 'trail', title: 'Trailing stop moved', lines: [`SL ${f2(m.sl)} · ${symbol}`] });
-      for (const a of r.alerts || []) toast({ kind: 'alert', title: `${a.symbol} ${a.above ? 'rose to' : 'fell to'} ${f2(a.price)}`, lines: [`Price ${f2(a.hit)}${a.note ? ` · ${a.note}` : ''}`] });
-      if ((r.fired || []).length || (r.moved || []).length || (r.alerts || []).length) loadTrading();
-    }).catch(() => {});
-  }, [last, symbol, !!replay]);
+    post('/api/terminal/tick', { symbol, price: last }).then(onBook).catch(() => {});
+  }, [last, symbol, !!replay, lane.live]);
 
   // The local model's high / low for today (once a day per symbol), else the simple guess
   useEffect(() => {
@@ -345,6 +378,7 @@ export default function Terminal() {
             : event === 'close' ? [`${symbol} at ${f2(last)}${extra.fraction ? ' · the rest stays open' : ''}`, `${id} · ${where}`]
               : event === 'trail' ? [r.trail ? `${r.trail.dist} points behind the price · ${symbol}` : 'Off', `${id} · ${where}`]
                 : [`${event === 'buy' ? 'Buy' : 'Sell'} ${oneClick ? prefs.oneClickQty : ticket.sizing === 'risk' ? `$${ticket.risk} risk` : ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
+        if (r.push_us != null) { lines.push(`Checked and sent to MT5 in ${ms(r.push_us)}`); setLane((l) => ({ ...l, push: r.push_us })); }
         toast({ kind: event === 'trail' ? 'trail' : event, title, lines, filled: event === 'buy' || event === 'sell' });
         if (event === 'buy' || event === 'sell') snap(r.trade_id, 'open');
         if (event === 'close' && extra.trade_id && !extra.fraction) snap(extra.trade_id, 'close');
@@ -433,6 +467,12 @@ export default function Terminal() {
         <span data-testid="mt5-status" className={`px-2 inline-flex items-center gap-1.5 ${mt5.length && live === mt5.length ? 'text-[#089981]' : 'text-[#787b86]'}`}>
           <span className={`w-2 h-2 rounded-full ${mt5.length && live === mt5.length ? 'bg-[#089981]' : 'bg-[#5d606b]'}`} />
           {mt5.length ? `MT5 ${live}/${mt5.length}` : `${members.length} account${members.length === 1 ? '' : 's'}`}
+        </span>
+        <span data-testid="latency" className={`px-2 h-8 rounded-md inline-flex items-center gap-1.5 tabular-nums text-xs ${lane.live ? 'text-[#089981]' : 'text-[#5d606b]'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${lane.live ? 'bg-[#089981] animate-pulse calm:animate-none' : 'bg-[#5d606b]'}`} />
+          {lane.live ? `MT5 live ${f2(lane.bid)} / ${f2(lane.ask)}` : 'Delayed price'}
+          {lane.push != null && <span className="text-[#9598a1]">· app {ms(lane.push)}</span>}
+          {lane.fill != null && <span className="text-[#9598a1]">· fill {lane.fill} ms</span>}
         </span>
         <SettingsMenu prefs={prefs} setPrefs={setPrefs} />
         <button type="button" onClick={flatten} disabled={!!replay}

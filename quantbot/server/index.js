@@ -22,6 +22,7 @@ import { pcZone } from './lib/blackout.js';
 import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
 import { createTrainer } from './train.js';
 import { createTerminal } from './terminal.js';
+import { createFastLane } from './fastlane.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -58,7 +59,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal, lane }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -137,7 +138,7 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
   if (req.method === 'GET' && url.pathname === '/api/mt5/url') {
     const id = url.searchParams.get('account') || '';
-    return send(res, 200, { url: `http://127.0.0.1:${port()}/mt5/${signals.key()}/${id}`, allow: `http://127.0.0.1:${port()}` });
+    return send(res, 200, { url: `http://127.0.0.1:${port()}/mt5/${signals.key()}/${id}`, allow: `http://127.0.0.1:${port()}`, fast_lane: lane?.port() ? `127.0.0.1:${lane.port()}` : null });
   }
 
   // Script folders for Claude: where they are (brought up to date first); the desktop app can open them
@@ -188,7 +189,22 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     if (req.method === 'GET' && p === 'positions') return send(res, 200, await terminal.positionsAll(url.searchParams.get('group')));
     if (req.method === 'POST' && p === 'guard') { const b = await body(); return send(res, 200, { accounts: await terminal.guard(b.group_id, b.ticket || null) }); }
     if (req.method === 'POST' && p === 'flatten') return send(res, 200, await terminal.flatten((await body()).price));
-    if (req.method === 'GET' && p === 'quote') return send(res, 200, await terminal.quote(url.searchParams.get('symbol') || 'XAUUSD'));
+    if (req.method === 'GET' && p === 'quote') {
+      // Live MT5 tick when the fast lane has one (last 15 s), else Dukascopy's latest minute candles
+      const sym = url.searchParams.get('symbol') || 'XAUUSD';
+      const t = lane?.tick(sym);
+      if (t && Date.now() - t.at < 15000) return send(res, 200, { symbol: sym, source: 'mt5', price: t.bid, bid: t.bid, ask: t.ask, candles: [{ time: t.time, open: t.bid, high: t.bid, low: t.bid, close: t.bid }] });
+      return send(res, 200, { ...(await terminal.quote(sym)), source: 'dukascopy' });
+    }
+    // Server-sent events: MT5 ticks, fills (with times), pending fills / trails / alerts, fast lane up / down
+    if (req.method === 'GET' && p === 'stream') {
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.write(`event: hello\ndata: ${JSON.stringify({ lanes: lane?.connected() || [] })}\n\n`);
+      const off = lane?.subscribe((type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+      const ping = setInterval(() => res.write(': ping\n\n'), 20000);
+      req.on('close', () => { off?.(); clearInterval(ping); });
+      return undefined;
+    }
     if (req.method === 'POST' && p === 'tick') { const b = await body(); return send(res, 200, await terminal.tick(String(b.symbol || ''), b.price)); }
     if (req.method === 'POST' && p === 'alert') return send(res, 200, terminal.alert(await body()));
     if (req.method === 'POST' && p === 'predict') { const b = await body(); return send(res, 200, await terminal.predict(String(b.symbol || 'XAUUSD'), b.daily, b.model)); }
@@ -320,13 +336,20 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   // Economic calendars for news blackouts, refreshed every 30 minutes
   const news = createNews({ dataDir, log: app?.log, ...(newsFetch ? { fetch: newsFetch } : {}) });
   news.start();
-  const copier = createCopier({ db: entityDb, log: app?.log, news: () => news.events() });
+  let lane = null;
+  const copier = createCopier({ db: entityDb, log: app?.log, news: () => news.events(), onMt5: (order, t0) => lane?.push(order, t0) });
   const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier });
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
   const trainer = createTrainer({ dataDir, market, cipher, log: app?.log });
   const terminal = createTerminal({ dataDir, db: entityDb, signals, ask: backend.ask, log: app?.log });
+  // MT5 fast lane: live ticks in, orders out the moment they're checked; ticks drive pending orders, trails, alerts
+  lane = createFastLane({
+    db: entityDb, mt5, key: () => signals.key(), log: app?.log || (() => {}),
+    onTick: (t) => terminal.tick(t.symbol, t.bid, t).then((r) => { if (r.fired.length || r.moved.length || r.alerts.length) lane.emit('book', r); }).catch(() => {}),
+  });
+  terminal.onBook = (r) => lane.emit('book', r);
   const payouts = createPayouts({ db: entityDb, note: copier.note });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
@@ -396,7 +419,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal, lane }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);
@@ -412,15 +435,17 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     server.once('error', reject);
     server.listen(port, '127.0.0.1', resolve);
   });
+  await lane.listen(port ? server.address().port + 1 : 0);
 
   const close = async () => {
     news.stop();
     clearInterval(payoutTimer);
     backend.flush();
+    await lane.close();
     if (vite) await vite.close();
     await new Promise((r) => server.close(r));
   };
-  return { server, port: server.address().port, close, backend, market, signals };
+  return { server, port: server.address().port, close, backend, market, signals, lane };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

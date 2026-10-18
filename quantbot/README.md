@@ -145,6 +145,16 @@ Trading tools (`npm run test:terminal` drives all of them in a browser):
   pictures at open and close, a setup and a note per trade, win rate, profit factor and average R per setup, and
   history import from MT5 (History, Positions, saved as CSV / tab file) or any CSV with the usual columns.
 
+**MT5 fast lane (live gold prices and instant orders).** The QuantBot Copier EA (v2) keeps one socket open to the
+app (127.0.0.1, the app's port + 1; add `127.0.0.1` under MT5 Tools > Options > Expert Advisors > Allow WebRequest
+next to the Copier address). Over it the EA streams its chart's live ticks, and every order is pushed to MT5 the
+moment the app has checked it (rule guard, news blocks, sizing), with no polling; fills come straight back. The app's
+own time, from its first check to the order leaving for MT5, is shown on every order ("Checked and sent to MT5 in
+0.62 ms") and in the top bar (`npm test` measures it: about 0.5-0.9 ms median). The rest is outside the app: MT5's
+timer picks the order up within ~1-16 ms (Windows timer steps, or on the next tick), then your broker's server
+(typically 20-200 ms). With the EA connected, pending orders, trailing stops and alerts are checked on every MT5 tick
+on the app's side, even with the Terminal page closed; without it, the HTTP poll and Dukascopy prices take over.
+
 Pending orders, trailing stops and alerts are checked against the live price while the Terminal is open (the latest
 Dukascopy minute candles, every 10 seconds); MT5 accounts still get plain market orders when one fills.
 

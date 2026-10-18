@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_CHART, CHART_PRESETS, cleanChartChange, CHART_KEYS } from './lib/chartTheme.js';
-import { accountRoom, copyQty, pointValue, mapSymbol } from './lib/copyRules.js';
+import { accountRoom, copyQty, pointValue, mapSymbol, money2 } from './lib/copyRules.js';
 import { fetchCandles, candlesUrl } from './market/dukascopy.js';
 import { instrument } from './market/instruments.js';
 import { toBroker } from './market/brokerTime.js';
@@ -17,7 +17,7 @@ export const PENDING = { buy_limit: ['buy', -1], buy_stop: ['buy', 1], sell_limi
 const PENDING_NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell limit', sell_stop: 'Sell stop' };
 const r2 = (v) => Math.round(v * 100) / 100;
 const fin = (v) => (Number.isFinite(v) ? r2(v) : null);
-const usd = (v) => `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const usd = (v) => `$${money2(v)}`;
 const bad = (m) => Object.assign(new Error(m), { status: 400 });
 
 // Where the account's open trades on one symbol would fail it: P with sum(dir * qty * pv * (P - entry)) = -room
@@ -92,6 +92,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
   const quotes = new Map();
   const predicting = new Map();
   let ticking = false;
+  const queued = new Map(); // symbol -> [price, quote] of the newest tick waiting
 
   async function guard(groupId, t = null) {
     const members = (await run('TradingAccount', 'filter', { group_id: groupId })).filter((a) => (a.status || 'active') === 'active');
@@ -147,6 +148,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
 
     // Orders from the page: one group, through the copier like any script's signals
     async order(body) {
+      const t0 = process.hrtime.bigint(); // the app's checks start: rule guard, group, prices, then the copier
       const b = body || {};
       const event = String(b.event || '');
       if (!EVENTS.includes(event) && !PENDING[event] && !['cancel', 'move_pending', 'trail'].includes(event)) throw bad(`Order must be one of ${[...EVENTS, ...Object.keys(PENDING), 'cancel', 'move_pending', 'trail'].join(', ')}`);
@@ -207,14 +209,16 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       };
       if (event === 'set_sl' && sl == null) throw Object.assign(new Error('set_sl needs sl'), { status: 400 });
       if (event === 'set_tp' && tp == null) throw Object.assign(new Error('set_tp needs tp'), { status: 400 });
-      const saved = await signals.receive(JSON.stringify(msg), { scriptId: script.id, groupId: group.id, local: true });
+      const saved = await signals.receive(JSON.stringify(msg), { scriptId: script.id, groupId: group.id, local: true, t0 });
+      // Microseconds from the first check to the slowest account's order leaving for MT5 (fast lane accounts)
+      const push_us = saved.pushed?.length ? Math.max(...saved.pushed) : null;
       log(`terminal: ${event} ${msg.symbol} on ${group.name}`);
       // Nothing copied (news block, max trades, every account skipped): say why instead of "executed"
       if (saved.copied === 0) {
         const why = (await run('CopyEvent', 'filter', { signal_id: saved.id })).filter((e) => e.level === 'warn' || e.level === 'error').map((e) => e.message.replace(/^[^:]+: /, ''));
         return { ok: true, copied: 0, reasons: [...new Set(why)].slice(0, 3), signal: saved.id, trade_id: msg.trade_id };
       }
-      return { ok: true, copied: saved.copied ?? null, signal: saved.id, trade_id: msg.trade_id };
+      return { ok: true, copied: saved.copied ?? null, push_us, signal: saved.id, trade_id: msg.trade_id };
     },
     // Each active account's room before its firm rules fail it, where price would fail it on its open trades, and
     // for a ticket: the size, risk and whether it fits
@@ -248,19 +252,41 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       return value;
     },
     // A new price: fires pending orders and alerts it crosses and moves trailing stops
-    async tick(symbol, price) {
+    // q: { bid, ask } from MT5 (buys fill at the ask, sells at the bid); price alone from the chart
+    // A tick that arrives while the last one is still being checked waits, and only the newest one per symbol
+    // runs next (never dropped: it could be the one that fills an order); queued runs report through onBook
+    async tick(symbol, price, q = {}) {
+      const none = { fired: [], moved: [], alerts: [] };
+      if (!(Number(price) > 0)) return none;
+      if (ticking) { queued.set(symbol, [price, q]); return none; }
+      const r = await this.tickNow(symbol, price, q);
+      while (queued.size) {
+        const [sym, [p2, q2]] = queued.entries().next().value;
+        queued.delete(sym);
+        const r2 = await this.tickNow(sym, p2, q2);
+        if (r2.fired.length || r2.moved.length || r2.alerts.length) this.onBook?.(r2);
+      }
+      return r;
+    },
+    onBook: null,
+    async tickNow(symbol, price, q = {}) {
       price = Number(price);
-      if (!(price > 0) || ticking) return { fired: [], moved: [], alerts: [] };
+      const none = { fired: [], moved: [], alerts: [] };
+      // Most ticks have nothing to do: no pending order, trailing stop or alert on this symbol
+      if (!book.pending.some((p) => p.symbol === symbol) && !book.alerts.some((a) => a.symbol === symbol) && !Object.values(book.trails).some((t) => t.symbol === symbol)) return none;
+      const ask = Number(q.ask) > 0 ? Number(q.ask) : price, bid = Number(q.bid) > 0 ? Number(q.bid) : price;
       ticking = true;
       const fired = [], moved = [], alerts = [];
       try {
         for (const p of book.pending.filter((x) => x.symbol === symbol)) {
           const [side, where] = PENDING[p.event];
-          if (where > 0 ? price < p.at : price > p.at) continue;
+          const px = side === 'buy' ? ask : bid;
+          if (where > 0 ? px < p.at : px > p.at) continue;
           book.pending = book.pending.filter((x) => x.id !== p.id); saveBook();
           try {
-            const r = await this.order({ ...p, event: side, price, trade_id: p.id, from_pending: true });
-            fired.push({ ...p, price, trade_id: r.trade_id });
+            const fill = side === 'buy' ? ask : bid;
+            const r = await this.order({ ...p, event: side, price: fill, trade_id: p.id, from_pending: true });
+            fired.push({ ...p, price: fill, trade_id: r.trade_id, push_us: r.push_us });
           } catch (e) { fired.push({ ...p, price, error: e.message }); }
         }
         const open = (await this.positions()).filter((t) => t.closable && t.symbol === symbol);
@@ -268,7 +294,7 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
           const mine = open.filter((t) => t.trade_id === id);
           if (!mine.length) { if (tr.symbol === symbol) { delete book.trails[id]; saveBook(); } continue; }
           const t = mine[0], dir = t.side === 'long' ? 1 : -1;
-          const sl = r2(price - dir * tr.dist);
+          const sl = r2((dir > 0 ? bid : ask) - dir * tr.dist);
           if (t.sl != null && (sl - t.sl) * dir < 0.01) continue;
           await this.order({ event: 'set_sl', group_id: t.group_id, symbol, price, sl, trade_id: id });
           moved.push({ trade_id: id, sl });

@@ -8,6 +8,7 @@ const MAX_TRIES = 5;
 const num = (v) => (v == null || v === '' ? 0 : Number(v));
 
 export const orderTag = (tradeId) => `QB${String(tradeId || '').slice(0, 24)}`;
+export const orderLine = (o, ticket) => [o.id, o.action, o.symbol, o.side, o.lots, num(o.sl), num(o.tp), orderTag(o.trade_id), ticket || 0].join('|');
 
 export function createMt5Bridge({ db, note = async () => {} }) {
   const run = async (...a) => db.run(...a);
@@ -30,7 +31,7 @@ export function createMt5Bridge({ db, note = async () => {} }) {
       let ticket = o.ticket;
       if (!ticket && o.action !== 'open' && o.trade_id) { try { ticket = (await run('AccountTrade', 'get', o.trade_id)).mt5_ticket || ''; } catch { /* trade removed */ } }
       await run('Mt5Order', 'update', o.id, { status: 'sent', sent_at: new Date(now).toISOString(), tries: (o.tries || 0) + 1 });
-      lines.push([o.id, o.action, o.symbol, o.side, o.lots, num(o.sl), num(o.tp), orderTag(o.trade_id), ticket || 0].join('|'));
+      lines.push(orderLine(o, ticket));
     }
     return lines.join('\n');
   }
