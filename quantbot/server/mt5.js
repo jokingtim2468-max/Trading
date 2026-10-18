@@ -1,7 +1,7 @@
 // Bridge to MT5 terminals: the QuantBot Copier EA (mt5/QuantBotCopier.mq5) running on an account's MT5 terminal
 // (this PC or the same VPS) asks every second for that account's orders and reports each fill back.
 // Plain text so the EA needs no JSON parser:
-//   poll -> one order per line: id|action|symbol|side|lots|sl|tp|tag|ticket   (action open / modify / close)
+//   poll -> one order per line: id|action|symbol|side|lots|sl|tp|tag|ticket   (action open / modify / close / close_part)
 //   ack  <- one line per order:  id|ok|ticket|price|message                  (ok 1 or 0)
 const RESEND_MS = 60000;
 const MAX_TRIES = 5;

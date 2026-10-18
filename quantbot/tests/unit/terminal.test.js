@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cleanChartChange, DEFAULT_CHART } from '../../server/lib/chartTheme.js';
-import { createTerminal, jsonIn, editorPrompt } from '../../server/terminal.js';
+import { createTerminal, jsonIn, editorPrompt, failPrice, cleanPrediction } from '../../server/terminal.js';
+import { accountRoom, copyQty } from '../../server/lib/copyRules.js';
 import { startServer } from '../../server/index.js';
 import { moveAt, moneyAt, usdSigned, groupTrades } from '../../src/lib/tradeMath.js';
 
@@ -77,6 +78,34 @@ describe('Trade money on the chart', () => {
   });
 });
 
+
+describe('Account protection', () => {
+  test('room before the daily loss limit and the max drawdown, and where price fails the account', () => {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    const a = { start_balance: 100000, balance: 99000, max_loss: 10000, daily_loss: 5000, day_key: day, day_start: 100000 };
+    const r = accountRoom(a);
+    assert.equal(r.toFloor, 9000);
+    assert.equal(r.toDaily, 4000, 'already down $1,000 today');
+    assert.equal(r.room, 4000);
+    assert.equal(r.rule, 'daily loss limit');
+    assert.equal(accountRoom({ ...a, day_key: '2000-01-01' }).toDaily, 5000, 'a new day starts again');
+    assert.equal(accountRoom({ balance: 500 }).room, Infinity, 'no limits, no floor');
+    // Bought 1 lot gold at 4715 ($100 a point): $4,000 of room is 40 points down
+    assert.equal(failPrice([{ side: 'long', qty: 1, point_value: 100, entry: 4715 }], 4000), 4675);
+    assert.equal(failPrice([{ side: 'short', qty: 2, point_value: 100, entry: 4715 }], 4000), 4735);
+  });
+  test('size by dollar risk', () => {
+    assert.equal(copyQty({ platform: 'MT5' }, { price: 4715, sl: 4705, risk_usd: 250 }, 100).qty, 0.25);
+    assert.equal(copyQty({ platform: 'MT5', risk_usd: 500 }, { price: 4715, sl: 4705 }, 100).qty, 0.5, "the account's own risk when the order has none");
+    assert.equal(copyQty({ platform: 'MT5', copy_qty: 2 }, { price: 4715, qty: 1 }, 100).qty, 2);
+  });
+  test("the model's prediction is checked against the open", () => {
+    assert.deepEqual(cleanPrediction({ high: 4740.123, low: 4690, confidence: 140, why: 'x' }, 4715), { high: 4740.12, low: 4690, confidence: 100, why: 'x' });
+    assert.equal(cleanPrediction({ high: 4700, low: 4690 }, 4715), null, 'high under the open');
+    assert.equal(cleanPrediction({ high: 9000, low: 4000 }, 4715), null, 'too wide');
+  });
+});
+
 describe('Terminal orders', () => {
   let srv, base, dir;
   before(async () => { dir = tmp(); srv = await startServer({ port: 0, dataDir: dir, quiet: true }); base = `http://127.0.0.1:${srv.port}`; });
@@ -110,6 +139,69 @@ describe('Terminal orders', () => {
     assert.equal(pos.length, 0, 'close shuts the trade on every account');
     const sigs = await db('Signal', 'filter', {});
     assert.ok(sigs.some((s) => s.strategy === 'QuantBot Terminal' && s.event === 'buy'), 'logged on the Signals page too');
+  });
+
+
+  test('rule guard, risk sizing, pending orders, trailing stop, partial close, alerts and flatten all', async () => {
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+    const g = await db('CopyGroup', 'create', { name: 'Guarded', enabled: true });
+    const tight = await db('TradingAccount', 'create', { label: 'Tight', platform: 'MT5', group_id: g.id, status: 'active', start_balance: 100000, balance: 99000, max_loss: 10000, daily_loss: 5000, day_key: day, day_start: 100000 });
+    await db('TradingAccount', 'create', { label: 'Roomy', platform: 'MT5', group_id: g.id, status: 'active', start_balance: 100000, balance: 100000, max_loss: 10000, daily_loss: 5000 });
+    const order = (b) => post('/api/terminal/order', { group_id: g.id, symbol: 'XAUUSD', ...b });
+
+    let r = await order({ event: 'buy', price: 4715, qty: 1 });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /add a stop loss/);
+    r = await order({ event: 'buy', price: 4715, sl: 4665, qty: 1 });
+    assert.match((await r.json()).error, /Tight would risk \$5,000.00 with \$4,000.00 left before its daily loss limit/);
+    const guard = await (await post('/api/terminal/guard', { group_id: g.id, ticket: { event: 'buy', symbol: 'XAUUSD', price: 4715, sl: 4705, risk_usd: 250 } })).json();
+    const t = guard.accounts.find((a) => a.name === 'Tight');
+    assert.deepEqual([t.room, t.ticket.qty, t.ticket.risk, t.ticket.ok, t.ticket.fail], [4000, 0.25, 250, true, 4555]);
+
+    // Pending: a buy limit goes below the price and fires when the price comes down to it
+    assert.equal((await order({ event: 'buy_limit', price: 4715, at: 4720, sl: 4700, risk_usd: 250 })).status, 400, 'a buy limit above the price');
+    const p = await (await order({ event: 'buy_limit', price: 4715, at: 4710, sl: 4700, risk_usd: 250 })).json();
+    assert.ok(p.pending);
+    await order({ event: 'move_pending', id: p.pending, price: 4715, at: 4708 });
+    let all = await (await fetch(`${base}/api/terminal/positions?group=${g.id}`)).json();
+    assert.equal(all.pending[0].at, 4708);
+    let tick = await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4709 })).json();
+    assert.equal(tick.fired.length, 0, 'not there yet');
+    tick = await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4707.5 })).json();
+    assert.equal(tick.fired.length, 1);
+    all = await (await fetch(`${base}/api/terminal/positions?group=${g.id}`)).json();
+    assert.equal(all.pending.length, 0);
+    assert.deepEqual(all.positions.map((x) => x.qty).sort(), [0.33, 0.33], '$250 over a 7.5 point stop at $100 a point');
+    const id = all.positions[0].trade_id;
+
+    // Trailing stop 5 points behind the price, only ever tightening
+    await order({ event: 'trail', trade_id: id, distance: 5, price: 4707.5 });
+    tick = await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4720 })).json();
+    assert.deepEqual(tick.moved, [{ trade_id: id, sl: 4715 }]);
+    tick = await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4716 })).json();
+    assert.equal(tick.moved.length, 0, 'never loosens');
+
+    // Close half
+    await order({ event: 'close', price: 4720, trade_id: id, fraction: 0.5 });
+    all = await (await fetch(`${base}/api/terminal/positions?group=${g.id}`)).json();
+    assert.deepEqual(all.positions.map((x) => x.qty), [0.17, 0.17]);
+    const closed = (await db('AccountTrade', 'filter', { account_id: tight.id, status: 'closed' }));
+    assert.equal(closed[0].qty, 0.16);
+    assert.equal(closed[0].pnl, 200, '12.5 points x 0.16 lots x $100');
+
+    // Alerts fire once when crossed
+    await post('/api/terminal/alert', { symbol: 'XAUUSD', price: 4730, now: 4720 });
+    assert.equal((await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4725 })).json()).alerts.length, 0);
+    assert.equal((await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4731 })).json()).alerts.length, 1);
+    assert.equal((await (await post('/api/terminal/tick', { symbol: 'XAUUSD', price: 4732 })).json()).alerts.length, 0);
+
+    // Flatten all: every Terminal trade closed and pending orders cancelled
+    await order({ event: 'sell_stop', price: 4731, at: 4700, sl: 4710, risk_usd: 100 });
+    const f = await (await post('/api/terminal/flatten', { price: 4731 })).json();
+    assert.equal(f.cancelled, 1);
+    all = await (await fetch(`${base}/api/terminal/positions`)).json();
+    assert.equal(all.positions.length, 0);
+    assert.equal(all.pending.length, 0);
   });
 
   test('chart endpoints', async () => {

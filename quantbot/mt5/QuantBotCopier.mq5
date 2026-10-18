@@ -146,5 +146,12 @@ string Execute(const string id, const string action, const string sym, const str
       if(!trade.PositionClose(pos)) return Ack(id, false, pos, 0, "close rejected: " + trade.ResultRetcodeDescription());
       return Ack(id, true, pos, trade.ResultPrice(), "");
    }
+   if(action == "close_part")
+   {
+      double v = Lots(sym, lots);
+      if(v <= 0 || v >= PositionGetDouble(POSITION_VOLUME)) { if(!trade.PositionClose(pos)) return Ack(id, false, pos, 0, "close rejected: " + trade.ResultRetcodeDescription()); }
+      else if(!trade.PositionClosePartial(pos, v)) return Ack(id, false, pos, 0, "partial close rejected: " + trade.ResultRetcodeDescription());
+      return Ack(id, true, pos, trade.ResultPrice(), "");
+   }
    return Ack(id, false, 0, 0, "unknown action " + action);
 }

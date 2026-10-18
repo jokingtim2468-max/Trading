@@ -2,7 +2,7 @@
 // on. Accounts are traded on paper at the signal's price; an account with an order URL (e.g. TradersPost) also gets
 // the order sent there. Closed trades earn XP for the account and the script, and move the account to passed / failed.
 // Everything that happens is written to the activity log (CopyEvent) and the log file, so a run can be evaluated.
-import { pointValue, xpForTrade, applyClose, dayIn, levelFromXp, tierOf, groupScriptIds, mapSymbol, sizeFor, PLANS, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
+import { pointValue, xpForTrade, applyClose, dayIn, levelFromXp, tierOf, groupScriptIds, mapSymbol, sizeFor, copyQty, PLANS, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
 import { blackoutAt } from './lib/blackout.js';
 
 const KEEP = 20000;
@@ -170,25 +170,24 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
             await note('skip', `${who(a)} skipped ${sig.event} ${sig.symbol}: there is already a ${by?.name || 'another script'} ${other.side} on ${other.symbol} on this account (one trade per account)`, ar, { other_trade: other.id, other_script: other.script_id }, 'warn');
             continue;
           }
-          const stop = sig.sl != null ? Math.abs(sig.price - sig.sl) : 0;
-          const byRisk = a.risk_usd > 0 && stop > 0;
-          const qty = sizeFor(byRisk ? a.risk_usd / (stop * pv) : (sig.qty || 1) * (a.copy_qty || 1), a.platform);
+          const { stop, risk, byRisk, qty } = copyQty(a, sig, pv);
           const sizing = byRisk
-            ? `risk $${a.risk_usd} / (${Math.round(stop * 100) / 100} stop x $${pv}) = ${qty}${unit === 'lots' ? ' lots' : ''}`
-            : `${a.risk_usd > 0 ? 'no stop in the signal, so ' : ''}script qty ${sig.qty || 1} x account qty ${a.copy_qty || 1} = ${qty}`;
+            ? `risk $${risk} / (${Math.round(stop * 100) / 100} stop x $${pv}) = ${qty}${unit === 'lots' ? ' lots' : ''}`
+            : `${risk > 0 ? 'no stop in the signal, so ' : ''}script qty ${sig.qty || 1} x account qty ${a.copy_qty || 1} = ${qty}`;
           if (!(qty > 0)) {
             const one = unit === 'lots' ? '0.01 lots' : '1 contract';
-            await note('skip', `${who(a)} skipped ${sig.event} ${symbol}: ${one} risks $${Math.round(stop * pv * (unit === 'lots' ? 0.01 : 1) * 100) / 100}, more than the $${a.risk_usd} risk per trade`, ar, { stop, point_value: pv, risk_usd: a.risk_usd }, 'warn');
+            await note('skip', `${who(a)} skipped ${sig.event} ${symbol}: ${one} risks $${Math.round(stop * pv * (unit === 'lots' ? 0.01 : 1) * 100) / 100}, more than the $${risk} risk per trade`, ar, { stop, point_value: pv, risk_usd: risk }, 'warn');
             continue;
           }
           const trade = await run('AccountTrade', 'create', {
             account_id: a.id, group_id: g.id, script_id: script.id, trade_id: sig.trade_id, symbol, side, qty,
             point_value: pv, entry: sig.price, sl: sig.sl, tp: sig.tp, status: 'open', opened_at: at,
+            risk_open: stop ? Math.round(stop * pv * qty * 100) / 100 : null,
           });
           touched++;
-          const riskUsd = stop ? Math.round(stop * pv * qty * 100) / 100 : null;
+          const riskUsd = trade.risk_open;
           await note('open', `${who(a)} ${side === 'long' ? 'bought' : 'sold'} ${qty}${unit === 'lots' ? ' lots' : ''} ${symbol} @ ${sig.price}${sig.sl != null ? ` SL ${sig.sl}` : ''}${sig.tp != null ? ` TP ${sig.tp}` : ''} (${sizing}${riskUsd != null ? `; risking ${usd(riskUsd)}` : ''}) - group trade ${made + 1}/${max}`,
-            { ...ar, trade_id: trade.id }, { side, qty, entry: sig.price, sl: sig.sl, tp: sig.tp, stop, point_value: pv, risk_usd: a.risk_usd, risk: riskUsd, sizing, balance: a.balance, trade_number: made + 1, max });
+            { ...ar, trade_id: trade.id }, { side, qty, entry: sig.price, sl: sig.sl, tp: sig.tp, stop, point_value: pv, risk_usd: risk, risk: riskUsd, sizing, balance: a.balance, trade_number: made + 1, max });
           await send(a, 'open', sig, trade, { ...ar, trade_id: trade.id });
           await queueMt5(a, 'open', trade, gr);
         }
@@ -208,7 +207,20 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
         for (const a of accounts) {
           const open = (await openOf(a)).filter((t) => !(sig.trade_id && t.trade_id && sig.trade_id !== t.trade_id));
           if (!open.length) await note('skip', `${who(a)}: close but no open trade from ${script.name}${sig.trade_id ? ` [${sig.trade_id}]` : ''}`, { ...gr, account_id: a.id }, null, 'warn');
+          const part = Number(sig.fraction) > 0 && Number(sig.fraction) < 1 ? Number(sig.fraction) : 1;
           for (const t of open) {
+            // Part of it: the closed part becomes its own closed trade, the rest stays open
+            const cut = part < 1 ? sizeFor(t.qty * part, a.platform) : t.qty;
+            if (!(cut > 0)) { await note('skip', `${who(a)}: ${Math.round(part * 100)}% of ${t.qty} is under the smallest size, nothing closed`, { ...gr, account_id: a.id, trade_id: t.id }, null, 'warn'); continue; }
+            if (cut < t.qty) {
+              await run('AccountTrade', 'update', t.id, { qty: Math.round((t.qty - cut) * 100) / 100 });
+              const { id: _id, created_date: _c, updated_date: _u, ...rest } = t;
+              const piece = await run('AccountTrade', 'create', { ...rest, qty: cut });
+              const done = await close(a, script, piece, sig.price, `${sig.reason || 'signal'} (part)`, at, gr);
+              touched++;
+              await queueMt5(a, 'close_part', { ...done, id: t.id, qty: cut }, gr);
+              continue;
+            }
             const done = await close(a, script, t, sig.price, sig.reason || 'signal', at, gr);
             touched++;
             await send(a, 'close', sig, done, { ...gr, account_id: a.id, trade_id: t.id });

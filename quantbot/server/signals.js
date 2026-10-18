@@ -32,6 +32,8 @@ export function readSignal(body, { userAgent = '', local = true } = {}) {
     strategy: text(m.strategy, 60) || 'Unnamed strategy',
     trade_id: text(m.trade_id ?? m.id, 60),
     bar_time: num(m.time),
+    ...(num(m.risk_usd) > 0 ? { risk_usd: num(m.risk_usd) } : {}),
+    ...(num(m.fraction) > 0 && num(m.fraction) < 1 ? { fraction: num(m.fraction) } : {}),
     raw: String(body).slice(0, 2000),
   };
   if (['buy', 'sell', 'buy_limit', 'sell_limit', 'close'].includes(event) && rec.price == null) throw new Error(`${event} needs a price`);

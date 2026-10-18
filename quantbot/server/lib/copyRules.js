@@ -105,6 +105,30 @@ export function mapSymbol(map, symbol) {
 // Whole contracts for futures, 0.01 lots for MT5
 export const sizeFor = (raw, platform) => (platform === 'MT5' ? Math.floor(raw * 100 + 1e-9) / 100 : Math.floor(raw + 1e-9));
 
+// An account's size for a signal: by dollar risk (the signal's risk_usd, else the account's) when there's a stop,
+// else the signal's qty times the account's
+export function copyQty(a, sig, pv) {
+  const stop = sig.sl != null && sig.price != null ? Math.abs(sig.price - sig.sl) : 0;
+  const risk = Number(sig.risk_usd) > 0 ? Number(sig.risk_usd) : Number(a.risk_usd) || 0;
+  const byRisk = risk > 0 && stop > 0;
+  return { stop, risk, byRisk, qty: sizeFor(byRisk ? risk / (stop * pv) : (Number(sig.qty) || 1) * (Number(a.copy_qty) || 1), a.platform) };
+}
+
+// How much an account can still lose before a firm rule fails it: to the max loss floor and to today's daily loss
+// limit (a new day in the account's zone starts the day again from the balance)
+export function accountRoom(a, now = Date.now()) {
+  const start = Number(a.start_balance) || 0;
+  const balance = a.balance != null ? Number(a.balance) : start;
+  const maxLoss = Number(a.max_loss) || 0, daily = Number(a.daily_loss) || 0;
+  const floor = a.floor != null ? Number(a.floor) : maxLoss ? start - maxLoss : null;
+  const zone = a.day_zone || PLANS[a.plan]?.dayZone || 'America/New_York';
+  const dayStart = a.day_key === dayIn(now, zone) && a.day_start != null ? Number(a.day_start) : balance;
+  const toFloor = floor == null ? Infinity : balance - floor;
+  const toDaily = daily ? daily - (dayStart - balance) : Infinity;
+  const room = Math.min(toFloor, toDaily);
+  return { balance, floor, dailyFloor: daily ? dayStart - daily : null, toFloor, toDaily, room, rule: toDaily < toFloor ? 'daily loss limit' : 'max drawdown' };
+}
+
 export function pointValue(symbol) {
   const s = String(symbol || '').toUpperCase().replace(/^[A-Z_]+:/, '');
   return POINT_VALUES.find(([re]) => re.test(s))?.[1] ?? 1;

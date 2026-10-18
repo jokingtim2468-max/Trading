@@ -176,7 +176,7 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
 
   // Terminal page: chart settings (presets, AI edits, versions) and orders to a copy group
   if (url.pathname.startsWith('/api/terminal/')) {
-    const body = async () => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}'); };
+    const body = async (limit = 20000) => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, limit)).toString('utf8') || '{}'); };
     const p = url.pathname.slice('/api/terminal/'.length);
     if (req.method === 'GET' && p === 'chart') return send(res, 200, terminal.chart());
     if (req.method === 'POST' && p === 'chart/preset') return send(res, 200, terminal.preset((await body()).id));
@@ -185,7 +185,20 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     if (req.method === 'POST' && p === 'chart/restore') return send(res, 200, terminal.restore((await body()).n));
     if (req.method === 'POST' && p === 'chart/edit') { const b = await body(); return send(res, 200, await terminal.edit(b.message, b.model)); }
     if (req.method === 'POST' && p === 'order') return send(res, 200, await terminal.order(await body()));
-    if (req.method === 'GET' && p === 'positions') return send(res, 200, { positions: await terminal.positions(url.searchParams.get('group')) });
+    if (req.method === 'GET' && p === 'positions') return send(res, 200, await terminal.positionsAll(url.searchParams.get('group')));
+    if (req.method === 'POST' && p === 'guard') { const b = await body(); return send(res, 200, { accounts: await terminal.guard(b.group_id, b.ticket || null) }); }
+    if (req.method === 'POST' && p === 'flatten') return send(res, 200, await terminal.flatten((await body()).price));
+    if (req.method === 'GET' && p === 'quote') return send(res, 200, await terminal.quote(url.searchParams.get('symbol') || 'XAUUSD'));
+    if (req.method === 'POST' && p === 'tick') { const b = await body(); return send(res, 200, await terminal.tick(String(b.symbol || ''), b.price)); }
+    if (req.method === 'POST' && p === 'alert') return send(res, 200, terminal.alert(await body()));
+    if (req.method === 'POST' && p === 'predict') { const b = await body(); return send(res, 200, await terminal.predict(String(b.symbol || 'XAUUSD'), b.daily, b.model)); }
+    if (req.method === 'POST' && p === 'snapshot') { const b = await body(6 * 1024 * 1024); return send(res, 200, await terminal.snapshot(b.trade_id, b.kind, b.image)); }
+    if (req.method === 'GET' && p.startsWith('snap/')) {
+      const f = terminal.snapFile(p.slice(5));
+      if (!fs.existsSync(f)) return send(res, 404, { error: 'No such snapshot' });
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=86400' });
+      return fs.createReadStream(f).pipe(res);
+    }
   }
 
   // Train page: Unsloth fine-tuning in Docker
