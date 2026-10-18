@@ -10,7 +10,7 @@ import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import { mergeCandles, sliceBars, stepPractice, closePractice } from '@/lib/terminalLive';
-import { readPrefs, writePrefs, readDrawings, writeDrawings, chime } from '@/lib/terminalPrefs';
+import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say } from '@/lib/terminalPrefs';
 import { toBroker } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
@@ -114,7 +114,8 @@ export default function Terminal() {
   const shot = useRef(null);
   const toast = (t) => {
     setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
-    if (prefs.sound) chime(t.kind === 'error' ? 'error' : t.kind === 'alert' || t.kind === 'news' ? 'alert' : 'ok');
+    if (prefs.sound) chime(t.kind === 'error' ? 'error' : t.kind === 'news' ? 'news' : t.kind === 'alert' ? 'alert' : 'ok');
+    if (prefs.voice && t.filled) say('Order filled');
   };
 
   useEffect(() => { fetch('/api/terminal/chart').then((r) => r.json()).then(setChart).catch(() => {}); }, []);
@@ -165,7 +166,7 @@ export default function Terminal() {
     post('/api/terminal/tick', { symbol, price: last }).then((r) => {
       for (const f of r.fired || []) {
         toast(f.error ? { kind: 'error', title: `${NAME[f.event]} not filled`, lines: [f.error] }
-          : { kind: f.event.startsWith('buy') ? 'buy' : 'sell', title: `${NAME[f.event]} filled`, lines: [`${f.symbol} at ${f2(f.price)} (order price ${f2(f.at)})`, groups.find((g) => g.id === f.group_id)?.name || ''] });
+          : { kind: f.event.startsWith('buy') ? 'buy' : 'sell', filled: true, title: `${NAME[f.event]} filled`, lines: [`${f.symbol} at ${f2(f.price)} (order price ${f2(f.at)})`, groups.find((g) => g.id === f.group_id)?.name || ''] });
       }
       for (const m of r.moved || []) toast({ kind: 'trail', title: 'Trailing stop moved', lines: [`SL ${f2(m.sl)} · ${symbol}`] });
       for (const a of r.alerts || []) toast({ kind: 'alert', title: `${a.symbol} ${a.above ? 'rose to' : 'fell to'} ${f2(a.price)}`, lines: [`Price ${f2(a.hit)}${a.note ? ` · ${a.note}` : ''}`] });
@@ -306,7 +307,7 @@ export default function Terminal() {
       const qty = extra.qty ? Number(extra.qty) || 1 : ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
       const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: ticket.sl === '' ? null : Number(ticket.sl), tp: ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
       setPractice((p) => ({ ...p, open: [...p.open, t] }));
-      toast({ kind: event, title: 'Practice order filled', lines: [`${event === 'buy' ? 'Buy' : 'Sell'} ${qty} ${symbol} at ${f2(last)}`] });
+      toast({ kind: event, filled: true, title: 'Practice order filled', lines: [`${event === 'buy' ? 'Buy' : 'Sell'} ${qty} ${symbol} at ${f2(last)}`] });
     } else if (event === 'close') {
       setPractice((p) => {
         const out = p.open.filter((t) => !extra.trade_id || t.trade_id === extra.trade_id);
@@ -342,7 +343,7 @@ export default function Terminal() {
             : event === 'close' ? [`${symbol} at ${f2(last)}${extra.fraction ? ' · the rest stays open' : ''}`, `${id} · ${where}`]
               : event === 'trail' ? [r.trail ? `${r.trail.dist} points behind the price · ${symbol}` : 'Off', `${id} · ${where}`]
                 : [`${event === 'buy' ? 'Buy' : 'Sell'} ${oneClick ? prefs.oneClickQty : ticket.sizing === 'risk' ? `$${ticket.risk} risk` : ticket.qty} ${symbol} at ${f2(last)}`, `${n} account${n === 1 ? '' : 's'} in ${where}`];
-        toast({ kind: event === 'trail' ? 'trail' : event, title, lines });
+        toast({ kind: event === 'trail' ? 'trail' : event, title, lines, filled: event === 'buy' || event === 'sell' });
         if (event === 'buy' || event === 'sell') snap(r.trade_id, 'open');
         if (event === 'close' && extra.trade_id && !extra.fraction) snap(extra.trade_id, 'close');
       }
@@ -581,6 +582,7 @@ function SettingsMenu({ prefs, setPrefs }) {
           <span className="flex gap-1">{[3, 5, 8, 15].map((s) => <button key={s} type="button" onClick={() => setPrefs({ toastSecs: s })} className={`h-6 px-2 rounded-md text-xs ${prefs.toastSecs === s ? 'bg-[#2962ff] text-white' : 'bg-[#131722] hover:bg-[#2a2e39]'}`}>{s}s</button>)}</span>
         </div>
         <Switch k="sound" label="Sounds" />
+        <Switch k="voice" label="Say “Order filled”" />
         <div className="h-px bg-[#2a2e39] my-1.5" />
         <div className="text-xs text-[#787b86] my-1.5">Alerts</div>
         <Switch k="levelAlerts" label="When price touches the model's high / low" />

@@ -1,6 +1,6 @@
 // The Terminal's per-PC preferences (toasts, sounds, alerts) and drawings, kept in this browser
 const KEY = 'quantbot.terminal.prefs';
-export const PREFS = { v: 2, oneClickQty: '1', toastPos: 'tr', toastSecs: 5, sound: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
+export const PREFS = { v: 2, oneClickQty: '1', toastPos: 'tr', toastSecs: 5, sound: true, voice: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
 
 export function readPrefs() {
   try {
@@ -20,7 +20,8 @@ let ctx = null;
 export function chime(kind = 'ok') {
   try {
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-    const notes = kind === 'error' ? [523, 392] : kind === 'alert' ? [660, 880, 660] : [660, 880];
+    // news: twice the alert's beats (and twice as long)
+    const notes = kind === 'error' ? [523, 392] : kind === 'news' ? [660, 880, 660, 880, 660, 880] : kind === 'alert' ? [660, 880, 660] : [660, 880];
     notes.forEach((f, i) => {
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.type = 'sine'; o.frequency.value = f;
@@ -29,4 +30,19 @@ export function chime(kind = 'ok') {
       o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.22);
     });
   } catch { /* no audio */ }
+}
+
+// A voice saying the words (the PC's own text-to-speech voice: Windows' Microsoft voices, no sound files), e.g.
+// "Order filled" after the fill chime
+export function say(text) {
+  try {
+    const s = window.speechSynthesis;
+    if (!s) return;
+    const voices = s.getVoices().filter((v) => /^en/i.test(v.lang));
+    const u = new SpeechSynthesisUtterance(text);
+    u.voice = voices.find((v) => /natural|aria|jenny|zira|samantha/i.test(v.name)) || voices[0] || null;
+    u.rate = 1.05; u.volume = 0.9;
+    s.cancel();
+    setTimeout(() => s.speak(u), 260);
+  } catch { /* no speech on this PC */ }
 }
