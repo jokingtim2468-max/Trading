@@ -271,6 +271,11 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     res.writeHead(200, { 'content-type': f.endsWith('.yaml') ? 'application/x-yaml' : 'application/x-ndjson', 'content-disposition': `attachment; filename="${path.basename(f)}"` });
     return fs.createReadStream(f).pipe(res);
   }
+  if (req.method === 'GET' && url.pathname === '/api/train/autoconfig') return send(res, 200, await trainer.autoConfig());
+  if (req.method === 'POST' && url.pathname === '/api/train/autostart') {
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    return send(res, 200, await trainer.autoStart());
+  }
   if (req.method === 'POST' && url.pathname === '/api/train/start') {
     if (!json()) return send(res, 415, { error: 'JSON required' });
     return send(res, 200, await trainer.start(JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}')));

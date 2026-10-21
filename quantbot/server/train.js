@@ -247,6 +247,43 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     return g.code === 0 ? Math.round(Number(g.out.split('\n')[0]) / 102.4) / 10 : null;
   }
 
+  // Auto-train: read this PC, pick the model and settings that fit it, and say whether everything needed is in place
+  // (Docker running, an NVIDIA GPU, Unsloth's image downloaded). Only a ready PC gets the Auto-train button.
+  async function autoConfig() {
+    const [v, g] = await Promise.all([
+      run(...dockerCmd(['version', '--format', '{{.Server.Version}}'])),
+      run('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits']),
+    ]);
+    const [gName, gMem] = g.code === 0 ? g.out.split('\n')[0].split(',').map((x) => x.trim()) : [];
+    const gpu = gName ? Math.round(Number(gMem) / 102.4) / 10 : null;
+    const img = v.code === 0 ? await run(...dockerCmd(['image', 'inspect', IMAGE, '--format', '{{.Size}}'])) : { code: 1 };
+    // The biggest recommended model that fits with 1 GB of headroom (no GPU reading: the smallest)
+    // Under 12 GB: the curated "Best fit" when it fits (proven on 8 GB cards); bigger cards: the largest that fits
+    const fits = gpu ? MODELS.filter((m) => m.vram <= gpu - 1) : [];
+    const best = fits.find((m) => m.tag === 'Best fit');
+    const rec = best && gpu < 12 ? best
+      : fits.length ? fits.reduce((a, b) => (b.params > a.params ? b : a)) : MODELS.reduce((a, b) => (b.vram < a.vram ? b : a));
+    const { settings, why } = autoSettings(rec, gpu);
+    // GGUF F16 / Q8_0 merge the full 16-bit model and crash small cards: offer Q4_K_M (what Ollama runs) under 12 GB
+    const exports = gpu && gpu >= 12 ? ['adapter', 'gguf_q8_0'] : ['adapter', 'gguf_q4_k_m'];
+    const blockers = [];
+    if (v.code !== 0) blockers.push('Docker Desktop is not running (start it, or install it from docker.com)');
+    if (!gpu) blockers.push('No NVIDIA GPU found (nvidia-smi did not answer): Unsloth needs one');
+    if (img.code !== 0) blockers.push("Unsloth isn't installed yet: download its image below");
+    return {
+      gpu: gName ? { name: gName, memory_gb: gpu } : null, docker: v.code === 0,
+      unsloth: { installed: img.code === 0, size_gb: img.code === 0 ? Math.round(Number(img.out) / 1e8) / 10 : null, pulling: pulling ? { ...pulling } : null },
+      recommended: { id: rec.id, name: rec.name, hf: rec.hf, vram: rec.vram, tag: rec.tag, note: rec.note },
+      settings, why, exports, ready: blockers.length === 0, blockers,
+    };
+  }
+
+  async function autoStart() {
+    const a = await autoConfig();
+    if (!a.ready) throw Object.assign(new Error(a.blockers.join('; ')), { status: 400 });
+    return start({ ...DEFAULTS, auto: true, model_source: 'recommended', model: a.recommended.id, ...a.settings, exports: a.exports });
+  }
+
   async function start(input) {
     if ([...live.values()].some((x) => x.state.status === 'running')) throw Object.assign(new Error('A training run is already going: stop it or wait for it to finish'), { status: 409 });
     let cfg = validateConfig(input);
@@ -306,7 +343,12 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
         await Promise.all([evFile, logFile].map((f) => new Promise((r) => f.end(r))));
         const err = events(id).reverse().find((e) => e.type === 'error');
         if (entry.stopped) throw new Error('Stopped');
-        if (code !== 0) throw new Error(err?.message || `Docker exited with code ${code}: see output.log in ${dir(id)}`);
+        if (code !== 0) {
+          // Show the real cause: the last lines the container printed, not just a pointer to the file
+          let tail = '';
+          try { tail = fs.readFileSync(path.join(dir(id), 'output.log'), 'utf8').trim().split('\n').filter((l) => !l.startsWith('{')).slice(-4).join(' | ').slice(-500); } catch { /* no log */ }
+          throw new Error(err?.message || `Docker exited with code ${code}${tail ? `: ${tail}` : ''} (full log: output.log in ${dir(id)})`);
+        }
         Object.assign(st, { status: 'done', phase: 'done' });
       } catch (e) {
         Object.assign(st, { status: entry.stopped ? 'stopped' : 'error', phase: entry.stopped ? 'stopped' : 'error', error: entry.stopped ? null : e.message });
@@ -368,6 +410,8 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     },
     run: (id) => summary(id),
     auto: async (model) => autoSettings(model, await gpuGb()),
+    autoConfig,
+    autoStart,
     exportsList: EXPORTS,
     hf: { account: hfAccount, save: hfSave, remove: () => { fs.rmSync(tokenFile, { force: true }); return { connected: false }; }, search: hfSearch,
       model: async (id) => hfModel(id, await gpuGb()) },

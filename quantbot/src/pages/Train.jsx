@@ -33,6 +33,46 @@ const Check = ({ ok, children }) => (
   </div>
 );
 
+// Auto-train: the app reads this PC, picks the model and settings that fit it, checks Docker, the GPU and Unsloth,
+// and only then lets you start with one click
+function AutoTrainCard({ status, onStarted }) {
+  const [a, setA] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const pulling = status.pulling?.state === 'running';
+  useEffect(() => { api('/api/train/autoconfig', undefined, 'GET').then(setA).catch((e) => setError(e.message)); }, [status.image, pulling]);
+  const go = async () => {
+    setBusy(true); setError('');
+    try { await api('/api/train/autostart', {}); onStarted(); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+  const s = a?.settings;
+  return (
+    <div className="bg-card border border-primary/40 rounded-2xl p-5 space-y-3" data-testid="auto-train">
+      <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /><h3 className="font-medium">Auto-train</h3>
+        <span className="text-xs text-muted-foreground">Best model and settings for this PC, picked for you</span></div>
+      {!a ? <p className="text-sm text-muted-foreground">{error || 'Checking this PC…'}</p> : (
+        <>
+          <div className="grid sm:grid-cols-3 gap-2">
+            <Check ok={!!a.gpu}>{a.gpu ? <>GPU: <b>{a.gpu.name}</b>, {a.gpu.memory_gb} GB</> : 'No NVIDIA GPU found'}</Check>
+            <Check ok={a.docker}>{a.docker ? 'Docker running' : 'Docker not running'}</Check>
+            <Check ok={a.unsloth.installed}>{a.unsloth.installed ? <>Unsloth installed ({a.unsloth.size_gb} GB)</> : pulling ? 'Unsloth downloading…' : 'Unsloth not installed (download it in "This PC" below)'}</Check>
+          </div>
+          <div className="rounded-xl bg-background/50 border border-border p-3 text-sm space-y-1" data-testid="auto-train-plan">
+            <div>Recommended model: <b>{a.recommended.name}</b> <span className="text-xs text-muted-foreground">({a.recommended.tag}, ~{a.recommended.vram} GB) — {a.recommended.note}</span></div>
+            <div className="text-xs text-muted-foreground">Settings: batch {s.batch_size} × accumulate {s.grad_accum}, LoRA rank {s.lora_r}, learning rate {s.learning_rate}, {s.epochs} epochs, sequence {s.max_seq_length}. {a.why}.</div>
+            <div className="text-xs text-muted-foreground">Exports: {a.exports.join(', ')}{a.exports.includes('gguf_q4_k_m') ? ' (Q4_K_M is what Ollama runs; F16 / Q8_0 merge the full model and can crash cards under 12 GB)' : ''}</div>
+          </div>
+          {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+          <div className="flex items-center gap-2">
+            <Button onClick={go} disabled={!a.ready || busy} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy ? 'Starting…' : 'Auto-train with these settings'}</Button>
+            {error && <span className="text-xs text-destructive">{error}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function SetupCard({ status, onPull }) {
   const pulling = status.pulling?.state === 'running';
   return (
@@ -277,6 +317,7 @@ export default function Train() {
       </header>
       {!status || !runs ? <div className="flex justify-center py-20"><ChartLoader className="w-20 h-12" /></div> : (
         <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-4">
+          <AutoTrainCard status={status} onStarted={load} />
           <SetupCard status={status} onPull={() => api('/api/train/pull', {}).then(load)} />
           <HfCard onChange={setHf} />
           <NewRunCard status={status} hf={hf} onStarted={load} />

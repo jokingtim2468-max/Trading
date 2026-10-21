@@ -104,6 +104,23 @@ describe('Train API with a stand-in docker', () => {
   after(async () => { await srv.close(); hf.close(); delete process.env.QUANTBOT_HF_URL; delete process.env.QUANTBOT_DOCKER; fs.rmSync(dir, { recursive: true, force: true }); });
   const post = (p, body) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
 
+  test('auto-train: picks a model + settings for the PC and refuses until everything is in place', async () => {
+    const a = await (await fetch(`${base}/api/train/autoconfig`)).json();
+    assert.equal(a.docker, true);
+    assert.equal(a.unsloth.installed, true);
+    assert.ok(a.recommended.id && a.settings.batch_size >= 1 && a.settings.grad_accum >= 1);
+    assert.ok(a.exports.includes('adapter'));
+    if (!a.gpu) {
+      // No NVIDIA GPU on the test machine: the smallest model, the safe Q4 export, and a refusal that says why
+      assert.equal(a.ready, false);
+      assert.match(a.blockers.join(' '), /NVIDIA GPU/);
+      assert.ok(a.exports.includes('gguf_q4_k_m'));
+      const r = await post('/api/train/autostart');
+      assert.equal(r.status, 400);
+      assert.match((await r.json()).error, /NVIDIA GPU/);
+    }
+  });
+
   test('status, pull, a full run, refusals and delete', async () => {
     const st = await (await fetch(`${base}/api/train/status`)).json();
     assert.equal(st.docker, true);

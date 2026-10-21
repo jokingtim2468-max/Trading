@@ -310,44 +310,84 @@ def evaluate(job, cfg, model=None, tok=None):
 GGUF = {"gguf_q4_k_m": "q4_k_m", "gguf_q5_k_m": "q5_k_m", "gguf_q8_0": "q8_0", "gguf_f16": "f16"}
 
 
-def export(job, cfg, model=None, tok=None):
+def _load_adapter(job, cfg):
     from unsloth import FastLanguageModel
-    wanted = [e for e in cfg.get("exports", []) if e != "adapter"]
+    return FastLanguageModel.from_pretrained(model_name=os.path.join(job, "adapter"), max_seq_length=cfg["max_seq_length"],
+                                             load_in_4bit=model_of(cfg)[1])
+
+
+def export_one(job, cfg, e):
+    """One export format, in its own process (see export()). Prints an export_result event; a hard crash shows as a
+    non-zero exit code to the parent instead of killing the whole run."""
+    model, tok = _load_adapter(job, cfg)
     repo = (cfg.get("push_repo") or "").strip()
-    if not wanted and not repo:
-        return {}
-    if model is None:
-        model, tok = FastLanguageModel.from_pretrained(model_name=os.path.join(job, "adapter"), max_seq_length=cfg["max_seq_length"],
-                                                       load_in_4bit=model_of(cfg)[1])
-    out, token, private = {}, os.environ.get("HF_TOKEN") or None, bool(cfg.get("push_private", True))
-    for e in wanted:
-        emit("progress", phase="export", step=wanted.index(e), total=len(wanted), label=e)
-        try:
-            if e in ("merged_16bit", "merged_4bit"):
-                method = "merged_16bit" if e == "merged_16bit" else "merged_4bit_forced"
-                folder = os.path.join(job, "export", e)
-                model.save_pretrained_merged(folder, tok, save_method=method)
-                if repo:
-                    model.push_to_hub_merged(f"{repo}-{e.replace('_', '-')}", tok, save_method=method, token=token, private=private)
-            else:
-                folder = os.path.join(job, "export", "gguf")
-                model.save_pretrained_gguf(folder, tok, quantization_method=GGUF[e])
-                if repo:
-                    model.push_to_hub_gguf(f"{repo}-gguf", tok, quantization_method=GGUF[e], token=token, private=private)
-            out[e] = "ok"
-            emit("log", message=f"Exported {e}")
-        except Exception as ex:  # noqa: BLE001 - one format failing must not lose the others
-            out[e] = f"failed: {type(ex).__name__}: {ex}"[:300]
-            emit("log", message=f"Export {e} failed: {ex}")
-    if repo:
-        try:
+    token, private = os.environ.get("HF_TOKEN") or None, bool(cfg.get("push_private", True))
+    try:
+        if e == "__upload__":
             model.push_to_hub(repo, token=token, private=private)
             tok.push_to_hub(repo, token=token, private=private)
-            out["upload"] = f"https://huggingface.co/{repo}"
-            emit("log", message=f"LoRA adapter uploaded to https://huggingface.co/{repo}")
-        except Exception as ex:  # noqa: BLE001
-            out["upload"] = f"failed: {ex}"[:300]
-            emit("log", message=f"Upload to Hugging Face failed: {ex}")
+            status = f"https://huggingface.co/{repo}"
+        elif e in ("merged_16bit", "merged_4bit"):
+            method = "merged_16bit" if e == "merged_16bit" else "merged_4bit_forced"
+            model.save_pretrained_merged(os.path.join(job, "export", e), tok, save_method=method)
+            if repo:
+                model.push_to_hub_merged(f"{repo}-{e.replace('_', '-')}", tok, save_method=method, token=token, private=private)
+            status = "ok"
+        else:
+            model.save_pretrained_gguf(os.path.join(job, "export", "gguf"), tok, quantization_method=GGUF[e])
+            if repo:
+                model.push_to_hub_gguf(f"{repo}-gguf", tok, quantization_method=GGUF[e], token=token, private=private)
+            status = "ok"
+    except Exception as ex:  # noqa: BLE001
+        status = f"failed: {type(ex).__name__}: {ex}"[:300]
+    emit("export_result", format=e, status=status)
+
+
+def export(job, cfg, model=None, tok=None):
+    """Every export format the run asked for, each in a separate Python process with the GPU freed first. GGUF F16 /
+    Q8_0 merge the whole 16-bit model; on an 8 GB card that can crash the interpreter outright, which used to take the
+    finished run (scores and all) down with it. Now a crash costs only that one format."""
+    import gc
+    import subprocess
+    wanted = [e for e in cfg.get("exports", []) if e != "adapter"]
+    repo = (cfg.get("push_repo") or "").strip()
+    if repo:
+        wanted.append("__upload__")
+    if not wanted:
+        return {}
+    # Release the trained model's VRAM so each export process has the whole GPU
+    del model, tok
+    gc.collect()
+    try:
+        import torch
+        torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001
+        pass
+    out = {}
+    for i, e in enumerate(wanted):
+        emit("progress", phase="export", step=i, total=len(wanted), label=e)
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), job, "export_one", e], capture_output=True, text=True)
+        status, child_err = None, None
+        for line in p.stdout.splitlines():
+            if line.startswith("{"):
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("type") == "export_result" and ev.get("format") == e:
+                    status = ev.get("status")
+                    continue
+                if ev.get("type") == "error":
+                    child_err = ev.get("message")
+                    continue
+            print(line, flush=True)  # the child's own progress/log events reach the app
+        if p.returncode != 0 or status is None:
+            why = child_err or " | ".join((p.stderr or "").strip().splitlines()[-4:])[-400:] or "no output"
+            oom = p.returncode in (-9, 137, 2) or "memory" in why.lower()
+            status = f"failed (exit {p.returncode}): {why}" + (" — likely out of memory: use GGUF Q4_K_M, or close other GPU apps" if oom else "")
+        key = "upload" if e == "__upload__" else e
+        out[key] = status
+        emit("log", message=f"Export {key}: {status}")
     return out
 
 
@@ -364,12 +404,17 @@ def main(argv):
         if step in ("evaluate", "all"):
             res = evaluate(job, cfg, model, tok)
             res["model"] = cfg.get("model_name") or cfg.get("model")
+            json.dump(res, open(os.path.join(job, "result.json"), "w"), indent=1)  # saved before exports
             if step == "all":
-                res["exports"] = export(job, cfg, model, tok)
-            json.dump(res, open(os.path.join(job, "result.json"), "w"), indent=1)
+                model = tok = None  # drop every reference so export() can hand the GPU to the export processes
+                res["exports"] = export(job, cfg)
+                json.dump(res, open(os.path.join(job, "result.json"), "w"), indent=1)
             emit("metric", **res)
         if step == "export":
             emit("metric", exports=export(job, cfg))
+        if step == "export_one":
+            export_one(job, cfg, argv[3])
+            return
         emit("done", step=step)
     except SystemExit as e:
         emit("error", message=str(e))
