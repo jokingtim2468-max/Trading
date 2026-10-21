@@ -14,13 +14,16 @@ if (a[0] === 'stop') process.exit(0);
 if (a[0] === 'run') {
   const vol = (target) => { const v = a[a.indexOf('-v', a.findIndex((x, i) => a[i - 1] === '-v' && x.endsWith(target)) - 1) + 1]; return v.slice(0, v.length - target.length - 1); };
   const job = a.find((x, i) => a[i - 1] === '-v' && x.endsWith(':/workspace/job')).replace(/:\/workspace\/job$/, '');
-  const code = a.find((x, i) => a[i - 1] === '-v' && x.endsWith(':/workspace/code:ro')).replace(/:\/workspace\/code:ro$/, '');
   void vol;
+  // The script the container is told to run, mapped back to this PC: missing -> python's own "can't open file", exit 2
+  const inBox = a[a.indexOf('python') + 1] || '';
+  const script = inBox.startsWith('/workspace/job/') ? path.join(job, inBox.slice('/workspace/job/'.length)) : null;
+  if (!script || !fs.existsSync(script)) { console.error(`python: can't open file '${inBox}': [Errno 2] No such file or directory`); process.exit(2); }
   fs.writeFileSync(path.join(job, 'docker-args.json'), JSON.stringify({ args: a, hfToken: process.env.HF_TOKEN || null }));
   const cfgPath = path.join(job, 'config.json');
   const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
   fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, data_file: path.join(job, 'data.csv') }));
-  const r = spawnSync('python3', [path.join(code, 'qb_train.py'), job, 'prepare'], { encoding: 'utf8' });
+  const r = spawnSync('python3', [script, job, 'prepare'], { encoding: 'utf8' });
   process.stdout.write(r.stdout);
   if (r.status !== 0) { process.stderr.write(r.stderr); process.exit(1); }
   if (process.env.FAKE_TRAIN_FAIL) { console.log(JSON.stringify({ type: 'error', message: 'CUDA out of memory' })); process.exit(1); }

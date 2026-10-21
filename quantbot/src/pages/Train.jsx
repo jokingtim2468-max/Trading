@@ -1,13 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Download, Play, Square, Trash2, Cpu, Container, CheckCircle2, XCircle, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Download, Play, Square, Trash2, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ChartLoader from '@/components/quant/ChartLoader';
-import ModelPicker from '@/components/train/ModelPicker';
-import HfCard from '@/components/train/HfCard';
 
 const api = (p, body, method = 'POST') => fetch(p, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); return j; });
@@ -26,217 +21,51 @@ function useTrain() {
   return { status, runs, load };
 }
 
-const Check = ({ ok, children }) => (
-  <div className="flex items-start gap-2 text-sm">
-    {ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" /> : <XCircle className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />}
-    <div>{children}</div>
-  </div>
-);
-
 // Auto-train: the app reads this PC, picks the model and settings that fit it, checks Docker, the GPU and Unsloth,
 // and only then lets you start with one click
-function AutoTrainCard({ status, onStarted }) {
+// The whole Train page's control: pick a model (the best fit for this GPU is preselected), press Train. Settings,
+// markets, dates, exports, Docker and Unsloth are all handled for you.
+function TrainCard({ onStarted }) {
   const [a, setA] = useState(null);
+  const [pick, setPick] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const pulling = status.pulling?.state === 'running';
-  useEffect(() => { api('/api/train/autoconfig', undefined, 'GET').then(setA).catch((e) => setError(e.message)); }, [status.image, pulling]);
-  const go = async (model) => {
-    setBusy(model || true); setError('');
-    try { await api('/api/train/autostart', model ? { model } : {}); onStarted(); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  useEffect(() => { api('/api/train/autoconfig', undefined, 'GET').then((x) => { setA(x); setPick((p) => p || x.recommended.id); }).catch((e) => setError(e.message)); }, []);
+  const go = async () => {
+    setBusy(true); setError('');
+    try { await api('/api/train/autostart', { model: pick }); onStarted(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
-  const s = a?.settings;
   return (
-    <div className="bg-card border border-primary/40 rounded-2xl p-5 space-y-3" data-testid="auto-train">
-      <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /><h3 className="font-medium">Auto-train</h3>
-        <span className="text-xs text-muted-foreground">Best model and settings for this PC, picked for you</span></div>
+    <div className="bg-card border border-primary/40 rounded-2xl p-5 space-y-4" data-testid="auto-train">
+      <div>
+        <h3 className="font-medium flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" />Pick a model, then Train</h3>
+        <p className="text-xs text-muted-foreground mt-1">It learns each day&apos;s high and low for gold and the Nasdaq-100 from your data, then is tested on recent days it never saw. Everything else is set up for your PC automatically.</p>
+      </div>
       {!a ? <p className="text-sm text-muted-foreground">{error || 'Checking this PC…'}</p> : (
         <>
-          <div className="grid sm:grid-cols-3 gap-2">
-            <Check ok={!!a.gpu}>{a.gpu ? <>GPU: <b>{a.gpu.name}</b>, {a.gpu.memory_gb} GB</> : 'No NVIDIA GPU found'}</Check>
-            <Check ok={a.docker}>{a.docker ? 'Docker running' : 'Docker closed — starts automatically'}</Check>
-            <Check ok={a.unsloth.installed}>{a.unsloth.installed ? <>Unsloth installed ({a.unsloth.size_gb} GB)</> : pulling ? 'Unsloth downloading…' : 'Unsloth downloads on the first run'}</Check>
-          </div>
-          <div className="rounded-xl bg-background/50 border border-border p-3 text-sm space-y-1" data-testid="auto-train-plan">
-            <div>Recommended model: <b>{a.recommended.name}</b> <span className="text-xs text-muted-foreground">({a.recommended.tag}, ~{a.recommended.vram} GB) — {a.recommended.note}</span></div>
-            <div className="text-xs text-muted-foreground">Settings: batch {s.batch_size} × accumulate {s.grad_accum}, LoRA rank {s.lora_r}, learning rate {s.learning_rate}, {s.epochs} epochs, sequence {s.max_seq_length}. {a.why}.</div>
-            <div className="text-xs text-muted-foreground">Exports: {a.exports.join(', ')}{a.exports.includes('gguf_q4_k_m') ? ' (Q4_K_M is what Ollama runs; F16 / Q8_0 merge the full model and can crash cards under 12 GB)' : ''}</div>
-          </div>
-          {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
-          {a.notes?.length > 0 && <ul className="text-xs text-muted-foreground list-disc pl-5" data-testid="auto-train-notes">{a.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
-          <div className="flex items-center gap-2">
-            <Button onClick={() => go()} disabled={!a.ready || !!busy} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy === true ? 'Starting…' : `Auto-train ${a.recommended.name}`}</Button>
-            {error && <span className="text-xs text-destructive">{error}</span>}
-          </div>
-          <div className="space-y-1.5">
-            <div className="text-xs text-muted-foreground">Or click any model to start it — settings are worked out for it and this GPU:</div>
-            <div className="flex flex-wrap gap-2" data-testid="auto-train-models">
-              {a.models.map((m) => (
-                <button key={m.id} type="button" disabled={!a.ready || !!busy || (a.gpu && !m.fits)} onClick={() => go(m.id)} data-model={m.id}
-                  title={`${m.note}${a.gpu && !m.fits ? ' — too big for this GPU' : ''}`}
-                  className={`rounded-lg border px-3 py-1.5 text-left text-xs disabled:opacity-40 ${m.id === a.recommended.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'}`}>
-                  <div className="font-medium text-sm">{busy === m.id ? 'Starting…' : m.name}</div>
-                  <div className="text-muted-foreground">~{m.vram} GB · {m.tag}{m.id === a.recommended.id ? ' · recommended' : ''}</div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2" data-testid="auto-train-models">
+            {a.models.map((m) => {
+              const tooBig = a.gpu && !m.fits;
+              return (
+                <button key={m.id} type="button" disabled={tooBig || busy} onClick={() => setPick(m.id)} data-model={m.id} aria-pressed={pick === m.id}
+                  title={`${m.note}${tooBig ? ' — too big for this GPU' : ''}`}
+                  className={`rounded-xl border p-3 text-left disabled:opacity-40 ${pick === m.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'}`}>
+                  <div className="font-medium text-sm">{m.name}</div>
+                  <div className="text-xs text-muted-foreground">~{m.vram} GB{m.id === a.recommended.id ? ' · best for this PC' : ''}</div>
                 </button>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+          {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((x) => <li key={x}>{x}</li>)}</ul>}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button size="lg" onClick={go} disabled={!a.ready || busy || !pick} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy ? 'Starting…' : 'Train'}</Button>
+            <span className="text-xs text-muted-foreground" data-testid="auto-train-plan">
+              {a.gpu ? `${a.gpu.name}, ${a.gpu.memory_gb} GB` : 'No NVIDIA GPU found'}{a.notes?.length ? ` · ${a.notes.join(' · ')}` : ''}
+            </span>
+            {error && <span className="text-xs text-destructive">{error}</span>}
           </div>
         </>
       )}
-    </div>
-  );
-}
-
-function SetupCard({ status, onPull }) {
-  const pulling = status.pulling?.state === 'running';
-  return (
-    <div className="bg-card border border-border rounded-2xl p-5 space-y-3" data-testid="train-setup">
-      <div className="flex items-center gap-2"><Container className="w-4 h-4 text-primary" /><h3 className="font-medium">This PC</h3></div>
-      <Check ok={status.docker}>
-        {status.docker ? <>Docker {status.docker_version}</> : <>Docker isn&apos;t running. Install <a className="text-primary hover:underline" href="https://www.docker.com/products/docker-desktop/" target="_blank" rel="noreferrer">Docker Desktop</a> (it uses WSL 2 on Windows), start it, then reload this page.</>}
-      </Check>
-      <Check ok={!!status.gpu}>
-        {status.gpu ? <>{status.gpu.name}, {status.gpu.memory_gb} GB</> : <>No NVIDIA GPU found. Install the latest NVIDIA driver (it includes WSL 2 GPU support).</>}
-      </Check>
-      <Check ok={status.image}>
-        {status.image ? <>Unsloth image downloaded ({status.image_size_gb} GB)</> : <>Unsloth&apos;s image ({status.image_name}) isn&apos;t downloaded yet: about 10 GB, once.</>}
-      </Check>
-      {!status.image && status.docker && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={onPull} disabled={pulling} data-testid="train-pull"><Download className="w-3.5 h-3.5 mr-1" />{pulling ? 'Downloading…' : 'Download Unsloth'}</Button>
-          {status.pulling?.line && <span className="text-[11px] text-muted-foreground font-mono truncate max-w-md">{status.pulling.line}</span>}
-        </div>
-      )}
-      <p className="text-[11px] text-muted-foreground">Training runs in Unsloth&apos;s own Docker container on your GPU; models download once into a Docker volume (quantbot-hf-cache) and are reused.</p>
-    </div>
-  );
-}
-
-const Field = ({ label, children, hint }) => (
-  <label className="block space-y-1">
-    <span className="text-xs text-muted-foreground">{label}</span>
-    {children}
-    {hint && <span className="block text-[11px] text-muted-foreground">{hint}</span>}
-  </label>
-);
-
-function NewRunCard({ status, hf, onStarted }) {
-  const [c, setC] = useState(status.defaults);
-  const [more, setMore] = useState(false);
-  const [error, setError] = useState('');
-  const [starting, setStarting] = useState(false);
-  const [auto, setAuto] = useState(null);
-  const set = (k, v) => setC((x) => ({ ...x, [k]: v }));
-  useEffect(() => { api(`/api/train/auto?model=${c.model}`, undefined, 'GET').then(setAuto).catch(() => setAuto(null)); }, [c.model]);
-  const toggleExport = (id) => set('exports', c.exports.includes(id) ? c.exports.filter((x) => x !== id) : [...c.exports, id]);
-  const ready = status.docker && status.image;
-  const start = async () => {
-    setError(''); setStarting(true);
-    try { await api('/api/train/start', c); onStarted(); } catch (e) { setError(e.message); } finally { setStarting(false); }
-  };
-  return (
-    <div className="bg-card border border-border rounded-2xl p-5 space-y-4" data-testid="train-new">
-      <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /><h3 className="font-medium">New training run</h3></div>
-      <p className="text-xs text-muted-foreground">
-        Teaches the model to predict each day&apos;s high and low (as % from the open) from the 10 days before it, for every market you pick:
-        each example names its market and that market&apos;s last-year profile (typical range, volatility), so one model learns how gold and the
-        Nasdaq-100 differ. It trains on one date range and is then tested, per market, on a later range it never saw, against a simple guess.
-      </p>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Data">
-          <Select value={c.source} onValueChange={(v) => set('source', v)}>
-            <SelectTrigger data-testid="train-source"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="builtin">Built-in markets (hourly, downloaded automatically)</SelectItem>
-              <SelectItem value="file">An MT5 export on this PC</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        {c.source === 'file' ? (
-          <Field label="MT5 export file" hint="Full path, e.g. C:\Users\you\Downloads\XAUUSD_M5_200406110715_202610152120.csv">
-            <Input value={c.data_path} onChange={(e) => set('data_path', e.target.value)} placeholder="C:\…\XAUUSD_M5_….csv" data-testid="train-path" />
-          </Field>
-        ) : (
-          <Field label="Markets" hint="NQ and US100 share the Nasdaq-100 prices, so pick one of them (MNQ is the same prices too)">
-            <div className="flex flex-wrap gap-2 pt-1" data-testid="train-markets">
-              {[['XAUUSD', 'Gold (XAUUSD)'], ['NQ', 'Nasdaq-100 (NQ)'], ['US100', 'US100']].map(([sym, label]) => {
-                const on = (c.symbols || []).includes(sym);
-                const twin = sym === 'NQ' ? 'US100' : sym === 'US100' ? 'NQ' : null;
-                return (
-                  <button key={sym} type="button" aria-pressed={on} data-market={sym}
-                    onClick={() => set('symbols', on ? c.symbols.filter((x) => x !== sym) : [...(c.symbols || []).filter((x) => x !== twin), sym])}
-                    className={`h-9 px-3 rounded-lg border text-sm ${on ? 'border-primary bg-primary/10' : 'border-border text-muted-foreground hover:bg-accent'}`}>{label}</button>
-                );
-              })}
-            </div>
-          </Field>
-        )}
-        <ModelPicker c={c} set={set} status={status} />
-        <Field label="Train on">
-          <div className="flex items-center gap-2">
-            <Input type="date" value={c.train_from} onChange={(e) => set('train_from', e.target.value)} />
-            <span className="text-xs text-muted-foreground">to</span>
-            <Input type="date" value={c.train_to} onChange={(e) => set('train_to', e.target.value)} />
-          </div>
-        </Field>
-        <Field label="Test on (days it never saw)">
-          <div className="flex items-center gap-2">
-            <Input type="date" value={c.test_from} onChange={(e) => set('test_from', e.target.value)} />
-            <span className="text-xs text-muted-foreground">to</span>
-            <Input type="date" value={c.test_to} onChange={(e) => set('test_to', e.target.value)} />
-          </div>
-        </Field>
-      </div>
-      <div className="flex items-start gap-3 rounded-xl border border-border p-3">
-        <Switch checked={c.auto} onCheckedChange={(v) => set('auto', v)} data-testid="train-auto" />
-        <div className="space-y-1">
-          <div className="text-sm">Pick the training settings for my GPU</div>
-          {c.auto && c.model_source !== 'recommended' && <div className="text-[11px] text-muted-foreground">The batch is sized from this model&apos;s parameter count and your GPU when the run starts; sequence length and out-of-memory retries work the same way.</div>}
-          {c.auto && auto && c.model_source === 'recommended' && (
-            <div className="text-[11px] text-muted-foreground" data-testid="train-auto-why">
-              {auto.why}. Batch {auto.settings.batch_size} × accumulation {auto.settings.grad_accum}, {auto.settings.epochs} epochs, learning rate {auto.settings.learning_rate}, LoRA rank {auto.settings.lora_r};
-              {' '}sequence length is trimmed to the longest real example, and the batch halves by itself if the GPU runs out of memory.
-            </div>
-          )}
-          {!c.auto && <button type="button" onClick={() => setMore((v) => !v)} className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${more ? 'rotate-180' : ''}`} />Training settings
-          </button>}
-        </div>
-      </div>
-      {!c.auto && more && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 animate-in fade-in-0 slide-in-from-top-1 duration-pop calm:animate-none">
-          <Field label="Epochs"><Input type="number" step="0.5" value={c.epochs} onChange={(e) => set('epochs', e.target.value)} /></Field>
-          <Field label="Learning rate"><Input type="number" step="0.00005" value={c.learning_rate} onChange={(e) => set('learning_rate', e.target.value)} /></Field>
-          <Field label="LoRA rank"><Input type="number" value={c.lora_r} onChange={(e) => set('lora_r', e.target.value)} /></Field>
-          <Field label="Batch size" hint="Lower it if you run out of GPU memory"><Input type="number" value={c.batch_size} onChange={(e) => set('batch_size', e.target.value)} /></Field>
-          <Field label="Gradient accumulation"><Input type="number" value={c.grad_accum} onChange={(e) => set('grad_accum', e.target.value)} /></Field>
-          <Field label="Max sequence length"><Input type="number" step="64" value={c.max_seq_length} onChange={(e) => set('max_seq_length', e.target.value)} /></Field>
-        </div>
-      )}
-      <div className="space-y-2" data-testid="train-exports">
-        <div className="text-xs text-muted-foreground">Save the trained model as</div>
-        <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1.5">
-          {status.exports.map((e) => (
-            <label key={e.id} className="flex items-center gap-2 text-xs">
-              <input type="checkbox" className="accent-[hsl(var(--primary))]" checked={e.always || c.exports.includes(e.id)} disabled={e.always} onChange={() => toggleExport(e.id)} data-testid={`train-export-${e.id}`} />
-              {e.label}
-            </label>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Input value={c.push_repo} onChange={(e) => set('push_repo', e.target.value.trim())} placeholder={hf?.connected ? `Upload to Hugging Face: ${hf.user}/gold-range-model` : 'Upload to Hugging Face (add your token above first)'}
-            disabled={!hf?.connected} className="max-w-sm" data-testid="train-push-repo" />
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input type="checkbox" className="accent-[hsl(var(--primary))]" checked={c.push_private} onChange={(e) => set('push_private', e.target.checked)} disabled={!hf?.connected} />Private
-          </label>
-        </div>
-        <p className="text-[11px] text-muted-foreground">GGUF files run in Ollama, llama.cpp and LM Studio (Unsloth builds llama.cpp on the first GGUF export, which takes a few extra minutes). Safetensors run in Transformers and vLLM.</p>
-      </div>
-      {error && <p className="text-xs text-destructive" data-testid="train-error">{error}</p>}
-      <div className="flex flex-wrap items-center gap-3 pt-1">
-        <Button onClick={start} disabled={!ready || starting} data-testid="train-start"><Play className="w-3.5 h-3.5 mr-1" />{starting ? 'Starting…' : 'Start training'}</Button>
-        {!ready && <span className="text-[11px] text-muted-foreground">Needs Docker and the Unsloth image (above).</span>}
-      </div>
     </div>
   );
 }
@@ -336,7 +165,6 @@ function RunCard({ run, models, onChange }) {
 
 export default function Train() {
   const { status, runs, load } = useTrain();
-  const [hf, setHf] = useState(null);
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-3 px-4">
@@ -346,10 +174,7 @@ export default function Train() {
       </header>
       {!status || !runs ? <div className="flex justify-center py-20"><ChartLoader className="w-20 h-12" /></div> : (
         <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-4">
-          <AutoTrainCard status={status} onStarted={load} />
-          <SetupCard status={status} onPull={() => api('/api/train/pull', {}).then(load)} />
-          <HfCard onChange={setHf} />
-          <NewRunCard status={status} hf={hf} onStarted={load} />
+          <TrainCard onStarted={load} />
           {runs.map((r) => <RunCard key={r.id} run={r} models={status.models} onChange={load} />)}
         </div>
       )}

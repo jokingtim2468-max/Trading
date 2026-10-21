@@ -31,6 +31,7 @@
       { "from": "../public/fonts", "to": "quantbot/public/fonts" },
       { "from": "../src/lib/backtest/marketStats.js", "to": "quantbot/src/lib/backtest/marketStats.js" },
       { "from": "../mt5", "to": "quantbot/mt5" },
+      { "from": "../train", "to": "quantbot/train", "filter": ["**/*", "!**/__pycache__/**"] },
       { "from": "../package.json", "to": "quantbot/package.json" }
     ],
     "win": {

@@ -489,3 +489,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Chart tab: Close all (replay)
 - Red "Close all (N)" button in the replay bar (testid `replay-close-all`, `#f23645`, disabled at 30% when nothing is open): closes every open practice trade at the current price. Live accounts keep "Flatten all" in the top bar.
+
+## Train page (one button)
+- Only control: a grid of model buttons (best fit for this GPU preselected, too-big models disabled) and one large "Train" button.
+- Settings, markets (XAUUSD + NQ), dates, exports, Docker and Unsloth are chosen automatically. No Hugging Face / API options.
+- Runs list below shows progress, loss chart, results and Stop/Delete.

@@ -385,11 +385,16 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
         fs.writeFileSync(path.join(dir(id), 'config.json'), JSON.stringify({ ...cfg, data_file: '/workspace/job/data.csv', ...(typeof files === 'object' ? { data_files: files } : {}) }, null, 1));
         st.phase = 'training'; saveState(id, st);
         if (entry.stopped) throw new Error('Stopped');
+        // The training script goes into the run's own folder (already shared with the container): no second mount,
+        // and the run keeps the exact script it used
+        const script = path.join(SCRIPT_DIR, 'qb_train.py');
+        if (!fs.existsSync(script)) throw new Error(`The training script is missing from this install (${script}). Update or reinstall QuantBot.`);
+        fs.copyFileSync(script, path.join(dir(id), 'qb_train.py'));
         const args = ['run', '--rm', '--name', `quantbot-train-${id}`, '--gpus', 'all', '--ipc=host',
-          '-v', `${dir(id)}:/workspace/job`, '-v', `${SCRIPT_DIR}:/workspace/code:ro`, '-v', `${HF_VOLUME}:/root/.cache/huggingface`,
+          '-v', `${dir(id)}:/workspace/job`, '-v', `${HF_VOLUME}:/root/.cache/huggingface`,
           ...(cfg.model_source === 'local' ? ['-v', `${path.resolve(cfg.local_model)}:/workspace/model:ro`] : []),
           ...(hfToken() ? ['-e', 'HF_TOKEN'] : []), // the value comes from this process's environment, never the command line
-          IMAGE, 'python', '/workspace/code/qb_train.py', '/workspace/job'];
+          IMAGE, 'python', '/workspace/job/qb_train.py', '/workspace/job'];
         const evFile = fs.createWriteStream(path.join(dir(id), 'events.jsonl'), { flags: 'a' });
         const logFile = fs.createWriteStream(path.join(dir(id), 'output.log'), { flags: 'a' });
         const proc = spawn(...dockerCmd(args), { windowsHide: true, env: { ...process.env, ...(hfToken() ? { HF_TOKEN: hfToken() } : {}) } });
