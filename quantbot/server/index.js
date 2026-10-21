@@ -24,6 +24,7 @@ import { createTrainer } from './train.js';
 import { createTerminal } from './terminal.js';
 import { createFastLane } from './fastlane.js';
 import { createFleet } from './fleet.js';
+import { loadPresets } from './lib/fleetRules.js';
 import { createAgents } from './agents.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -188,6 +189,8 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
   if (req.method === 'GET' && url.pathname === '/api/agents/system') return send(res, 200, { system: agents.system });
   // Fleet: account profiles, the simplified accounts list, deploy, pause, payout audit, notifications
+  // The prop-firm account presets (firms, models, sizes, rules), for the Strategy Tester's account picker
+  if (req.method === 'GET' && url.pathname === '/api/presets') return send(res, 200, loadPresets());
   if (url.pathname.startsWith('/api/fleet')) {
     const body = async () => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}'); };
     const p = url.pathname.slice('/api/fleet'.length);

@@ -23,7 +23,7 @@ export default function StrategyLab() {
   useEffect(() => { setOpened((s) => (s.has(active.id) ? s : new Set([...s, active.id]))); }, [active.id]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground overflow-x-clip">
       <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-2 px-4">
         <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
         <h1 className="font-heading text-lg font-semibold mr-2">Strategy Lab</h1>

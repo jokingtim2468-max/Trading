@@ -5,6 +5,7 @@ import { defaultModel, MODELS } from '@/lib/models';
 import { loadDatasets, loadTestBars, asTested } from '@/lib/backtest/data';
 import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics, downsample } from '@/lib/backtest/metrics';
+import { evaluateProp } from '@/lib/backtest/propRules';
 import { marketStats } from '@/lib/backtest/marketStats';
 import { testSignals } from '@/lib/backtest/signals';
 import { runMonteCarlo } from '@/lib/backtest/monteCarlo';
@@ -34,7 +35,8 @@ export default function useScriptTester() {
   }, []);
 
   // range: { tf, from, to } (YYYY-MM-DD); uploaded files keep their own timeframe
-  async function run(chatId, datasetIds, range) {
+  // account: { size, preset } — the balance to test with (default $10K) and, optionally, the prop-firm rules to judge by
+  async function run(chatId, datasetIds, range, account = { size: 10000, preset: null }) {
     setError('');
     setResults([]);
     const ctl = new AbortController();
@@ -42,7 +44,7 @@ export default function useScriptTester() {
     // One translation per run, shared by every market (and any rewrite or check it needed)
     const shared = { prepared: null, rewrote: false, rechecked: false };
     for (const picked of datasets.filter((d) => datasetIds.includes(d.id))) {
-      const r = await runOne(chatId, asTested(picked, range.tf), range, ctl.signal, shared);
+      const r = await runOne(chatId, asTested(picked, range.tf), range, ctl.signal, shared, account);
       if (!r || ctl.signal.aborted) break;
       setResults((xs) => [...xs, r]);
     }
@@ -60,7 +62,7 @@ export default function useScriptTester() {
     setPhase('');
   }
 
-  async function runOne(chatId, ds, range, signal, shared) {
+  async function runOne(chatId, ds, range, signal, shared, account) {
     const live = (text) => { if (!signal.aborted) setPhase(text); };
     const stopped = () => { if (signal.aborted) throw new DOMException('Stopped', 'AbortError'); };
     const chat = chats.find((c) => c.id === chatId);
@@ -93,7 +95,7 @@ export default function useScriptTester() {
       };
       const contractSize = ds.contract_size || 100;
       const simulate = (prep) => runInWorker(
-        { bars, startIndex: start, simCode: prep.sim_code, balance: prep.settings.balance, contractSize, point: ds.point || 0.01 },
+        { bars, startIndex: start, simCode: prep.sim_code, balance: account.size, contractSize, point: ds.point || 0.01 },
         { maxMs: 120000, signal, onProgress: (done, total) => live(`${ds.symbol}: simulating trades... ${Math.floor((done / total) * 100)}% of ${total.toLocaleString()} bars`) },
       );
 
@@ -136,19 +138,25 @@ export default function useScriptTester() {
         sim = await simulate(shared.prepared);
       }
       const prepared = shared.prepared;
-      const { sim_code: simCode, summary, rules, settings } = prepared;
+      const { sim_code: simCode, summary, rules } = prepared;
+      const balance = account.size;
       sim.log.forEach((e) => log.push(e));
-      const metrics = computeMetrics(sim.trades, sim.equity, settings.balance, contractSize);
+      const metrics = computeMetrics(sim.trades, sim.equity, balance, contractSize);
       const signals = testSignals(sim.trades);
-      const mc = runMonteCarlo(sim.trades, settings.balance);
+      const mc = runMonteCarlo(sim.trades, balance);
+      // Judged against the chosen prop firm's rules, when one is picked
+      const prop = account.preset ? evaluateProp(sim.trades, account.preset) : null;
+      if (prop) add(prop.status === 'failed' ? 'warn' : 'info', `${prop.firm} ${prop.model} $${prop.size.toLocaleString()}: ${prop.status.toUpperCase()}${prop.date ? ` on ${prop.date}` : ''} — ${prop.reason}`);
       add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);
 
       stopped();
       live('Saving results...');
       const period = { start: new Date(bars.time[start]).toISOString(), end: new Date(bars.time[n - 1]).toISOString() };
-      const test = { name: chat.title, script, ds, model, balance: settings.balance, summary, rules, simCode, metrics, results: signals.results, ...period };
+      const test = { name: chat.title, script, ds, model, balance, summary, rules, simCode, metrics, results: signals.results, ...period };
       const saved = await saveScriptTest({ ...test, logText: log.map(logLine).join('\n').slice(0, 20000) }, sim.trades);
-      return { ...test, ...saved, modelLabel, log, mc, trades: sim.trades, equity: downsample(sim.equity) };
+      // The tested candles (no copy: views into the loaded arrays) for the replay
+      const tested = Object.fromEntries(['time', 'open', 'high', 'low', 'close'].map((k) => [k, bars[k].subarray(start)]));
+      return { ...test, ...saved, modelLabel, log, mc, prop, bars: tested, trades: sim.trades, equity: downsample(sim.equity) };
     } catch (e) {
       if (e.name === 'AbortError' || signal.aborted) return null;
       setError(`${ds.symbol}: ${e.response?.data?.error || e.message}`);

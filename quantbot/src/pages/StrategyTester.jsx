@@ -3,6 +3,8 @@ import { MODELS } from '@/lib/models';
 import useScriptTester from '@/hooks/useScriptTester';
 import { daysAgo, today, firstDate } from '@/lib/backtest/data';
 import TesterControls from '@/components/scripttester/TesterControls';
+import AccountPicker from '@/components/scripttester/AccountPicker';
+import { presetOf } from '@/lib/backtest/propRules';
 import ScriptCard from '@/components/scripttester/ScriptCard';
 import ScriptResults from '@/components/scripttester/ScriptResults';
 import ChartLoader from '@/components/quant/ChartLoader';
@@ -14,6 +16,11 @@ export function TesterPanel() {
   const [chatId, setChatId] = useState('');
   const [datasetIds, setDatasetIds] = useState(['market-XAUUSD', 'market-US100', 'market-NQ']);
   const [range, setRange] = useState({ tf: 'M15', from: daysAgo(365), to: today() });
+  // The account the test runs on: $10K by default, optionally a prop firm's rules
+  const [account, setAccount] = useState({ size: 10000, firm: null, model: null });
+  const [presets, setPresets] = useState(null);
+  useEffect(() => { fetch('/api/presets').then((r) => r.json()).then(setPresets).catch(() => setPresets({ sizes: [10000], presets: [] })); }, []);
+  const preset = account.firm && account.model ? presetOf(presets, account.firm, account.model, account.size) : null;
   useEffect(() => { if (!chatId && t.chats[0]) setChatId(t.chats[0].id); }, [t.chats]);
   // Dates can go back to the latest start among the picked built-in markets
   const picked = t.datasets.filter((d) => d.market && datasetIds.includes(d.id));
@@ -30,12 +37,13 @@ export function TesterPanel() {
               chats={t.chats} datasets={t.datasets} chatId={chatId} datasetIds={datasetIds}
               onChat={setChatId} onDatasets={setDatasetIds} running={t.running}
               range={range} rangeLimits={{ min, max: today() }} onRange={(p) => setRange((r) => ({ ...r, ...p }))}
-              onRun={() => t.run(chatId, datasetIds, range)} onStop={t.stop}
+              onRun={() => t.run(chatId, datasetIds, range, { size: account.size, preset })} onStop={t.stop}
             />
+            {presets && <AccountPicker presets={presets} value={account} onChange={setAccount} />}
             <p className="text-xs text-muted-foreground px-1">
               Tests the newest script in the chat on the chosen dates. XAUUSD, US100 and NQ history downloads from Dukascopy the first
-              time a range is used (broker time, UTC+2/+3). M1 tests cover up to 370 days. Settings are built into the tester:
-              $10,000 balance, the script's own inputs, 1% risk if it sets none. Script read by {modelLabel} (change it in Settings).
+              time a range is used (broker time, UTC+2/+3). M1 tests cover up to 370 days. The balance is the account size above
+              (default $10,000); the script's own inputs, 1% risk if it sets none. Script read by {modelLabel} (change it in Settings).
             </p>
           </div>
         )}

@@ -292,6 +292,39 @@ await step('Strategy Tester: 3 built-in markets (XAUUSD, US100, NQ) on M15 / las
   await snap('tester-results');
 });
 
+await step('Strategy Tester: $10K default, firm rules by size (unavailable firms slide off), FTMO verdict, chart replay', async () => {
+  const chips = page.getByTestId('firm-chips');
+  // $10K by default: only FTMO offers that size
+  await chips.locator('[data-firm="FTMO"]').waitFor();
+  expect(!(await chips.locator('[data-firm="Lucid Trading"]').count()), 'Lucid has no $10K account');
+  await pick(page.getByLabel('Account size'), '$25K');
+  await chips.locator('[data-firm="Lucid Trading"]').waitFor();
+  await chips.locator('[data-firm="Lucid Trading"]').click();
+  await pick(page.getByLabel('Account type'), 'LucidPro');
+  await text(/LucidPro: target \$1,250/).waitFor();
+  // Back to $10K: Lucid slides off to the right and the choice falls back to no firm
+  await pick(page.getByLabel('Account size'), '$10K');
+  await chips.locator('[data-firm="Lucid Trading"]').waitFor({ state: 'detached' });
+  expect(await chips.locator('[data-firm="none"]').getAttribute('aria-pressed') === 'true', 'falls back to no firm');
+  await chips.locator('[data-firm="FTMO"]').click();
+  await text(/FTMO Evaluation \(2-Step\): target \$1,000/).waitFor();
+  await snap('tester-account-picker');
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await page.getByTestId('prop-result').first().waitFor({ timeout: 180000 });
+  expect(/passed|failed|in progress/i.test(await page.getByTestId('prop-result').first().innerText()), 'prop verdict shown');
+  // The replay opens first and plays the chart
+  const replay = page.getByTestId('trade-replay').first();
+  await replay.waitFor();
+  const before = await replay.getByTestId('replay-status').innerText();
+  await replay.getByTestId('replay-play').click();
+  await page.waitForTimeout(1500);
+  await replay.getByTestId('replay-play').click();
+  expect(before !== await replay.getByTestId('replay-status').innerText(), 'replay moved the chart forward');
+  if (!(await replay.getByTestId('replay-next').isDisabled())) await replay.getByTestId('replay-next').click();
+  await snap('tester-replay');
+  await chips.locator('[data-firm="none"]').click();
+});
+
 await step('Strategy Tester: 20+ years of XAUUSD on H4', async () => {
   await page.getByRole('button', { name: /Markets: XAUUSD, US100, NQ/ }).click();
   await page.getByRole('dialog').getByText('US100', { exact: true }).click();

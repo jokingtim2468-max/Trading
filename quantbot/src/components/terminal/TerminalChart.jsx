@@ -28,6 +28,7 @@ export default function TerminalChart({
       layout: { attributionLogo: false, fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11 },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 },
+      localization: { locale: 'en-US' }, // the browser's own tag can be invalid (e.g. en-US@posix) and crash the chart
     });
     chart.current = c;
     series.current = c.addSeries(CandlestickSeries, {});
