@@ -10,6 +10,7 @@
     "test": "node --test tests/unit/*.test.js",
     "test:e2e": "node tests/e2e/run.js",
     "test:terminal": "node tests/e2e/terminal.js",
+    "test:speed": "node tests/speed.mjs",
     "test:launcher": "node tests/e2e/launcher.js",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
