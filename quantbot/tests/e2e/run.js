@@ -74,7 +74,7 @@ await step('App launches on the chat page', async () => {
   await page.goto(base());
   await text(/Good (morning|afternoon|evening), Tim/).waitFor();
   await page.getByPlaceholder('Reply to QuantBot...').waitFor();
-  expect(await sidebarLink('Strategy Tester').isVisible(), 'sidebar links missing');
+  expect(await sidebarLink('Strategy Lab').isVisible(), 'sidebar links missing');
   await snap('home');
 });
 
@@ -243,7 +243,8 @@ await step('Chat: delete confirmation fades in, then deletes', async () => {
 });
 
 await step('Market Lab: the quant feature pack and charts for a market', async () => {
-  await sidebarLink('Market Lab').click();
+  await sidebarLink('Strategy Lab').click();
+  await page.getByTestId('lab-tab-market').click();
   await page.getByRole('heading', { name: 'Market Lab' }).waitFor();
   await page.getByTestId('lab-symbol').selectOption('XAUUSD');
   await page.getByTestId('lab-tf').selectOption('M5');
@@ -255,11 +256,11 @@ await step('Market Lab: the quant feature pack and charts for a market', async (
   await page.getByTestId('lab-vector').waitFor();
   await snap('market-lab');
   await page.goto(`${base()}/`); // back to the page that has the sidebar for the next step
-  await sidebarLink('Strategy Tester').waitFor();
+  await sidebarLink('Strategy Lab').waitFor();
 });
 
 await step('Strategy Tester: 3 built-in markets (XAUUSD, US100, NQ) on M15 / last 120 days', async () => {
-  await sidebarLink('Strategy Tester').click();
+  await page.goto(`${base()}/strategy-tester`); // a fresh Lab with only the Test tab mounted
   await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
   const chat = page.getByRole('combobox').first();
   await chat.filter({ hasText: /Gold Breakout|hello/ }).waitFor();
@@ -319,7 +320,7 @@ await step('Strategy Tester: a script whose test code is too slow is rewritten f
   await page.getByPlaceholder('Reply to QuantBot...').fill('write my slow ict strategy');
   await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
   await page.locator('aside').getByText('Slow ICT', { exact: true }).waitFor();
-  await sidebarLink('Strategy Tester').click();
+  await page.goto(`${base()}/strategy-tester`); // a fresh Lab with only the Test tab mounted
   await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
   await pick(page.getByRole('combobox').first(), 'Slow ICT');
   await pick(page.getByLabel('Timeframe'), 'M15');
@@ -347,7 +348,7 @@ await step('Strategy Tester: test code that takes no trades is checked once, wit
   await page.getByPlaceholder('Reply to QuantBot...').fill('write my quiet ict strategy');
   await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
   await page.locator('aside').getByText('Quiet ICT', { exact: true }).waitFor();
-  await sidebarLink('Strategy Tester').click();
+  await page.goto(`${base()}/strategy-tester`); // a fresh Lab with only the Test tab mounted
   await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();
   await pick(page.getByRole('combobox').first(), 'Quiet ICT');
   await pick(page.getByLabel('Timeframe'), 'M15');

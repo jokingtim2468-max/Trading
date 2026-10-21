@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, History, MessageSquare } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import * as api from '@/lib/quantApi';
 import { client } from '@/api/client';
 import { missingKey, defaultModel } from '@/lib/models';
@@ -16,7 +16,8 @@ import Leaderboard from '@/components/tester/report/Leaderboard';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
 import ChartLoader from '@/components/quant/ChartLoader';
 
-export default function StrategyConverter() {
+// The Strategy Lab's Convert tab: a strategy idea becomes a bot, tested on unseen weeks, then a chat to fine-tune it
+export function ConverterPanel() {
   const [cfg, setCfg] = useState({
     strategy: '', rules: '', target: 'MT5', model: 'claude-opus-5-5', windowId: '1w', timeframe: 'M15',
     customFrom: daysAgo(90), customTo: today(), botName: '', datasetIds: ['market-XAUUSD', 'market-US100', 'market-NQ'], balance: 10000,
@@ -37,15 +38,9 @@ export default function StrategyConverter() {
   const active = lab.runs[lab.activeIdx];
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-3 px-4">
-        <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
-        <h1 className="font-heading text-lg font-semibold">Strategy Converter</h1>
-        <Link to="/test-history" className="ml-auto flex items-center gap-2 text-sm px-3 py-1.5 rounded-md hover:bg-accent">
-          <History className="w-4 h-4 text-primary" />History
-        </Link>
-      </header>
+    <>
       <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-5">
+        <h2 className="font-heading text-lg font-semibold">Strategy Converter</h2>
         <TesterToolbar
           cfg={cfg} set={set} onRun={lab.run} onStop={lab.stop} running={lab.running}
           disabled={!cfg.strategy.trim() || !cfg.botName.trim() || cfg.balance < 100 || needsKey}
@@ -89,6 +84,6 @@ export default function StrategyConverter() {
           onSelect={(id) => lab.setActiveIdx(lab.runs.findIndex((r) => r.id === id))}
         />
       </div>
-    </div>
+    </>
   );
 }

@@ -118,7 +118,8 @@ as overfit, not as a winner.
 
 ## Market Lab (quant-data engine)
 
-The Market Lab page (`/market-lab`) turns your candles into the numbers a quant checks before trusting a market, and
+The Market tab of the **Strategy Lab** (`/market-lab`) — the Lab combines the Strategy Converter, the Strategy Tester
+and the Market Lab on one page, one tab each — turns your candles into the numbers a quant checks before trusting a market, and
 charts them: volatility by hour / session / weekday, the per-bar return distribution (mean, std, skew, fat-tail
 kurtosis), a volatility-regime ATR line, autocorrelation at lags 1–5 (positive = trending, negative = mean-reverting),
 P(up after up) vs the base rate, breakout rate, gaps and longest runs. It all computes from the minute-derived data

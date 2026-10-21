@@ -52,6 +52,46 @@ export async function detectSpecs() {
 }
 
 let pulling = null;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function ollamaUp(base) {
+  try { return (await fetch(`${base}/api/version`, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+}
+
+// Where the Windows installer puts ollama.exe (it isn't on this process's PATH right after installing)
+const winExe = () => (process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Programs\\Ollama\\ollama.exe` : null);
+
+async function findOllama() {
+  for (const cmd of ['ollama', winExe()].filter(Boolean)) if ((await run(cmd, ['--version'])).code === 0) return cmd;
+  return null;
+}
+
+async function waitUp(base, ms) {
+  for (let t = 0; t < ms; t += 1000) { if (await ollamaUp(base)) return true; await sleep(1000); }
+  return false;
+}
+
+// Make sure Ollama answers before pulling: start it if it's installed but stopped, and on Windows install it with
+// winget (Ollama's official package) if it's missing. A remote address is never touched, only reported.
+async function ensureOllama(base, say) {
+  if (await ollamaUp(base)) return;
+  const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(base);
+  if (!local) throw new Error(`Ollama isn't answering at ${base}. Start it on that machine, or set the address to http://127.0.0.1:11434.`);
+  let exe = await findOllama();
+  if (!exe) {
+    if (process.platform !== 'win32') throw new Error('Ollama is not installed. Install it with: curl -fsSL https://ollama.com/install.sh | sh  — then press Install again.');
+    say('installing Ollama (winget)…');
+    const w = await run('winget', ['install', '-e', '--id', 'Ollama.Ollama', '--silent', '--accept-package-agreements', '--accept-source-agreements'], 600000);
+    exe = await findOllama();
+    if (!exe) throw new Error(`Couldn't install Ollama automatically${w.code === -1 ? ' (winget not found)' : ''}. Install it from https://ollama.com/download, then press Install again.`);
+  }
+  if (await waitUp(base, 5000)) return; // the Windows installer starts Ollama by itself
+  say('starting Ollama…');
+  const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true });
+  p.on('error', () => {});
+  p.unref();
+  if (!(await waitUp(base, 30000))) throw new Error('Ollama is installed but did not start. Open the Ollama app once, then press Install again.');
+}
 
 // Start downloading a model through Ollama's HTTP API; progress is streamed and kept for pull_status to read.
 export function startPull(url, model) {
@@ -61,6 +101,8 @@ export function startPull(url, model) {
   pulling = { state: 'running', model: name, status: 'starting…', percent: 0, started: Date.now() };
   (async () => {
     try {
+      await ensureOllama(ollamaBase(url), (msg) => { pulling.status = msg; });
+      pulling.status = 'downloading…';
       const res = await fetch(`${ollamaBase(url)}/api/pull`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: name, stream: true }),
@@ -87,7 +129,8 @@ export function startPull(url, model) {
       pulling.percent = 100;
       pulling.status = 'installed';
     } catch (e) {
-      pulling = { state: 'error', model: name, status: e.message, percent: pulling?.percent || 0 };
+      const msg = e.message === 'fetch failed' ? `Lost the connection to Ollama while downloading ${name}. Press Install again to resume.` : e.message;
+      pulling = { state: 'error', model: name, status: msg, percent: pulling?.percent || 0 };
     }
   })();
   return { ...pulling };

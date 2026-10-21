@@ -1,6 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, History, ArrowLeftRight } from 'lucide-react';
 import { MODELS } from '@/lib/models';
 import useScriptTester from '@/hooks/useScriptTester';
 import { daysAgo, today, firstDate } from '@/lib/backtest/data';
@@ -10,7 +8,8 @@ import ScriptResults from '@/components/scripttester/ScriptResults';
 import ChartLoader from '@/components/quant/ChartLoader';
 import Leaderboard from '@/components/tester/report/Leaderboard';
 
-export default function StrategyTester() {
+// The Strategy Lab's Test tab: the newest script in a chat, backtested on the chosen markets and dates
+export function TesterPanel() {
   const t = useScriptTester();
   const [chatId, setChatId] = useState('');
   const [datasetIds, setDatasetIds] = useState(['market-XAUUSD', 'market-US100', 'market-NQ']);
@@ -22,18 +21,9 @@ export default function StrategyTester() {
   const modelLabel = MODELS.find((m) => m.id === t.model)?.label;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-1 px-4">
-        <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
-        <h1 className="font-heading text-lg font-semibold ml-2">Strategy Tester</h1>
-        <Link to="/strategy-converter" className="ml-auto flex items-center gap-2 text-sm px-3 py-1.5 rounded-md hover:bg-accent">
-          <ArrowLeftRight className="w-4 h-4 text-primary" />Converter
-        </Link>
-        <Link to="/test-history" className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-md hover:bg-accent">
-          <History className="w-4 h-4 text-primary" />History
-        </Link>
-      </header>
+    <>
       <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-5">
+        <h2 className="font-heading text-lg font-semibold">Strategy Tester</h2>
         {!t.ready ? <div className="flex justify-center py-16"><ChartLoader className="w-20 h-12" /></div> : (
           <div className="space-y-2">
             <TesterControls
@@ -70,6 +60,6 @@ export default function StrategyTester() {
           />
         )}
       </div>
-    </div>
+    </>
   );
 }

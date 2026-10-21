@@ -274,7 +274,7 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   if (req.method === 'GET' && url.pathname === '/api/train/autoconfig') return send(res, 200, await trainer.autoConfig());
   if (req.method === 'POST' && url.pathname === '/api/train/autostart') {
     if (!json()) return send(res, 415, { error: 'JSON required' });
-    return send(res, 200, await trainer.autoStart());
+    return send(res, 200, await trainer.autoStart(JSON.parse((await readBody(req, 2000)).toString('utf8') || '{}')));
   }
   if (req.method === 'POST' && url.pathname === '/api/train/start') {
     if (!json()) return send(res, 415, { error: 'JSON required' });

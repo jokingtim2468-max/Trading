@@ -9,8 +9,7 @@ import TitleBar from '@/components/TitleBar';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import QuantChat from '@/pages/QuantChat';
 import Settings from '@/pages/Settings';
-import StrategyTester from '@/pages/StrategyTester';
-import StrategyConverter from '@/pages/StrategyConverter';
+import StrategyLab from '@/pages/StrategyLab';
 import TestHistory from '@/pages/TestHistory';
 import PnlCalendar from '@/pages/PnlCalendar';
 import Accounts from '@/pages/Accounts';
@@ -19,15 +18,19 @@ import Train from '@/pages/Train';
 import Terminal from '@/pages/Terminal';
 import Journal from '@/pages/Journal';
 import Overview from '@/pages/Overview';
-import MarketLab from '@/pages/MarketLab';
 
 const AuthenticatedApp = () => (
   <Routes>
     <Route element={<ProtectedRoute />}>
       <Route path="/" element={<QuantChat />} />
       <Route path="/settings" element={<Settings />} />
-      <Route path="/strategy-tester" element={<StrategyTester />} />
-      <Route path="/strategy-converter" element={<StrategyConverter />} />
+      {/* one layout route, so the Lab (and a running test) stays mounted while you switch its tabs */}
+      <Route element={<StrategyLab />}>
+        <Route path="/strategy-lab" element={null} />
+        <Route path="/strategy-converter" element={null} />
+        <Route path="/strategy-tester" element={null} />
+        <Route path="/market-lab" element={null} />
+      </Route>
       <Route path="/test-history" element={<TestHistory />} />
       <Route path="/pnl" element={<PnlCalendar />} />
       <Route path="/accounts" element={<Accounts />} />
@@ -36,7 +39,6 @@ const AuthenticatedApp = () => (
       <Route path="/terminal" element={<Terminal />} />
       <Route path="/journal" element={<Journal />} />
       <Route path="/overview" element={<Overview />} />
-      <Route path="/market-lab" element={<MarketLab />} />
     </Route>
     <Route path="*" element={<PageNotFound />} />
   </Routes>

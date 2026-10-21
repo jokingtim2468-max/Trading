@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, FlaskConical, Loader2, Copy, Check } from 'lucide-react';
+import { FlaskConical, Loader2, Copy, Check } from 'lucide-react';
 import { loadDatasets, loadTestBars, asTested, daysAgo, today } from '@/lib/backtest/data';
 import { quantFeatures, featureVector } from '@/lib/quant/features';
 import { Button } from '@/components/ui/button';
@@ -69,7 +68,7 @@ function Card({ title, hint, children }) {
 
 // Market Lab: the quant-data engine made visible. Pick a market + timeframe and it computes and charts the feature
 // pack (volatility, return distribution, autocorrelation, session structure) the AI and an ML filter use.
-export default function MarketLab() {
+export function MarketLabPanel() {
   const { toast } = useToast();
   const [datasets, setDatasets] = useState([]);
   const [symbol, setSymbol] = useState('');
@@ -109,15 +108,9 @@ export default function MarketLab() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 h-14 glass-bar flex items-center gap-3 px-4">
-        <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
-        <FlaskConical className="w-4 h-4 text-primary" />
-        <h1 className="font-heading text-lg font-semibold">Market Lab</h1>
-        <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">The quant profile of a market — the same features the AI and an ML filter read</span>
-      </header>
-
+    <>
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-5 space-y-4">
+        <div><h2 className="font-heading text-lg font-semibold">Market Lab</h2><p className="text-xs text-muted-foreground">The quant profile of a market — the same features the AI and an ML filter read</p></div>
         <div className="bg-card border border-border rounded-2xl p-4 flex flex-wrap items-end gap-3">
           <label className="space-y-1 text-sm"><span className="block text-xs text-muted-foreground">Market</span>
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="h-9 rounded-md border border-border bg-background px-2" data-testid="lab-symbol">
@@ -186,6 +179,6 @@ export default function MarketLab() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

@@ -4,7 +4,7 @@ import { Minus, Square, Copy, X } from 'lucide-react';
 import LogoMark from '@/components/quant/LogoMark';
 
 const PAGES = {
-  '/': 'Chat', '/settings': 'Settings', '/strategy-tester': 'Strategy Tester', '/strategy-converter': 'Strategy Converter',
+  '/': 'Chat', '/settings': 'Settings', '/strategy-lab': 'Strategy Lab', '/strategy-tester': 'Strategy Lab · Test', '/strategy-converter': 'Strategy Lab · Convert', '/market-lab': 'Strategy Lab · Market',
   '/test-history': 'Test history', '/pnl': 'PnL calendar', '/accounts': 'Copy trading',
 };
 

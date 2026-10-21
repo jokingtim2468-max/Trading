@@ -1,4 +1,4 @@
-import { Plus, X, FlaskConical, History, CalendarDays, ArrowLeftRight, Wallet, Cpu, Radio, CandlestickChart, BookOpen, LayoutGrid, Microscope } from 'lucide-react';
+import { Plus, X, FlaskConical, History, CalendarDays, Wallet, Cpu, Radio, CandlestickChart, BookOpen, LayoutGrid } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import GroupPills from './GroupPills';
 import ProfileFooter from './ProfileFooter';
@@ -21,13 +21,9 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
             <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Plus className="w-4 h-4" /></span>
             New chat
           </button>
-          <Link to="/strategy-tester" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
+          <Link to="/strategy-lab" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><FlaskConical className="w-4 h-4 text-primary" /></span>
-            Strategy Tester
-          </Link>
-          <Link to="/strategy-converter" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><ArrowLeftRight className="w-4 h-4 text-primary" /></span>
-            Strategy Converter
+            Strategy Lab
           </Link>
           <Link to="/test-history" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><History className="w-4 h-4 text-primary" /></span>
@@ -44,10 +40,6 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
           <Link to="/signals" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Radio className="w-4 h-4 text-primary" /></span>
             Signals
-          </Link>
-          <Link to="/market-lab" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Microscope className="w-4 h-4 text-primary" /></span>
-            Market Lab
           </Link>
           <Link to="/terminal" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
             <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><CandlestickChart className="w-4 h-4 text-primary" /></span>

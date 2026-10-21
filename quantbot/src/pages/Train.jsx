@@ -41,9 +41,9 @@ function AutoTrainCard({ status, onStarted }) {
   const [error, setError] = useState('');
   const pulling = status.pulling?.state === 'running';
   useEffect(() => { api('/api/train/autoconfig', undefined, 'GET').then(setA).catch((e) => setError(e.message)); }, [status.image, pulling]);
-  const go = async () => {
-    setBusy(true); setError('');
-    try { await api('/api/train/autostart', {}); onStarted(); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  const go = async (model) => {
+    setBusy(model || true); setError('');
+    try { await api('/api/train/autostart', model ? { model } : {}); onStarted(); } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const s = a?.settings;
   return (
@@ -64,8 +64,21 @@ function AutoTrainCard({ status, onStarted }) {
           </div>
           {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
           <div className="flex items-center gap-2">
-            <Button onClick={go} disabled={!a.ready || busy} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy ? 'Starting…' : 'Auto-train with these settings'}</Button>
+            <Button onClick={() => go()} disabled={!a.ready || !!busy} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy === true ? 'Starting…' : `Auto-train ${a.recommended.name}`}</Button>
             {error && <span className="text-xs text-destructive">{error}</span>}
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-xs text-muted-foreground">Or click any model to start it — settings are worked out for it and this GPU:</div>
+            <div className="flex flex-wrap gap-2" data-testid="auto-train-models">
+              {a.models.map((m) => (
+                <button key={m.id} type="button" disabled={!a.ready || !!busy || (a.gpu && !m.fits)} onClick={() => go(m.id)} data-model={m.id}
+                  title={`${m.note}${a.gpu && !m.fits ? ' — too big for this GPU' : ''}`}
+                  className={`rounded-lg border px-3 py-1.5 text-left text-xs disabled:opacity-40 ${m.id === a.recommended.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'}`}>
+                  <div className="font-medium text-sm">{busy === m.id ? 'Starting…' : m.name}</div>
+                  <div className="text-muted-foreground">~{m.vram} GB · {m.tag}{m.id === a.recommended.id ? ' · recommended' : ''}</div>
+                </button>
+              ))}
+            </div>
           </div>
         </>
       )}

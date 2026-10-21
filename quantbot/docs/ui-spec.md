@@ -440,3 +440,13 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Train: exports can't kill a finished run
 - Each export format (and the Hugging Face upload) runs in its own Python process after the trained model's VRAM is released; scores are saved to result.json before exporting. A crash in one format (e.g. GGUF F16/Q8_0 running out of memory on 8 GB) is recorded as "failed (exit N): reason — likely out of memory: use GGUF Q4_K_M" and the other formats still run. A failed Docker run now shows the container's last log lines in the error instead of only pointing at output.log.
+
+### Strategy Lab (Converter + Tester + Market Lab in one page)
+- One sidebar link, "Strategy Lab" (flask icon). Header: back arrow, "Strategy Lab", a segmented tablist (`bg-accent/40` track, selected tab `bg-background` + shadow) with Convert / Test / Market (testids `lab-tab-convert|test|market`), History link on the right.
+- Each tab keeps its own URL (`/strategy-converter`, `/strategy-tester`, `/market-lab`; `/strategy-lab` opens Convert) and its panel heading (h2 "Strategy Converter" / "Strategy Tester" / "Market Lab"). A tab is mounted the first time it's opened and then only hidden, so a running test and anything typed survive switching tabs; `PageTransition` gives all four URLs one key so the page doesn't animate/remount between tabs.
+
+### Train: click a model to start
+- Under the Auto-train button, every model is a button (testid `auto-train-models`, `data-model=id`): name, ~VRAM and tag; the recommended one has the primary border. Clicking starts training at once with settings computed for that model on this GPU (`POST /api/train/autostart { model }`); models too big for the card are disabled, and the server refuses them too.
+
+### Local model install: Ollama handled too
+- "Install <model>" now makes sure Ollama answers first: starts it if installed but stopped, and on Windows installs it with winget (`Ollama.Ollama`) if missing, then pulls the model. Status text shows each phase ("installing Ollama (winget)…", "starting Ollama…", "downloading…"); failures say what to do instead of "fetch failed". A non-local Ollama address is never touched, only reported.

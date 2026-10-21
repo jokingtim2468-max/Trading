@@ -19,12 +19,15 @@ function Page({ children }) {
   );
 }
 
+// The Strategy Lab's tabs each have their own URL but are one page: keep it mounted (and a running test alive)
+const LAB = new Set(['/strategy-lab', '/strategy-converter', '/strategy-tester', '/market-lab']);
+
 export default function PageTransition() {
   const { pathname } = useLocation();
   const outlet = useOutlet();
   return (
     <AnimatePresence mode="wait">
-      <Page key={pathname}>{outlet}</Page>
+      <Page key={LAB.has(pathname) ? '/strategy-lab' : pathname}>{outlet}</Page>
     </AnimatePresence>
   );
 }

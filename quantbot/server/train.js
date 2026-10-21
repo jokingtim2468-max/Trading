@@ -274,14 +274,20 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
       gpu: gName ? { name: gName, memory_gb: gpu } : null, docker: v.code === 0,
       unsloth: { installed: img.code === 0, size_gb: img.code === 0 ? Math.round(Number(img.out) / 1e8) / 10 : null, pulling: pulling ? { ...pulling } : null },
       recommended: { id: rec.id, name: rec.name, hf: rec.hf, vram: rec.vram, tag: rec.tag, note: rec.note },
-      settings, why, exports, ready: blockers.length === 0, blockers,
+      settings, why, exports, ready: blockers.length === 0, blockers, gpu_gb: gpu,
+      models: MODELS.map((m) => ({ id: m.id, name: m.name, vram: m.vram, tag: m.tag, note: m.note, fits: gpu ? m.vram <= gpu - 0.5 : false })),
     };
   }
 
-  async function autoStart() {
+  // One click: the clicked model (or the recommended one) with settings worked out for it and this GPU
+  async function autoStart(body = {}) {
     const a = await autoConfig();
     if (!a.ready) throw Object.assign(new Error(a.blockers.join('; ')), { status: 400 });
-    return start({ ...DEFAULTS, auto: true, model_source: 'recommended', model: a.recommended.id, ...a.settings, exports: a.exports });
+    const m = MODELS.find((x) => x.id === (body.model || a.recommended.id));
+    if (!m) throw Object.assign(new Error('Unknown model'), { status: 400 });
+    if (a.gpu_gb && m.vram > a.gpu_gb - 0.5) throw Object.assign(new Error(`${m.name} needs about ${m.vram} GB: too big for this ${a.gpu_gb} GB GPU. Pick a smaller one.`), { status: 400 });
+    const { settings } = autoSettings(m, a.gpu_gb);
+    return start({ ...DEFAULTS, auto: true, model_source: 'recommended', model: m.id, ...settings, exports: a.exports });
   }
 
   async function start(input) {
