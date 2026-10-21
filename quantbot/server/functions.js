@@ -7,6 +7,7 @@ import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
 import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
+import { detectSpecs, startPull, pullStatus } from './lib/ollamaSpecs.js';
 import { codeFromReply } from './scriptFolders.js';
 
 const fail = (message) => { throw new Error(message); };
@@ -73,6 +74,15 @@ export function createFunctions({ db, user, keys, market, folders = () => null }
         const name = String(model || '').trim();
         return user.update({ ollama_url: ollamaBase(url), ollama_model: name });
       }
+      // Look at this PC and recommend the best coding model that fits its GPU / RAM
+      if (action === 'recommend') return detectSpecs();
+      // Install the recommended (or named) model through Ollama; the UI polls pull_status
+      if (action === 'install') {
+        const me = user.me();
+        const name = String(model || '').trim() || (await detectSpecs()).pick.model;
+        return startPull(url || me.ollama_url, name);
+      }
+      if (action === 'pull_status') return pullStatus();
       return fail('Unknown action');
     },
 
