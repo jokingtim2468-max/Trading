@@ -1,5 +1,6 @@
 // A BACKTEST's per-market results as the markdown report the agent reads back (and results/<name>.results.md)
 import { robustnessVerdict } from '../backtest/walkForward.js';
+import { deployReadiness, readinessLine } from '../quant/readiness.js';
 
 const f = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : String(v));
 
@@ -22,5 +23,6 @@ export function reportText(name, results, errors = []) {
   const oosOk = results.every((r) => !r.robust || !r.robust.enough || r.robust.oosHolds);
   const pass = results.length && results.every((r) => r.metrics.profitFactor > 1.3 && r.metrics.maxDDPct < 10) && trades >= 30 && oosOk;
   lines.push(`TOTAL net ${f(net)} over ${trades} trades on ${results.length} market(s). Target (PF > 1.3, max DD < 10%, 30+ trades, holds out-of-sample, every market): ${pass ? 'MET' : 'not met'}.`);
+  lines.push(readinessLine(deployReadiness({ results })));
   return lines.join('\n');
 }

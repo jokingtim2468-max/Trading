@@ -428,3 +428,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Planned (not built): multi-agent debate orchestration
 - A future layer to arrange several agents into a configurable conversation — who speaks to whom and the order they critique/"argue" a problem before converging on a script. Noted here so the agent folder model (`data/agents/<model>/agent-N/`, per-agent inbox/results) stays compatible with it; not implemented yet.
+
+### Deploy readiness gate
+- `src/lib/quant/readiness.js` (pure, unit-tested) turns a backtest into one honest verdict — PASS / CAUTION / FAIL with a 0–100 score and reasons — from checks that reuse what's already measured: enough trades (30+), net profit, profit factor > 1.1, drawdown within the account's max-DD limit, **holds out-of-sample** (walk-forward), consistency across windows, and Monte Carlo survival when present. A `fail` check (loses OOS, drawdown over the limit, unprofitable) blocks PASS; soft issues (thin trades, soft PF) are CAUTION.
+- Surfaced wherever a script is judged: the **Strategy Tester** logs a "Deploy readiness: GRADE (score) — reasons" line after Monte Carlo; the **loop-fix** results file and the **agent BACKTEST** report both end with the same line, so the AI optimises toward a deployable verdict, not just a pretty curve.

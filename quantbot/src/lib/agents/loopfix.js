@@ -8,6 +8,7 @@ import { agentMarkets, backtestScript } from '@/lib/agents/backtest';
 import { scoreOf } from '@/lib/agents/loopfixScore';
 import { robustnessVerdict } from '@/lib/backtest/walkForward';
 import { optimizeScript } from '@/lib/quant/optimize';
+import { deployReadiness, readinessLine } from '@/lib/quant/readiness';
 export { scoreOf };
 
 const AGENT = 1; // loop-fix uses the first agent folder of the chosen model
@@ -65,7 +66,9 @@ async function round() {
     } else if (opt.tunable.length) {
       addLog(`Round ${state.round}: tried ${opt.tried.length} parameter variant(s) of ${opt.tunable.join(', ')}; none beat the script as written`);
     }
-    const report = `${reportFor(state.name, state.current.code, results, errors)}\n\n## Optimization pass\nVanilla score ${opt.vanilla.score} (PF ${opt.vanilla.pf}, net ${opt.vanilla.net}, OOS ${opt.vanilla.oosHolds ? 'holds' : 'weak'}). Tunable inputs: ${opt.tunable.join(', ') || 'none'}.\n${opt.tried.map((t) => `- ${Object.entries(t.params).map(([k, v]) => `${k}=${v}`).join(', ')}: score ${t.score}, PF ${t.pf}, net ${t.net}${t.oosHolds ? ', OOS holds' : ''}`).join('\n') || '- (no tunable inputs found to optimize)'}\nKept: ${opt.improved ? `optimized (${Object.entries(opt.best.params || {}).map(([k, v]) => `${k}=${v}`).join(', ')})` : 'the script as written'}.`;
+    const report = `${reportFor(state.name, state.current.code, results, errors)}\n\n## Optimization pass\nVanilla score ${opt.vanilla.score} (PF ${opt.vanilla.pf}, net ${opt.vanilla.net}, OOS ${opt.vanilla.oosHolds ? 'holds' : 'weak'}). Tunable inputs: ${opt.tunable.join(', ') || 'none'}.\n${opt.tried.map((t) => `- ${Object.entries(t.params).map(([k, v]) => `${k}=${v}`).join(', ')}: score ${t.score}, PF ${t.pf}, net ${t.net}${t.oosHolds ? ', OOS holds' : ''}`).join('\n') || '- (no tunable inputs found to optimize)'}\nKept: ${opt.improved ? `optimized (${Object.entries(opt.best.params || {}).map(([k, v]) => `${k}=${v}`).join(', ')})` : 'the script as written'}.
+
+${readinessLine(deployReadiness({ results }))}`;
     await fsWrite(`results/${slug(state.name)}.results.md`, report);
     await fsWrite('results/latest.md', report);
     state.current = { ...state.current, ...sc, report };

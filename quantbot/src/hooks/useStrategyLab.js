@@ -6,6 +6,7 @@ import { WINDOWS, findUnseenWindow, customWindow, fmtDate } from '@/lib/backtest
 import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics, downsample } from '@/lib/backtest/metrics';
 import { walkForward, robustnessVerdict } from '@/lib/backtest/walkForward';
+import { deployReadiness, readinessLine } from '@/lib/quant/readiness';
 import { buildFixPrompt } from '@/lib/backtest/fixPrompt';
 import { createTestSession, saveRun } from '@/lib/backtest/persist';
 import { testSignals } from '@/lib/backtest/signals';
@@ -123,6 +124,8 @@ export default function useStrategyLab(config) {
     add(mc && mc.score >= 50 ? 'info' : 'warn', mc
       ? `Monte Carlo (${mc.iterations} runs): score ${mc.score}/100 (${mc.grade}), ${(mc.probProfit * 100).toFixed(0)}% profitable, 95th pct drawdown ${mc.dd95.toFixed(1)}%`
       : 'Monte Carlo skipped: fewer than 5 trades.');
+    const rd = deployReadiness({ results: [{ metrics, robust: wf }], mc, maxDDLimitPct: config.maxDDLimitPct || 20 });
+    add(rd.pass ? 'info' : 'warn', readinessLine(rd));
 
     if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
     say('Saving run...');
