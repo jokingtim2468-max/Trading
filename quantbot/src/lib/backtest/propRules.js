@@ -4,6 +4,8 @@
 // a real account can fail slightly earlier than this says. Pure, unit-tested.
 const r2 = (v) => Math.round(v * 100) / 100;
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+// $ amounts in reasons: whole dollars stay whole, otherwise always two decimals ($48,465.80, not $48,465.8)
+const usd = (v) => { const x = r2(v); return x.toLocaleString('en-US', { minimumFractionDigits: x % 1 ? 2 : 0, maximumFractionDigits: 2 }); };
 
 // The account picker: which firms (and which of their models) offer a given account size
 export function firmsForSize(presets, size) {
@@ -46,8 +48,8 @@ export function evaluateProp(trades, preset) {
     if (d !== day) { closeDay(); day = d; dayPnl = 0; }
     balance += t.pnl; dayPnl += t.pnl; lowest = Math.min(lowest, balance);
     timeline.push({ time: t.exitTime, balance: r2(balance), floor: r2(floor) });
-    if (balance <= floor) { result = { status: 'failed', date: d, reason: `max drawdown: balance $${r2(balance).toLocaleString()} hit the ${trailing ? 'trailing ' : ''}floor $${r2(floor).toLocaleString()}` }; break; }
-    if (dailyLimit && dayPnl <= -dailyLimit) { result = { status: 'failed', date: d, reason: `daily loss limit: -$${r2(-dayPnl).toLocaleString()} on ${d} (limit $${dailyLimit.toLocaleString()})` }; break; }
+    if (balance <= floor) { result = { status: 'failed', date: d, reason: `max drawdown: balance $${usd(balance)} hit the ${trailing ? 'trailing ' : ''}floor $${usd(floor)}` }; break; }
+    if (dailyLimit && dayPnl <= -dailyLimit) { result = { status: 'failed', date: d, reason: `daily loss limit: -$${usd(-dayPnl)} on ${d} (limit $${dailyLimit.toLocaleString()})` }; break; }
     if (target && balance - start >= target) {
       days.set(d, r2(dayPnl));
       const profit = balance - start;
@@ -64,10 +66,10 @@ export function evaluateProp(trades, preset) {
     if (result?.status === 'diluting') {
       const best = Math.max(...days.values());
       result = cons && best > profit * (cons / 100)
-        ? { status: 'in progress', reason: `target reached but the best day ($${r2(best).toLocaleString()}) is over the ${cons}% consistency cap: $${r2(best / (cons / 100) - profit).toLocaleString()} more profit needed` }
+        ? { status: 'in progress', reason: `target reached but the best day ($${usd(best)}) is over the ${cons}% consistency cap: $${usd(best / (cons / 100) - profit)} more profit needed` }
         : { status: 'passed', date: result.date, reason: `profit target $${target.toLocaleString()} reached, consistency met` };
     } else {
-      result = { status: target ? 'in progress' : 'active', reason: target ? `$${r2(Math.max(0, target - profit)).toLocaleString()} short of the $${target.toLocaleString()} target when the test ended` : 'funded account: never hit the drawdown floor' };
+      result = { status: target ? 'in progress' : 'active', reason: target ? `$${usd(Math.max(0, target - profit))} short of the $${target.toLocaleString()} target when the test ended` : 'funded account: never hit the drawdown floor' };
     }
   }
   const tradingDays = new Set(ts.filter((t) => !result.date || dayOf(t.exitTime) <= result.date).map((t) => dayOf(t.exitTime))).size;
@@ -102,8 +104,8 @@ export function simAccount(preset, closed = [], floating = 0, now = Date.now()) 
   const dll = preset.broker_daily_limit || null;
   const profit = balance - start;
   let status = 'active', reason = '';
-  if (equity <= floor) { status = 'failed'; reason = `equity $${r2(equity).toLocaleString()} hit the ${trailing ? 'trailing ' : ''}max-loss floor $${r2(floor).toLocaleString()}`; }
-  else if (dll && dayPnl <= -dll) { status = 'failed'; reason = `daily loss limit: -$${r2(-dayPnl).toLocaleString()} today (limit $${dll.toLocaleString()})`; }
+  if (equity <= floor) { status = 'failed'; reason = `equity $${usd(equity)} hit the ${trailing ? 'trailing ' : ''}max-loss floor $${usd(floor)}`; }
+  else if (dll && dayPnl <= -dll) { status = 'failed'; reason = `daily loss limit: -$${usd(-dayPnl)} today (limit $${dll.toLocaleString()})`; }
   else if (preset.profit_target && profit >= preset.profit_target && !floating) {
     const r = evaluateProp(ts, preset);
     status = r.status === 'passed' ? 'passed' : 'active';
@@ -114,4 +116,18 @@ export function simAccount(preset, closed = [], floating = 0, now = Date.now()) 
     dailyLeft: dll ? r2(dll + dayPnl) : null, roomToFloor: r2(equity - floor),
     toTarget: preset.profit_target ? r2(Math.max(0, preset.profit_target - profit)) : null,
   };
+}
+
+// "All accounts": rank every firm/type/size verdict and name the best. Passed first (earliest pass wins), then funded
+// accounts that never broke (most profit), then still-in-progress (closest to target), then failed (lasted longest).
+const RANK = { passed: 0, active: 1, 'in progress': 2, failed: 3 };
+export function rankAccounts(results) {
+  const toGo = (r) => (r.target ? r.target - (r.finalBalance - r.size) : 0);
+  return [...results].sort((a, b) => {
+    if (RANK[a.status] !== RANK[b.status]) return RANK[a.status] - RANK[b.status];
+    if (a.status === 'passed') return (a.date || '').localeCompare(b.date || '') || a.tradingDays - b.tradingDays;
+    if (a.status === 'active') return (b.finalBalance - b.size) - (a.finalBalance - a.size);
+    if (a.status === 'in progress') return toGo(a) / a.size - toGo(b) / b.size;
+    return (b.date || '').localeCompare(a.date || '');
+  });
 }

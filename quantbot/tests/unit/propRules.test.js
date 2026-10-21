@@ -58,3 +58,15 @@ test('simAccount: floating losses count toward the floor and the daily limit, li
   const s2 = simAccount(flex, [{ exitTime: now - 2 * DAY, pnl: 1500 }], 0, now);
   assert.equal(s2.floor, 25100, 'locked at start + $100');
 });
+
+test('rankAccounts: earliest pass is best, then survivors, then in progress, failed last', async () => {
+  const { rankAccounts } = await import('../../src/lib/backtest/propRules.js');
+  const r = rankAccounts([
+    { firm: 'A', status: 'failed', date: '2026-02-01', size: 10000, finalBalance: 9000, tradingDays: 3 },
+    { firm: 'B', status: 'passed', date: '2026-03-10', size: 25000, finalBalance: 26300, tradingDays: 9 },
+    { firm: 'C', status: 'in progress', size: 50000, target: 3000, finalBalance: 52000, tradingDays: 20 },
+    { firm: 'D', status: 'passed', date: '2026-02-20', size: 10000, finalBalance: 11000, tradingDays: 6 },
+    { firm: 'E', status: 'failed', date: '2026-04-01', size: 100000, finalBalance: 90000, tradingDays: 30 },
+  ]);
+  assert.deepEqual(r.map((x) => x.firm), ['D', 'B', 'C', 'E', 'A']);
+});

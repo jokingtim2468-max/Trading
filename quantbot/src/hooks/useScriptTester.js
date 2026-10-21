@@ -5,7 +5,7 @@ import { defaultModel, MODELS } from '@/lib/models';
 import { loadDatasets, loadTestBars, asTested } from '@/lib/backtest/data';
 import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics, downsample } from '@/lib/backtest/metrics';
-import { evaluateProp } from '@/lib/backtest/propRules';
+import { evaluateProp, rankAccounts } from '@/lib/backtest/propRules';
 import { marketStats } from '@/lib/backtest/marketStats';
 import { testSignals } from '@/lib/backtest/signals';
 import { runMonteCarlo } from '@/lib/backtest/monteCarlo';
@@ -94,8 +94,8 @@ export default function useScriptTester() {
         return { data: res.data, seconds: Math.round((Date.now() - t0) / 1000) };
       };
       const contractSize = ds.contract_size || 100;
-      const simulate = (prep) => runInWorker(
-        { bars, startIndex: start, simCode: prep.sim_code, balance: account.size, contractSize, point: ds.point || 0.01 },
+      const simulate = (prep, balance = account.size) => runInWorker(
+        { bars, startIndex: start, simCode: prep.sim_code, balance, contractSize, point: ds.point || 0.01 },
         { maxMs: 120000, signal, onProgress: (done, total) => live(`${ds.symbol}: simulating trades... ${Math.floor((done / total) * 100)}% of ${total.toLocaleString()} bars`) },
       );
 
@@ -147,6 +147,21 @@ export default function useScriptTester() {
       // Judged against the chosen prop firm's rules, when one is picked
       const prop = account.preset ? evaluateProp(sim.trades, account.preset) : null;
       if (prop) add(prop.status === 'failed' ? 'warn' : 'info', `${prop.firm} ${prop.model} $${prop.size.toLocaleString()}: ${prop.status.toUpperCase()}${prop.date ? ` on ${prop.date}` : ''} — ${prop.reason}`);
+      // "All accounts": every firm / type / size, each judged on a run at its own balance (sizing follows the balance),
+      // then ranked to name the best one
+      let accounts = null;
+      if (account.all?.length) {
+        const bySize = new Map([[balance, sim.trades]]);
+        for (const size of [...new Set(account.all.map((x) => x.size))].sort((a, b) => a - b)) {
+          if (bySize.has(size)) continue;
+          live(`${ds.symbol}: testing the $${(size / 1000).toLocaleString()}K accounts...`);
+          bySize.set(size, (await simulate(prepared, size)).trades);
+          stopped();
+        }
+        accounts = rankAccounts(account.all.map((x) => { const { timeline: _timeline, ...r } = evaluateProp(bySize.get(x.size), x); return { ...r, stage: x.stage }; }));
+        const best = accounts[0];
+        add('info', `All accounts: best is ${best.firm} ${best.model} $${best.size.toLocaleString()} — ${best.status}${best.date ? ` on ${best.date}` : ''} (${accounts.filter((a) => a.status === 'passed').length} of ${accounts.length} passed)`);
+      }
       add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);
 
       stopped();
@@ -156,7 +171,7 @@ export default function useScriptTester() {
       const saved = await saveScriptTest({ ...test, logText: log.map(logLine).join('\n').slice(0, 20000) }, sim.trades);
       // The tested candles (no copy: views into the loaded arrays) for the replay
       const tested = Object.fromEntries(['time', 'open', 'high', 'low', 'close'].map((k) => [k, bars[k].subarray(start)]));
-      return { ...test, ...saved, modelLabel, log, mc, prop, bars: tested, trades: sim.trades, equity: downsample(sim.equity) };
+      return { ...test, ...saved, modelLabel, log, mc, prop, accounts, bars: tested, trades: sim.trades, equity: downsample(sim.equity) };
     } catch (e) {
       if (e.name === 'AbortError' || signal.aborted) return null;
       setError(`${ds.symbol}: ${e.response?.data?.error || e.message}`);

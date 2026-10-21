@@ -322,6 +322,16 @@ await step('Strategy Tester: $10K default, firm rules by size (unavailable firms
   expect(before !== await replay.getByTestId('replay-status').innerText(), 'replay moved the chart forward');
   if (!(await replay.getByTestId('replay-next').isDisabled())) await replay.getByTestId('replay-next').click();
   await snap('tester-replay');
+  // All accounts: every firm / type / size, ranked, the best one named
+  await chips.locator('[data-firm="all"]').click();
+  await text(/Testing every account the firms offer: 16 account types across 6 sizes/).waitFor();
+  await page.getByRole('button', { name: 'Run test' }).click();
+  await page.getByTestId('all-accounts').first().waitFor({ timeout: 240000 });
+  const allBox = page.getByTestId('all-accounts').first();
+  expect((await allBox.locator('[data-account-row]').count()) === 16, 'all 16 account types ranked');
+  expect(/Best account:|No account passed. Lasted longest:/.test(await allBox.getByTestId('best-account').innerText()), 'best account named');
+  await allBox.scrollIntoViewIfNeeded();
+  await snap('tester-all-accounts');
   await chips.locator('[data-firm="none"]').click();
 });
 

@@ -20,7 +20,7 @@ export function TesterPanel() {
   const [account, setAccount] = useState({ size: 10000, firm: null, model: null });
   const [presets, setPresets] = useState(null);
   useEffect(() => { fetch('/api/presets').then((r) => r.json()).then(setPresets).catch(() => setPresets({ sizes: [10000], presets: [] })); }, []);
-  const preset = account.firm && account.model ? presetOf(presets, account.firm, account.model, account.size) : null;
+  const preset = account.firm && account.firm !== 'all' && account.model ? presetOf(presets, account.firm, account.model, account.size) : null;
   useEffect(() => { if (!chatId && t.chats[0]) setChatId(t.chats[0].id); }, [t.chats]);
   // Dates can go back to the latest start among the picked built-in markets
   const picked = t.datasets.filter((d) => d.market && datasetIds.includes(d.id));
@@ -37,9 +37,9 @@ export function TesterPanel() {
               chats={t.chats} datasets={t.datasets} chatId={chatId} datasetIds={datasetIds}
               onChat={setChatId} onDatasets={setDatasetIds} running={t.running}
               range={range} rangeLimits={{ min, max: today() }} onRange={(p) => setRange((r) => ({ ...r, ...p }))}
-              onRun={() => t.run(chatId, datasetIds, range, { size: account.size, preset })} onStop={t.stop}
+              onRun={() => t.run(chatId, datasetIds, range, { size: account.size, preset, all: account.firm === 'all' ? presets.presets : null })} onStop={t.stop}
             />
-            {presets && <AccountPicker presets={presets} value={account} onChange={setAccount} />}
+            {presets && <AccountPicker presets={presets} value={account} onChange={setAccount} allowAll />}
             <p className="text-xs text-muted-foreground px-1">
               Tests the newest script in the chat on the chosen dates. XAUUSD, US100 and NQ history downloads from Dukascopy the first
               time a range is used (broker time, UTC+2/+3). M1 tests cover up to 370 days. The balance is the account size above

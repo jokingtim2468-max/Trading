@@ -24,9 +24,44 @@ function PropResult({ prop }) {
   );
 }
 
+// "All accounts": every firm / type / size ranked, the best one called out
+function AllAccounts({ accounts }) {
+  const best = accounts[0];
+  const passed = accounts.filter((a) => a.status === 'passed').length;
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3" data-testid="all-accounts">
+      <div className="flex flex-wrap items-center gap-2" data-testid="best-account">
+        <span className="text-sm text-muted-foreground">{best.status === 'failed' ? 'No account passed. Lasted longest:' : 'Best account:'}</span>
+        <b>{best.firm} {best.model} ${best.size.toLocaleString()}</b>
+        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase ${PILL[best.status] || PILL.active}`}>{best.status === 'passed' ? 'Passed 🎯' : best.status}</span>
+        <span className="text-sm">{best.date ? `${best.date} · ` : ''}{best.reason}</span>
+        <span className="text-xs text-muted-foreground ml-auto">{passed} of {accounts.length} passed</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-xs text-muted-foreground text-left"><th className="py-1 pr-3">#</th><th className="pr-3">Account</th><th className="pr-3">Size</th><th className="pr-3">Result</th><th className="pr-3">When / why</th><th className="text-right">Days</th></tr></thead>
+          <tbody>
+            {accounts.map((a, i) => (
+              <tr key={`${a.firm}${a.model}${a.size}`} className={`border-t border-border ${i === 0 ? 'bg-primary/5' : ''}`} data-account-row={`${a.firm}|${a.model}|${a.size}`}>
+                <td className="py-1.5 pr-3 tabular-nums">{i + 1}</td>
+                <td className="pr-3">{a.firm} {a.model}</td>
+                <td className="pr-3 tabular-nums">${(a.size / 1000).toLocaleString()}K</td>
+                <td className="pr-3"><span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase ${PILL[a.status] || PILL.active}`}>{a.status}</span></td>
+                <td className="pr-3 text-xs text-muted-foreground">{a.date ? `${a.date}: ` : ''}{a.reason}</td>
+                <td className="text-right tabular-nums">{a.tradingDays}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function ScriptResults({ result }) {
   return (
     <div className="space-y-4">
+      {result.accounts && <AllAccounts accounts={result.accounts} />}
       {result.prop && <PropResult prop={result.prop} />}
       <MetricsGrid m={result.metrics} />
       <Tabs defaultValue={result.bars ? 'replay' : 'equity'}>
