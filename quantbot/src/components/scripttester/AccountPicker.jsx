@@ -4,6 +4,17 @@ import { firmsForSize, presetOf } from '@/lib/backtest/propRules';
 import { reducedMotion } from '@/lib/clickOrigin';
 
 const k = (n) => `$${(n / 1000).toLocaleString('en-US')}K`;
+const $ = (n) => `$${n.toLocaleString('en-US')}`;
+
+// Every limit of an account in one line, as the firm states it
+export function rulesLine(p, dllOn = true) {
+  const cons = p.stage === 'funded' ? p.consistency_funded : p.consistency_eval;
+  const trail = p.drawdown_type === 'eod_trailing' ? (p.trail_lock_offset != null ? `end-of-day trailing, locks at ${$(p.size + p.trail_lock_offset)}` : 'end-of-day trailing, never locks') : 'static';
+  const dll = p.broker_daily_limit ? (p.daily_loss_optional && !dllOn ? 'no daily loss limit (bought without it)' : `daily loss ${$(p.broker_daily_limit)}${p.daily_basis === 'balance' ? ' (from the day\'s starting balance)' : ' (open losses count)'}`) : 'no daily loss limit';
+  return [p.profit_target ? `target ${$(p.profit_target)}` : 'no profit target', `max loss ${$(p.max_drawdown)} (${trail})`, dll,
+    cons ? `${cons}% consistency` : null, p.min_trading_days ? `${p.min_trading_days} trading days minimum` : null,
+    p.min_profitable_days ? `${p.min_profitable_days} profitable days (0.5%+) minimum` : null, p.max_contracts ? `max ${p.max_contracts}` : null].filter(Boolean).join(' · ');
+}
 
 // The account the test runs on: a size (default $10K) and optionally a prop firm + its account type, whose rules the
 // result is judged against. Firms that don't offer the size slide off to the right of the screen; ones that do
@@ -52,6 +63,12 @@ export default function AccountPicker({ presets, value, onChange, allowAll = fal
             </AnimatePresence>
           </div>
         </div>
+        {preset?.daily_loss_optional && (
+          <label className="flex items-center gap-2 h-10 text-sm" data-testid="account-dll">
+            <input type="checkbox" checked={value.dll !== false} onChange={(e) => onChange({ ...value, dll: e.target.checked })} className="accent-primary w-4 h-4" />
+            Daily loss limit ({$(preset.broker_daily_limit)})
+          </label>
+        )}
         <AnimatePresence initial={false}>
           {value.firm && !all && (
             <motion.label key="model" className="space-y-1 w-52" {...slide}>
@@ -68,7 +85,7 @@ export default function AccountPicker({ presets, value, onChange, allowAll = fal
         {all
           ? <>Testing every account the firms offer: {count} account types across {new Set(presets.presets.map((p) => p.size)).size} sizes, each run at its own balance. The result ranks them and names the best one; the main numbers are for the {k(value.size)} run.</>
           : preset
-          ? <>Testing a {k(preset.size)} {preset.firm} {preset.model}{preset.stage === 'funded' ? ' (funded)' : ''}: {preset.profit_target ? `target $${preset.profit_target.toLocaleString()} · ` : ''}max loss ${preset.max_drawdown.toLocaleString()} ({preset.drawdown_type === 'eod_trailing' ? 'end-of-day trailing' : 'static'}){preset.broker_daily_limit ? ` · daily loss $${preset.broker_daily_limit.toLocaleString()}` : ''}{(preset.stage === 'funded' ? preset.consistency_funded : preset.consistency_eval) ? ` · ${preset.stage === 'funded' ? preset.consistency_funded : preset.consistency_eval}% consistency` : ''}. The result says whether it passes and when.</>
+          ? <>Testing a {k(preset.size)} {preset.firm} {preset.model}{preset.stage === 'funded' ? ' (funded)' : ''}: {rulesLine(preset, value.dll !== false)}. The result says whether it passes and when.{preset.note ? ` ${preset.note}` : ''}</>
           : <>A plain {k(value.size)} account, no firm rules. {Object.keys(firms).length ? `${Object.keys(firms).length} firm${Object.keys(firms).length > 1 ? 's offer' : ' offers'} this size.` : 'No firm in the presets offers this size.'}</>}
       </p>
     </div>

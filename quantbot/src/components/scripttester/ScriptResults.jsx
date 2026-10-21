@@ -7,6 +7,7 @@ import RunLog from '@/components/tester/report/RunLog';
 import RuleResults from '@/components/tester/RuleResults';
 import CodeOutput from '@/components/tester/CodeOutput';
 import CodeBlock from '@/components/CodeBlock';
+import { useState } from 'react';
 import TradeReplay from '@/components/scripttester/TradeReplay';
 
 const PILL = { passed: 'bg-chart-2/15 text-chart-2 border-chart-2/40', failed: 'bg-destructive/15 text-destructive border-destructive/40', 'in progress': 'bg-chart-4/15 text-chart-4 border-chart-4/40', active: 'bg-primary/15 text-primary border-primary/40' };
@@ -26,7 +27,9 @@ function PropResult({ prop }) {
 
 // "All accounts": every firm / type / size ranked, the best one called out
 function AllAccounts({ accounts }) {
+  const [full, setFull] = useState(false);
   const best = accounts[0];
+  const shown = full ? accounts : accounts.slice(0, 15);
   const passed = accounts.filter((a) => a.status === 'passed').length;
   return (
     <div className="rounded-xl border border-border bg-card p-4 space-y-3" data-testid="all-accounts">
@@ -41,7 +44,7 @@ function AllAccounts({ accounts }) {
         <table className="w-full text-sm">
           <thead><tr className="text-xs text-muted-foreground text-left"><th className="py-1 pr-3">#</th><th className="pr-3">Account</th><th className="pr-3">Size</th><th className="pr-3">Result</th><th className="pr-3">When / why</th><th className="text-right">Days</th></tr></thead>
           <tbody>
-            {accounts.map((a, i) => (
+            {shown.map((a, i) => (
               <tr key={`${a.firm}${a.model}${a.size}`} className={`border-t border-border ${i === 0 ? 'bg-primary/5' : ''}`} data-account-row={`${a.firm}|${a.model}|${a.size}`}>
                 <td className="py-1.5 pr-3 tabular-nums">{i + 1}</td>
                 <td className="pr-3">{a.firm} {a.model}</td>
@@ -54,6 +57,11 @@ function AllAccounts({ accounts }) {
           </tbody>
         </table>
       </div>
+      {accounts.length > 15 && (
+        <button type="button" onClick={() => setFull((f) => !f)} className="text-xs text-primary hover:underline" data-testid="all-accounts-more">
+          {full ? 'Show the top 15' : `Show all ${accounts.length}`}
+        </button>
+      )}
     </div>
   );
 }

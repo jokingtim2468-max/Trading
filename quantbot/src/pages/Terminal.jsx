@@ -10,7 +10,7 @@ import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import { mergeCandles, sliceBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
-import { presetOf, simAccount } from '@/lib/backtest/propRules';
+import { presetOf, simAccount, withDailyLimit } from '@/lib/backtest/propRules';
 import AccountPicker from '@/components/scripttester/AccountPicker';
 import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
 import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
@@ -118,7 +118,7 @@ export default function Terminal() {
   const [simOpen, setSimOpen] = useState(false);
   const [presets, setPresets] = useState(null);
   useEffect(() => { fetch('/api/presets').then((r) => r.json()).then(setPresets).catch(() => {}); }, []);
-  const simPreset = simPick.firm && simPick.model ? presetOf(presets, simPick.firm, simPick.model, simPick.size) : null;
+  const simPreset = simPick.firm && simPick.model ? withDailyLimit(presetOf(presets, simPick.firm, simPick.model, simPick.size), simPick.dll !== false) : null;
   const shot = useRef(null);
   const toast = (t) => {
     setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
@@ -567,6 +567,11 @@ export default function Terminal() {
           {[1, 2, 5, 10].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
           <span className="text-[#787b86] tabular-nums">{bars?.time.length ? new Date(bars.time.at(-1)).toISOString().slice(0, 16).replace('T', ' ') : ''} · → next candle · space play</span>
           <span className="ml-auto tabular-nums">Practice P&L <b className={practiceSum.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(practiceSum.pnl)}</b></span>
+          <button type="button" onClick={() => practiceOrder('close')} disabled={!practice.open.length} data-testid="replay-close-all"
+            title="Close every open practice trade at the current price"
+            className="h-7 px-2.5 rounded-md text-[12px] font-medium bg-[#f23645] text-white hover:bg-[#d92d3c] disabled:opacity-30 disabled:cursor-default">
+            Close all{practice.open.length ? ` (${practice.open.length})` : ''}
+          </button>
           <button type="button" onClick={() => setSimOpen((o) => !o)} data-testid="sim-account-toggle"
             className={`h-7 px-2.5 rounded-md text-[12px] border ${simPreset ? 'border-[#2962ff] text-white bg-[#2962ff]/15' : 'border-[#363a45] text-[#d1d4dc] hover:bg-[#2a2e39]'}`}>
             {simPreset ? `${simPreset.firm} ${simPreset.model} $${(simPreset.size / 1000).toLocaleString()}K` : 'Simulate a prop account'}

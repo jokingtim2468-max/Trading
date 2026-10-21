@@ -196,6 +196,11 @@ await tid('ticket-place').click();
 for (let i = 0; i < 6; i++) await tid('replay-step').click();
 await p.waitForTimeout(400);
 ok(/active|failed|passed/i.test(await tid('sim-status').innerText()), `sim status: ${await tid('sim-status').innerText()}`);
+// Close all: every open practice trade closes at once
+await tid('ticket-place').click(); await p.waitForTimeout(300);
+const openBefore = await tid('replay-close-all').innerText();
+await tid('replay-close-all').click(); await p.waitForTimeout(400);
+ok(/Close all \(\d+\)/.test(openBefore) && (await tid('replay-close-all').isDisabled()), `close all: ${openBefore} -> none open`);
 await p.screenshot({ path: `${OUT}/a7b-sim-account.png` });
 // Overview
 await p.goto(`${base}/overview`); await p.waitForTimeout(1500);

@@ -327,11 +327,15 @@ await step('Strategy Tester: $10K default, firm rules by size (unavailable firms
   await snap('tester-replay');
   // All accounts: every firm / type / size, ranked, the best one named
   await chips.locator('[data-firm="all"]').click();
-  await text(/Testing every account the firms offer: 16 account types across 6 sizes/).waitFor();
+  const pre = await (await fetch(`${base()}/api/presets`)).json();
+  const nTypes = pre.presets.length, nSizes = new Set(pre.presets.map((x) => x.size)).size;
+  await text(`Testing every account the firms offer: ${nTypes} account types across ${nSizes} sizes`).waitFor();
   await page.getByRole('button', { name: 'Run test' }).click();
   await page.getByTestId('all-accounts').first().waitFor({ timeout: 240000 });
   const allBox = page.getByTestId('all-accounts').first();
-  expect((await allBox.locator('[data-account-row]').count()) === 16, 'all 16 account types ranked');
+  expect((await allBox.locator('[data-account-row]').count()) === 15, 'the top 15 shown first');
+  await allBox.getByTestId('all-accounts-more').click();
+  expect((await allBox.locator('[data-account-row]').count()) === nTypes, `all ${nTypes} account types ranked`);
   expect(/Best account:|No account passed. Lasted longest:/.test(await allBox.getByTestId('best-account').innerText()), 'best account named');
   await allBox.scrollIntoViewIfNeeded();
   await snap('tester-all-accounts');

@@ -5,13 +5,15 @@ import path from 'node:path';
 import { loadPresets, findPreset, presetFields, accountId } from './lib/fleetRules.js';
 import { planFirm, STAGE_LABELS } from './lib/copyRules.js';
 
-const PROFILE_ENUM = { 'Lucid Trading|LucidFlex': 0, 'Lucid Trading|LucidPro': 1, 'FTMO|Evaluation (2-Step)': 2, 'FTMO|Funded Account': 3, The5ers: 4, 'Alpha Capital': 5, FundedNext: 6 };
+// The EA's FirmProfile enum: LUCID_FLEX, LUCID_PRO, FTMO_EVAL, FTMO_FUNDED, THE5ERS, ALPHA (every account type maps to one)
+const profileOf = (p) => (p.firm === 'Lucid Trading' ? (/Pro/.test(p.model) ? 1 : 0)
+  : p.firm === 'FTMO' ? (p.stage === 'funded' ? 3 : 2) : p.firm === 'The5ers' ? 4 : p.firm === 'Alpha Capital' ? 5 : 0);
 const bad = (m) => Object.assign(new Error(m), { status: 400 });
 const r2 = (v) => Math.round(v * 100) / 100;
 
 // The MT5 EA's inputs for a profile (QB_ExhaustionEngine.mq5), as a .set file MT5 loads in the EA's Inputs tab
 export function setFile(p) {
-  const profile = PROFILE_ENUM[`${p.firm}|${p.model}`] ?? PROFILE_ENUM[p.firm] ?? 0;
+  const profile = profileOf(p);
   return [
     `; QuantBot profile ${p.id}: ${p.firm} ${p.model} $${p.size.toLocaleString('en-US')}`,
     `Profile=${profile}`, `RiskUsd=${p.risk_usd}`, `TpRatio=${p.tp_ratio}`,

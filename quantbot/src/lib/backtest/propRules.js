@@ -21,15 +21,24 @@ export function presetOf(presets, firm, model, size) {
   return (presets?.presets || []).find((p) => p.firm === firm && p.model === model && p.size === Number(size)) || null;
 }
 
-// trades: [{ exitTime, pnl }]. preset: one entry of account_iterations_presets.json.
+// Where an end-of-day trailing floor stops rising: start + the preset's lock offset (Lucid: $100); FTMO 1-Step never locks
+export const lockOf = (preset) => (preset.trail_lock_offset != null ? preset.size + preset.trail_lock_offset
+  : /lucid/i.test(preset.firm) ? preset.size + 100 : Infinity);
+// The preset with the optional daily loss limit switched off, when the trader bought it without one
+export const withDailyLimit = (preset, on = true) => (preset && preset.daily_loss_optional && !on ? { ...preset, broker_daily_limit: null } : preset);
+
+// trades: [{ exitTime, pnl }]. preset: one entry of account_iterations_presets.json. Passing needs every rule at once:
+// the profit target, the consistency cap, and the minimum trading / profitable days.
 export function evaluateProp(trades, preset) {
   const start = preset.size;
   const target = preset.profit_target;            // null on funded accounts
   const maxDD = preset.max_drawdown;
   const trailing = preset.drawdown_type === 'eod_trailing';
-  const lockAt = /lucid/i.test(preset.firm) ? start + 100 : start; // Lucid's trailing floor stops at start + $100
+  const lockAt = lockOf(preset);
   const dailyLimit = preset.broker_daily_limit;   // a loss of this much in a day fails the account
   const cons = preset.stage === 'funded' ? preset.consistency_funded : preset.consistency_eval;
+  const minDays = preset.min_trading_days || 0;
+  const minProfitDays = preset.min_profitable_days || 0;   // The5ers: days closing >= 0.5% of the start
 
   const ts = (trades || []).filter((t) => Number.isFinite(t.exitTime) && Number.isFinite(t.pnl)).sort((a, b) => a.exitTime - b.exitTime);
   let balance = start, peakEod = start, floor = start - maxDD, day = null, dayPnl = 0, lowest = start;
@@ -42,6 +51,17 @@ export function evaluateProp(trades, preset) {
     days.set(day, r2(dayPnl));
     if (trailing) { peakEod = Math.max(peakEod, balance); floor = Math.min(peakEod - maxDD, lockAt); }
   };
+  // What still stands between this balance and a pass (empty = passed)
+  const missing = () => {
+    const out = [], profit = balance - start;
+    if (profit < target) out.push(`$${usd(target - profit)} short of the $${target.toLocaleString()} target`);
+    const best = days.size ? Math.max(...days.values()) : 0;
+    if (cons && profit > 0 && best > profit * (cons / 100)) out.push(`best day $${usd(best)} is over the ${cons}% consistency cap ($${usd(best / (cons / 100) - profit)} more profit to dilute it)`);
+    if (days.size < minDays) out.push(`${days.size} of ${minDays} trading days`);
+    const good = [...days.values()].filter((v) => v >= start * 0.005).length;
+    if (good < minProfitDays) out.push(`${good} of ${minProfitDays} profitable days (0.5%+)`);
+    return out;
+  };
 
   for (const t of ts) {
     const d = dayOf(t.exitTime);
@@ -52,25 +72,13 @@ export function evaluateProp(trades, preset) {
     if (dailyLimit && dayPnl <= -dailyLimit) { result = { status: 'failed', date: d, reason: `daily loss limit: -$${usd(-dayPnl)} on ${d} (limit $${dailyLimit.toLocaleString()})` }; break; }
     if (target && balance - start >= target) {
       days.set(d, r2(dayPnl));
-      const profit = balance - start;
-      const best = Math.max(...days.values());
-      if (cons && best > profit * (cons / 100)) {
-        // Target reached but one day is too big a share: keep trading until it's diluted
-        if (!result) result = { status: 'diluting', date: d, best, need: r2(best / (cons / 100) - profit) };
-      } else { result = { status: 'passed', date: d, reason: `profit target $${target.toLocaleString()} reached` }; break; }
+      if (!missing().length) { result = { status: 'passed', date: d, reason: `profit target $${target.toLocaleString()} reached${cons || minDays || minProfitDays ? ' with every rule met' : ''}` }; break; }
     }
   }
-  if (!result || result.status === 'diluting') {
+  if (!result) {
     closeDay();
-    const profit = balance - start;
-    if (result?.status === 'diluting') {
-      const best = Math.max(...days.values());
-      result = cons && best > profit * (cons / 100)
-        ? { status: 'in progress', reason: `target reached but the best day ($${usd(best)}) is over the ${cons}% consistency cap: $${usd(best / (cons / 100) - profit)} more profit needed` }
-        : { status: 'passed', date: result.date, reason: `profit target $${target.toLocaleString()} reached, consistency met` };
-    } else {
-      result = { status: target ? 'in progress' : 'active', reason: target ? `$${usd(Math.max(0, target - profit))} short of the $${target.toLocaleString()} target when the test ended` : 'funded account: never hit the drawdown floor' };
-    }
+    const left = target ? missing() : [];
+    result = target ? { status: 'in progress', reason: `when the test ended: ${left.join('; ')}` } : { status: 'active', reason: 'funded account: never hit the drawdown floor or the daily limit' };
   }
   const tradingDays = new Set(ts.filter((t) => !result.date || dayOf(t.exitTime) <= result.date).map((t) => dayOf(t.exitTime))).size;
   return {
@@ -86,7 +94,7 @@ export function evaluateProp(trades, preset) {
 export function simAccount(preset, closed = [], floating = 0, now = Date.now()) {
   const start = preset.size;
   const trailing = preset.drawdown_type === 'eod_trailing';
-  const lockAt = /lucid/i.test(preset.firm) ? start + 100 : start;
+  const lockAt = lockOf(preset);
   const today = dayOf(now);
   const ts = closed.filter((t) => Number.isFinite(t.exitTime)).sort((a, b) => a.exitTime - b.exitTime);
   let balance = start, peakEod = start, day = null, closedToday = 0;

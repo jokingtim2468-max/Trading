@@ -19,10 +19,16 @@ export const findPreset = (id) => loadPresets().presets.find((p) => p.id === id)
 export const presetFor = (firm, model, size) => loadPresets().presets.find((p) => p.firm === firm && p.model === model && p.size === Number(size)) || null;
 
 const CODES = { 'Lucid Trading': 'LUCID', FTMO: 'FTMO', The5ers: 'T5', 'Alpha Capital': 'ALPHA', FundedNext: 'FN' };
-const MODEL_CODES = { LucidFlex: 'FLEX', LucidPro: 'PRO', 'Evaluation (2-Step)': 'EVAL', 'Funded Account': 'FUNDED', 'High Stakes': 'HS', HyperGrowth: 'HG', Pro: 'PRO', Evaluation: 'EVAL' };
+const MODEL_CODES = {
+  LucidFlex: 'FLEX', LucidPro: 'PRO', 'LucidFlex Funded': 'FLEXF', 'LucidPro Funded': 'PROF',
+  'Evaluation (2-Step)': 'EVAL', 'Verification (2-Step)': 'VERIF', 'Funded Account': 'FUNDED', '1-Step Challenge': '1STEP', 'Funded (1-Step)': 'FUNDED1',
+  'High Stakes Step 1': 'HS1', 'High Stakes Step 2': 'HS2', 'High Stakes Funded': 'HSF', HyperGrowth: 'HG', Evaluation: 'EVAL',
+};
+// Alpha Pro variants: "Pro 8% Phase 1" -> PRO8-P1, "Pro 10% Qualified" -> PRO10-Q
+const modelCode = (m) => MODEL_CODES[m] || String(m).replace(/^Pro (\d+)% (Phase (\d)|Qualified)$/, (_, v, s, n) => `PRO${v}-${n ? `P${n}` : 'Q'}`).replace(/[^A-Z0-9-]/gi, '').toUpperCase().slice(0, 10);
 // LUCID-FLEX-100K-01: the next free number for that firm, model and size
 export function accountId(preset, taken = []) {
-  const base = `${CODES[preset.firm] || 'ACC'}-${MODEL_CODES[preset.model] || 'X'}-${preset.size / 1000}K`;
+  const base = `${CODES[preset.firm] || 'ACC'}-${modelCode(preset.model)}-${preset.size / 1000}K`;
   for (let n = 1; n < 1000; n++) { const id = `${base}-${String(n).padStart(2, '0')}`; if (!taken.includes(id)) return id; }
   return `${base}-${Date.now()}`;
 }
