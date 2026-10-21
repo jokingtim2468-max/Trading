@@ -23,6 +23,8 @@ import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
 import { createTrainer } from './train.js';
 import { createTerminal } from './terminal.js';
 import { createFastLane } from './fastlane.js';
+import { createFleet } from './fleet.js';
+import { createAgents } from './agents.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_JSON = 20 * 1024 * 1024;
@@ -59,7 +61,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal, lane }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -175,6 +177,32 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     return send(res, 200, await signals.receive(body, { local: true }));
   }
 
+  // Agent Team: per-agent folders, sandboxed file commands and the local model's turns
+  if (url.pathname.startsWith('/api/agents/') && req.method === 'POST') {
+    const b = JSON.parse((await readBody(req, 600000)).toString('utf8') || '{}');
+    const p = url.pathname.slice('/api/agents/'.length);
+    if (!json()) return send(res, 415, { error: 'JSON required' });
+    if (p === 'setup') return send(res, 200, agents.setup(b));
+    if (p === 'fs') return send(res, 200, agents.fsOp(b));
+    if (p === 'chat') return send(res, 200, await agents.chat(b));
+  }
+  if (req.method === 'GET' && url.pathname === '/api/agents/system') return send(res, 200, { system: agents.system });
+  // Fleet: account profiles, the simplified accounts list, deploy, pause, payout audit, notifications
+  if (url.pathname.startsWith('/api/fleet')) {
+    const body = async () => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}'); };
+    const p = url.pathname.slice('/api/fleet'.length);
+    if (req.method === 'GET' && p === '') return send(res, 200, await fleet.view());
+    if (req.method === 'POST' && p === '/deploy') return send(res, 200, await fleet.deploy(await body()));
+    if (req.method === 'POST' && p === '/pause') { const b = await body(); return send(res, 200, await fleet.pause(b.account_id, b.paused)); }
+    if (req.method === 'POST' && p === '/audit') return send(res, 200, await fleet.audit((await body()).account_id));
+    if (req.method === 'POST' && p === '/settings') return send(res, 200, fleet.settings(await body()));
+    if (req.method === 'GET' && p.startsWith('/set/')) {
+      const f = fleet.setPath(decodeURIComponent(p.slice(5)));
+      if (!fs.existsSync(f)) return send(res, 404, { error: 'No set file for that account' });
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': `attachment; filename="${path.basename(f)}"` });
+      return fs.createReadStream(f).pipe(res);
+    }
+  }
   // Terminal page: chart settings (presets, AI edits, versions) and orders to a copy group
   if (url.pathname.startsWith('/api/terminal/')) {
     const body = async (limit = 20000) => { if (!json()) throw Object.assign(new Error('JSON required'), { status: 415 }); return JSON.parse((await readBody(req, limit)).toString('utf8') || '{}'); };
@@ -357,7 +385,10 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   setTimeout(() => terminal.warm().catch(() => {}), 3000).unref?.();
   const lockTimer = setInterval(() => terminal.sweepLocks().catch((e) => app?.log?.(`profit lock: ${e.message}`)), 5000);
   lockTimer.unref?.();
-  const payouts = createPayouts({ db: entityDb, note: copier.note });
+  let fleet = null;
+  const payouts = createPayouts({ db: entityDb, note: copier.note, notify: (t) => fleet?.notify(t) });
+  fleet = createFleet({ dataDir, db: entityDb, payouts, log: app?.log });
+  const agents = createAgents({ dataDir, user: { me: () => backend.handle('user', 'me') }, log: app?.log });
   const checkPayouts = () => payouts.check().then((p) => p.length && folders.syncSoon()).catch((e) => app?.log?.(`payouts: ${e.message}`));
   const payoutTimer = setInterval(checkPayouts, 3600000);
   payoutTimer.unref?.();
@@ -426,7 +457,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal, lane }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);

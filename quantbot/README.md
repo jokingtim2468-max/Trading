@@ -40,22 +40,21 @@ signal) settles the trade. An account with an order URL (e.g. a TradersPost webh
 in TradersPost's JSON format, which is how the trades reach a real account. Account plans (LucidPro 25K-150K or
 custom) pass an account at the profit target and fail it at the max loss, which trails the best end-of-day balance and
 locks at start + $100 for Lucid. A group stops copying when it reaches its max trades (the overview shows e.g. 20/100).
-XP per closed trade: 10 for a profit of $5 or less (losses included), 20 up to $10, 30 up to $20, 50 above. Accounts
-rank up at 100 XP, then 200 more, 300 more...; scripts at 1,000, then 2,000 more... Logic: `server/copier.js`,
-`server/lib/copyRules.js` (shared with the app).
+Logic: `server/copier.js`, `server/lib/copyRules.js` (shared with the app).
 
 Everything copy trading does goes into an activity log (`CopyEvent`, the newest 20,000 kept) and the log file as
 `copy <kind>: ...` lines: each signal and the groups it went to, how every account sized its trade
 (`risk $300 / (4 stop x $10) = 7; risking $280.00`), skips and why (group paused, max trades reached, account failed,
 one contract over the risk, no open trade to close, event types that aren't copied), fills, SL / TP moves, closes with
-P&L, XP and balance, max-loss floor moves, rank-ups, pass / fail, orders sent to order URLs (and failures), and setup
+P&L and balance, max-loss floor moves, pass / fail, orders sent to order URLs (and failures), and setup
 done in the app (script dropped on a group, accounts moved, rules changed, start over, max trades). Prop firms: account rules cover LucidPro 25K-150K (evaluation, then funded; trailing max loss on the New York day)
 and FTMO 10K-200K 2-Step (Challenge +10%, Verification +5%, then funded; 5% daily loss on the Prague day, fixed 10%
 max loss). Firm limits are checked when an account is saved: Lucid allows 5 funded accounts per person, FTMO any
 number of accounts but $400,000 of funded capital at once (badges on the groups overview show what's used).
 Auto-withdraw (funded accounts): on the firm's schedule (FTMO every 14 days, 80% split, both editable), when the
-account is flat and in profit, QuantBot takes the profit out, logs your share (`Payout`), and starts the account again
-from its starting balance; the request itself is made in FTMO's Client Area, which has no payout API.
+account is flat and in profit, QuantBot takes the profit out, logs your share (`Payout`), and lowers the balance by the gross withdrawn — a
+drawdown buffer (the profile's `buffer_usd`, else 2.5% of the start) stays in, so the account is never drained to zero;
+the request itself is made in the firm's Client Area, which has no payout API.
 
 News and trading hours (per group, `server/lib/blackout.js`): no new trades around news from Forex Factory's weekly
 feed and FTMO's economic calendar (`server/news.js`, every 30 minutes, kept in `data/news.json`; impacts and minutes
@@ -106,6 +105,36 @@ once for a faster version with the same logic. Stop ends a test at once. Bars ca
 
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
+
+## Fleet, account profiles and payouts
+
+The Accounts page opens with a **Fleet panel**: four KPI cards (Active, Passed, Failed, Net Fleet P&L) and one row per
+account (Account ID, firm & model, platform, group, active script / profile, balance & P&L, a status pill, and
+Edit / Audit / Pause actions). **Failed is a real count** — the daily loss floor and kill switch stop an account
+*before* it breaches a firm rule, so in normal running it stays 0, but a genuine failure is shown honestly; nothing is
+faked or pinned.
+
+**Add / Configure Account Profile** (the drawer, from `server/presets/account_iterations_presets.json`): pick a firm,
+model, size and platform and the card fills in the full rule set (risk, TP ratio, daily cap, daily floor, consistency,
+kill switch, stop floor, ATR, target, max drawdown, buffer, contracts) with a worked lot-size example. Presets cover
+Lucid Flex 25/50/100/150K, Lucid Pro 25/50/100K, FTMO Eval 10/25/50/100/200K, FTMO Funded 100/200K, The5ers High
+Stakes 100K and Alpha Capital Pro 100K. "Deploy to VPS Fleet" creates or re-profiles the account and writes an MT5
+`.set` file for the QB_ExhaustionEngine EA.
+
+**Payout engine** (`server/lib/fleetRules.js` → `payoutAudit`, `server/payouts.js`): five rules — the 14-day lockout,
+a drawdown buffer kept in (never 100 %), the 40 % / 50 % consistency audit (showing the extra profit needed to dilute
+the best day), a flat-position check, and a JSON `Payout` record with a Discord / Telegram webhook note. The Audit
+button on a row shows each rule as a pass / cross against the live account.
+
+## Agent team (local Ollama)
+
+Settings → Models → **Agent team**: point it at a model you run in Ollama (a coder model such as `qwen2.5-coder`),
+pick 1–4 agents and a step limit, and each agent works in its own folder `data/agents/<model>/agent-N/` (`data/` holds
+the market stats read-only). An agent acts through one command per reply — LIST, READ, WRITE, DELETE, BACKTEST, DONE —
+writing `.mq5` / `.pine` scripts and backtesting them on XAUUSD, US100 and NQ (M15, last 180 days) with the same
+engine as the Script Tester, looping until its strategy holds up or it hits the step limit. Server: `server/agents.js`
+(the sandbox and the system prompt); UI: `src/components/settings/AgentTeamCard.jsx`. Start Ollama with
+`OLLAMA_NUM_PARALLEL=<agents>` to run them at the same time.
 
 ## Terminal
 

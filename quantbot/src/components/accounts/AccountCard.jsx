@@ -1,8 +1,8 @@
 import { Draggable } from '@hello-pangea/dnd';
 import { GripVertical, Pencil, Crown, FileCode2 } from 'lucide-react';
 import { platformOf } from '@/lib/accounts';
-import { ACCOUNT_STEP, levelFromXp, money, signedMoney, STAGE_LABELS, planFirm } from '@/lib/copy';
-import RankAvatar, { RankName } from '@/components/copy/RankAvatar';
+import { money, signedMoney, STAGE_LABELS, planFirm } from '@/lib/copy';
+import RankAvatar from '@/components/copy/RankAvatar';
 
 const BADGE = { MT5: 'text-chart-4 border-chart-4/40', Tradovate: 'text-primary border-primary/40', TradingView: 'text-foreground/80 border-foreground/30' };
 const STATUS = { passed: 'text-emerald-400 border-emerald-500/40', failed: 'text-red-400 border-red-500/40' };
@@ -10,7 +10,6 @@ const STATUS = { passed: 'text-emerald-400 border-emerald-500/40', failed: 'text
 export default function AccountCard({ account, index, group, scriptNames = [], isLead, onEdit }) {
   const where = account.platform === 'MT5' ? account.server : account.environment === 'live' ? 'Live' : 'Demo';
   const name = account.display_name || account.label;
-  const lv = levelFromXp(Number(account.xp) || 0, ACCOUNT_STEP);
   const start = Number(account.start_balance) || 0;
   const balance = account.balance ?? start;
   const status = account.status || 'active';
@@ -24,7 +23,7 @@ export default function AccountCard({ account, index, group, scriptNames = [], i
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate flex items-center gap-1.5">{isLead && <Crown className="w-3.5 h-3.5 text-chart-4" aria-label="Lead account" />}{name}</p>
               <p className="text-xs text-muted-foreground truncate">{account.display_name ? `${account.label} · ` : ''}{account.login ? `${account.login} on ${where}` : where}{account.firm ? `, ${account.firm}` : ''}</p>
-              <p className="text-[11px] text-muted-foreground truncate"><RankName xp={account.xp} /> · {Math.round(lv.into)}/{lv.need} XP</p>
+              <p className="text-[11px] text-muted-foreground truncate">{[account.firm, account.model, account.platform].filter(Boolean).join(' · ')}</p>
             </div>
             <GripVertical className="w-4 h-4 text-muted-foreground shrink-0" />
           </div>

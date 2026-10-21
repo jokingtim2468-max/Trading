@@ -22,7 +22,7 @@ export default function BlackoutPanel({ group, symbol, onChanged }) {
 
   const load = () => fetch('/api/news').then((r) => r.json()).then(setNews).catch(() => {});
   useEffect(() => { load(); const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
-  useEffect(() => { setRules(blackoutOf(group)); }, [group.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setRules(blackoutOf(group)); }, [group.id]);  
 
   // Saved a moment after the last change, with one line in the activity log
   const change = (patch, message) => {

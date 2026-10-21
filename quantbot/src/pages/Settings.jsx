@@ -5,6 +5,7 @@ import { getKeyStatus } from '@/lib/quantApi';
 import ProviderKeyCard from '@/components/quant/ProviderKeyCard';
 import DefaultModelsCard from '@/components/settings/DefaultModelsCard';
 import LocalModelCard from '@/components/settings/LocalModelCard';
+import AgentTeamCard from '@/components/settings/AgentTeamCard';
 import BuiltInMarketsCard from '@/components/settings/BuiltInMarketsCard';
 import UpdatesCard from '@/components/settings/UpdatesCard';
 import MotionCard from '@/components/settings/MotionCard';
@@ -49,6 +50,7 @@ export default function Settings() {
           <h2 className="font-heading text-lg font-semibold">Models</h2>
           <DefaultModelsCard />
           <LocalModelCard />
+          <AgentTeamCard />
         </section>
 
         <section className="mt-8 space-y-3">

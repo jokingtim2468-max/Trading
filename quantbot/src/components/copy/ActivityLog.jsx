@@ -12,7 +12,7 @@ export const ACTIVITY_FILTERS = [
   { id: 'signals', label: 'Signals', test: (e) => e.kind === 'signal' },
   { id: 'problems', label: 'Skips & warnings', test: (e) => e.level !== 'info' || ['skip', 'limit', 'ignore', 'block'].includes(e.kind) },
   { id: 'blocks', label: 'News & hours', test: (e) => e.kind === 'block' },
-  { id: 'progress', label: 'Ranks & pass / fail', test: (e) => ['rank', 'status', 'floor'].includes(e.kind) },
+  { id: 'progress', label: 'Pass / fail', test: (e) => ['status', 'floor'].includes(e.kind) },
   { id: 'orders', label: 'Orders', test: (e) => e.kind === 'order' },
   { id: 'payouts', label: 'Payouts', test: (e) => e.kind === 'payout' },
   { id: 'setup', label: 'Setup', test: (e) => e.kind === 'setup' },
@@ -27,7 +27,7 @@ const KIND = {
 const LEVEL = { warn: 'text-chart-4', error: 'text-red-400' };
 const time = (iso) => { const d = new Date(iso); return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString(undefined, { hour12: false })}`; };
 
-// Everything copy trading did, newest first: signals, sizing, skips, fills, stop moves, closes, ranks, pass / fail, orders
+// Everything copy trading did, newest first: signals, sizing, skips, fills, stop moves, closes, pass / fail, orders
 export default function ActivityLog({ events, accounts, groups, scripts, scope }) {
   const [filter, setFilter] = useState('all');
   const [account, setAccount] = useState('all');
@@ -76,7 +76,7 @@ export default function ActivityLog({ events, accounts, groups, scripts, scope }
         </Select>
         <Button size="sm" variant="outline" className="h-8" onClick={exportCsv} disabled={!shown.length}><Download className="w-3.5 h-3.5 mr-1" />Export CSV</Button>
       </div>
-      {!shown.length ? <p className="text-sm text-muted-foreground py-4">{events.length ? 'Nothing matches these filters.' : 'Nothing yet. Every signal, trade, skip, rank-up and pass / fail shows up here as it happens.'}</p> : (
+      {!shown.length ? <p className="text-sm text-muted-foreground py-4">{events.length ? 'Nothing matches these filters.' : 'Nothing yet. Every signal, trade, skip and pass / fail shows up here as it happens.'}</p> : (
         <ol className="max-h-[520px] overflow-y-auto rounded-xl border border-border/70 divide-y divide-border/50 text-xs">
           {shown.slice(0, 500).map((e) => (
             <li key={e.id} data-event={e.kind}>

@@ -77,7 +77,7 @@ export default function GroupDetail({ group, accounts, trades, scripts, over, dr
               <RankAvatar seed={script.id} xp={script.xp} step={SCRIPT_STEP} size={44} label={script.name} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{script.name}</p>
-                <p className="text-[11px] text-muted-foreground truncate"><RankName xp={script.xp} step={SCRIPT_STEP} /> · {script.xp || 0} XP</p>
+                
                 <p className="text-[11px] tabular-nums truncate">
                   <span className={e.net > 0 ? 'text-emerald-400' : e.net < 0 ? 'text-red-400' : 'text-muted-foreground'}>{signedMoney(e.net)}</span>
                   <span className="text-muted-foreground"> · {e.trades} trade{e.trades === 1 ? '' : 's'}{e.trades ? ` · ${Math.round(e.winRate * 100)}% won` : ''}</span>
@@ -166,7 +166,7 @@ export default function GroupDetail({ group, accounts, trades, scripts, over, dr
                     <td className={`pr-3 ${t.side === 'long' ? 'text-emerald-400' : 'text-red-400'}`}>{t.side === 'long' ? 'Buy' : 'Sell'} {t.qty} {t.symbol}</td>
                     <td className="pr-3 tabular-nums text-muted-foreground">{t.entry}{t.exit != null ? ` → ${t.exit}` : ''}</td>
                     <td className={`pr-3 tabular-nums text-right ${t.pnl > 0 ? 'text-emerald-400' : t.pnl < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>{t.status === 'closed' ? signedMoney(t.pnl) : 'Open'}</td>
-                    <td className="pr-3 text-right text-muted-foreground">{t.status === 'closed' ? `+${t.xp} XP` : t.forwarded || ''}</td>
+                    <td className="pr-3 text-right text-muted-foreground">{t.status === 'closed' ? '' : t.forwarded || ''}</td>
                   </tr>
                 ))}
               </tbody>

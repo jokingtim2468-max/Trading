@@ -371,3 +371,22 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Sessions: full-height bands at 6% opacity: Asia `#e8c468`, London `#2962ff`, New York `#089981`, 10px label at the bottom; hidden on H4 and D1. PDH / PDL: gray `#9598a1` long-dashed price lines.
 - Hotkeys: gear menu rows, key buttons 44px min, blue while waiting for a key; master switch off by default.
 - Overview page and the Journal's Weekly report / Model scorecard use the app theme cards (`bg-card`, rounded-xl), profit `text-chart-2`, loss `text-destructive`.
+
+### Accounts: Fleet panel and the Add / Configure Account Profile drawer
+- Fleet panel sits at the top of the Accounts page (above the Scripts / Groups columns). It polls `/api/fleet` every 5 s.
+- KPI cards (4, testid `fleet-kpi`): Active, Passed, Failed, Net Fleet P&L. Card `bg-card`, border `#2a2e39`, rounded-2xl. Big number 24px semibold; label 11px `text-muted-foreground`. Net P&L number `text-chart-2` when ≥ 0, `text-destructive` when < 0.
+- **Failed is a real count, not a cosmetic 0.** It shows how many accounts actually hit a firm's fail rule. The daily loss floor / kill switch stop an account trading *before* it breaches, so in normal running it stays 0 — but a real failure is shown honestly. Nothing is pinned.
+- Table (testid `fleet-table`), one row per account, `data-account="<label>"`: Account ID + details subline · Firm & model (or plan) · Platform · Group select (testid `fleet-group`) · Active script / profile (testid `account-script`) · Balance & P&L · Status pill (testid `fleet-status`) · Actions.
+- Status pill colors: ACTIVE green `#089981` on `rgba(8,153,129,.12)`; PASSED 🎯 cyan `#22d3ee` on `rgba(34,211,238,.12)`; FAILED red `#f23645` on `rgba(242,54,69,.12)`; PAUSED gray `#787b86` on `rgba(120,123,134,.12)`. Rounded-full, 11px semibold, 2px 8px padding.
+- Row actions: Edit details (pencil, aria-label `Edit <label>`), Edit config (opens the drawer on that account), Audit payout (dialog), Pause / Resume.
+- **Add / Configure Account Profile** drawer (sheet from the right, testid via the ProfileConfigurator): dropdowns cfg-firm, cfg-model (LucidFlex labelled "LucidFlex (Recommended 🏆)"), cfg-size (sizes with no preset disabled), cfg-platform (NinjaTrader disabled), cfg-target (new or an existing account). An auto-populated card (testid `cfg-card`) shows risk + example lots for a 3-point stop, TP ratio, daily cap + consistency, daily floor + broker limit, kill switch, stop floor + ATR, target / max drawdown, buffer, contracts. A warning box (testid `cfg-warning`) shows the honest backtest (exhaustion engine PF 0.87 on 2004–2026 gold). "Deploy to VPS Fleet" button posts `/api/fleet/deploy` and returns a `.set` download link for MT5.
+
+### Payout engine (server/lib/fleetRules.js → payoutAudit, server/payouts.js)
+- Five rules enforced before any withdrawal: (1) 14-day lockout from the cycle start (last payout, else funded date, else first trade); (2) drawdown buffer kept in — the account's `buffer_usd`, else 2.5% of the start balance — never withdraw 100%; (3) consistency audit (40 % / 50 % of total profit per day) showing the extra profit needed to dilute the best day; (4) flat-position check (no open trades); (5) a JSON Payout record + a Discord / Telegram webhook note.
+- Withdrawal lowers the balance by the gross amount (it is **not** reset to the start) and adds to `withdrawn`. The note names the 80 % trader split and the buffer left in, with the firm's payout page link.
+
+### Settings: Agent team (local Ollama)
+- Card (testid `agent-team`) in the Models section, under Default models and Local model. Bot icon `text-primary`.
+- Controls: Running model select (testid `agent-model`, from the Ollama test), Agents 1–4 (testid `agent-count`), Step limit per agent (default 40), Backtest translator (the app's models, default the user's default model).
+- Start / Stop buttons (testids `agent-start` / `agent-stop`). Per-agent log cards (testid `agent-log`): status color thinking `text-primary`, testing `text-chart-4`, done `text-chart-2`, error `text-destructive`, limit / stopped `text-muted-foreground`.
+- Each agent works in `data/agents/<model>/agent-N/` (data/ read-only), acts through one command per reply (LIST / READ / WRITE / DELETE / BACKTEST / DONE), and backtests on XAUUSD, US100 and NQ (M15, last 180 days) with the same engine as the Script Tester. Note mentions `OLLAMA_NUM_PARALLEL=<count>` so agents run at the same time.

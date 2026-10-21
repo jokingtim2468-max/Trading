@@ -71,3 +71,20 @@ test('weekly report and the model scorecard', () => {
     [{ day: '2026-10-13', high: 4745, low: 4688 }, { day: '2026-10-14', high: 4720, low: 4650 }]);
   assert.deepEqual([s.days, s.hitRate, s.rows[0].hit, s.rows[1].hit, s.buckets[2].hitRate, s.buckets[0].hitRate], [2, 50, true, false, 100, 0]);
 });
+
+import { parseCommand } from '../../src/lib/agents/parse.js';
+import { reportText } from '../../src/lib/agents/report.js';
+
+test('agent replies: one command, even with chatter or backticks around it', () => {
+  assert.deepEqual(parseCommand('LIST data'), { cmd: 'LIST', arg: 'data' });
+  assert.deepEqual(parseCommand('Let me look.\n`READ data/XAUUSD_M15.stats.json`'), { cmd: 'READ', arg: 'data/XAUUSD_M15.stats.json' });
+  const w = parseCommand('WRITE scripts/a.mq5\n```mql5\n#include <Trade/Trade.mqh>\nint OnInit(){return 0;}\n```\n');
+  assert.equal(w.cmd, 'WRITE');
+  assert.equal(w.arg, 'scripts/a.mq5');
+  assert.match(w.code, /^#include <Trade\/Trade.mqh>\nint OnInit/);
+  assert.equal(parseCommand('WRITE scripts/a.mq5\nno code').code, null);
+  assert.deepEqual(parseCommand('DONE PF 1.4\nall markets ok'), { cmd: 'DONE', arg: 'PF 1.4\nall markets ok' });
+  assert.equal(parseCommand('I think we should trade gold.'), null);
+  const r = reportText('a', [{ symbol: 'XAUUSD', timeframe: 'M15', from: '2026-01-01', to: '2026-06-01', metrics: { net: 500, returnPct: 5, trades: 40, longs: 20, shorts: 20, winRate: 45, profitFactor: 1.5, maxDD: 300, maxDDPct: 3, avgR: 0.3, expectancy: 12.5, slHits: 22, tpHits: 18, maxLossStreak: 4 } }]);
+  assert.match(r, /TOTAL net 500.00 over 40 trades on 1 market\(s\)\. Target .*: MET\./);
+});

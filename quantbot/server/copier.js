@@ -4,11 +4,11 @@
 // Everything that happens is written to the activity log (CopyEvent) and the log file, so a run can be evaluated.
 import { pointValue, xpForTrade, applyClose, dayIn, levelFromXp, tierOf, groupScriptIds, mapSymbol, sizeFor, copyQty, money2, PLANS, ACCOUNT_STEP, SCRIPT_STEP } from './lib/copyRules.js';
 import { blackoutAt } from './lib/blackout.js';
+import { safetyBlock, closedOnDay } from './lib/fleetRules.js';
 
 const KEEP = 20000;
 const usd = (v) => `${v < 0 ? '-' : ''}$${money2(v)}`;
 const signed = (v) => (v > 0 ? `+${usd(v)}` : usd(v));
-const rankName = (xp, step) => { const l = levelFromXp(xp, step).level; const t = tierOf(l); return { level: l, name: `${t.name}${t.division ? ` ${t.division}` : ''}` }; };
 
 // TradersPost-style order message for an account's order URL
 export function orderMessage(event, sig, trade) {
@@ -100,8 +100,6 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
     if (before.floor != null && next.floor !== before.floor) {
       await note('floor', `${who(account)}: max loss floor moved ${usd(before.floor)} -> ${usd(next.floor)} (best end-of-day balance ${usd(next.peak_eod)})`, r, { from: before.floor, to: next.floor, peak_eod: next.peak_eod });
     }
-    const was = rankName(Number(before.xp) || 0, ACCOUNT_STEP), now = rankName(next.xp, ACCOUNT_STEP);
-    if (now.level > was.level) await note('rank', `${who(account)} reached level ${now.level} (${now.name}) with ${next.xp} XP`, r, { from: was, to: now, xp: next.xp });
     if (next.status !== (before.status || 'active')) {
       const why = next.status === 'passed' ? `balance ${usd(next.balance)} reached the target ${usd((Number(account.start_balance) || 0) + (Number(account.target) || 0))}`
         : next.status_reason === 'daily loss' ? `lost ${usd(next.day_start - next.balance)} today, the daily loss limit is ${usd(Number(account.daily_loss))}`
@@ -111,8 +109,6 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
     const s = await run('Script', 'get', script.id);
     const sxp = (s.xp || 0) + xp;
     await run('Script', 'update', script.id, { xp: sxp, trades: (s.trades || 0) + 1, pnl: Math.round(((s.pnl || 0) + pnl) * 100) / 100 });
-    const sWas = rankName(s.xp || 0, SCRIPT_STEP), sNow = rankName(sxp, SCRIPT_STEP);
-    if (sNow.level > sWas.level) await note('rank', `Script ${script.name} reached level ${sNow.level} (${sNow.name}) with ${sxp} XP`, { script_id: script.id }, { from: sWas, to: sNow, xp: sxp });
     return done;
   }
 
@@ -168,6 +164,12 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
             await queueMt5(a, 'close', done, gr, lane);
           }
           if ((a.status || 'active') !== 'active') continue;
+          if (a.paused) { await note('skip', `${who(a)} skipped ${sig.event} ${sig.symbol}: account paused`, ar, null, 'warn'); continue; }
+          // Safety guard (accounts set from a profile): daily loss floor, daily profit cap, the 2-strike kill switch
+          if (a.daily_floor || a.daily_cap || a.kill_losses) {
+            const why = safetyBlock(a, closedOnDay(await run('AccountTrade', 'filter', { account_id: a.id, status: 'closed' }), a, Date.parse(at)));
+            if (why) { await note('skip', `${who(a)} skipped ${sig.event} ${sig.symbol}: ${why}`, ar, { safety: why }, 'warn'); continue; }
+          }
           // One trade per account: an open trade from another script means this one is skipped
           const other = (await run('AccountTrade', 'filter', { account_id: a.id, status: 'open' })).find((t) => t.script_id !== script.id);
           if (other) {

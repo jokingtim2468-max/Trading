@@ -158,7 +158,7 @@ describe('MT5 copier bridge', () => {
 });
 
 describe('auto-withdraw', () => {
-  test('FTMO funded accounts pay out every 14 days at 80% when flat and in profit, then start again', async () => {
+  test('FTMO funded accounts pay out every 14 days at 80% when flat and in profit, keeping a 2.5% drawdown buffer', async () => {
     const db = dbIn(tmp());
     const copier = createCopier({ db });
     const payouts = createPayouts({ db, note: copier.note });
@@ -169,10 +169,10 @@ describe('auto-withdraw', () => {
     assert.equal((await payouts.check(t0 + 14 * day)).length, 0, 'waits for the account to be flat');
     await db.run('AccountTrade', 'update', open.id, { status: 'closed' });
     const [p] = await payouts.check(t0 + 14 * day);
-    assert.deepEqual([p.gross, p.split, p.net, p.status], [4000, 0.8, 3200, 'due']);
+    assert.deepEqual([p.gross, p.split, p.net, p.retained, p.status], [1500, 0.8, 1200, 2500, 'due'], '$4,000 profit minus the $2,500 buffer');
     const after = await db.run('TradingAccount', 'get', a.id);
-    assert.deepEqual([after.balance, after.withdrawn], [100000, 3200]);
-    assert.match((await db.run('CopyEvent', 'filter', { kind: 'payout' }))[0].message, /Lunar Fox: FTMO withdrawal due: \$4,000.00 profit, your 80% = \$3,200.00\. Request it in FTMO's Client Area/);
+    assert.deepEqual([after.balance, after.withdrawn], [102500, 1200], 'never back to the starting balance');
+    assert.match((await db.run('CopyEvent', 'filter', { kind: 'payout' }))[0].message, /Lunar Fox: FTMO withdrawal ready: request \$1,500.00 \(your 80% = \$1,200.00\); \$2,500.00 stays in as the drawdown buffer\. Request it at https:\/\/ftmo.com/);
     assert.equal((await payouts.check(t0 + 20 * day)).length, 0, 'next one is 14 days after this one');
   });
 });

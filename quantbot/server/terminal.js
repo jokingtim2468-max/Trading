@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DEFAULT_CHART, CHART_PRESETS, cleanChartChange, CHART_KEYS } from './lib/chartTheme.js';
 import { accountRoom, copyQty, pointValue, mapSymbol, money2, protectionFor } from './lib/copyRules.js';
+import { safetyBlock, closedOnDay } from './lib/fleetRules.js';
 import { fetchCandles, candlesUrl } from './market/dukascopy.js';
 import { instrument } from './market/instruments.js';
 import { toBroker } from './market/brokerTime.js';
@@ -107,6 +108,10 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
       const r = accountRoom(a);
       const row = { id: a.id, name: a.display_name || a.label, balance: r2(r.balance), day_pnl: r2(r.dayPnl), room: fin(r.room), rule: r.rule, to_floor: fin(r.toFloor), to_daily: fin(r.toDaily) };
       if (on) row.protect = protectionFor(rules, a, closed.filter((x) => x.account_id === a.id));
+      if (a.daily_floor || a.daily_cap || a.kill_losses) {
+        const why = safetyBlock(a, closedOnDay(db.run('AccountTrade', 'filter', { account_id: a.id, status: 'closed' }), a));
+        if (why) row.protect = { ...(row.protect || {}), blocked: row.protect?.blocked || why, safety: why };
+      }
       const mine = open.filter((x) => x.account_id === a.id);
       if (mine.length) row.open = { symbol: mine[0].symbol, fail: failPrice(mine.filter((x) => x.symbol === mine[0].symbol), r.room) };
       if (t && (t.event === 'buy' || t.event === 'sell')) {

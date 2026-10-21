@@ -565,11 +565,9 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await card('Lucid 50K #1').getByText(/LTT04821 on Demo, Lucid Trading/).waitFor();
   await card('Lucid 50K #2').getByText('TradingView', { exact: true }).waitFor();
   await card('FTMO 100K').getByText('MetaTrader 5', { exact: true }).waitFor();
-  // Platform filter
-  await page.getByRole('tab', { name: /^TradingView 1/ }).click();
-  expect((await page.locator('[data-account]').count()) === 1, 'TradingView filter should show one account');
-  await page.getByRole('tab', { name: /^All platforms 3/ }).click();
-  expect((await page.locator('[data-account]').count()) === 3, 'All platforms should show three accounts');
+  // The simplified accounts table: four numbers on top, one row per account
+  expect((await page.locator('[data-account]').count()) === 3, 'three account rows');
+  expect((await page.getByTestId('fleet-kpi').first().innerText()).includes('3'), 'three active accounts');
   // Groups: a futures group with its Group Trade guide, rename, pause, delete
   await page.getByRole('button', { name: 'New group' }).click();
   await page.getByPlaceholder('e.g. Lucid 50K accounts').fill('Lucid group');
@@ -592,10 +590,6 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await page.getByTestId('groups-overview').waitFor();
   await page.locator('[data-group-card="Lucid copies"]').waitFor({ state: 'detached' });
   await snap('accounts');
-  // Sorting by platform puts MT5 first
-  await page.getByRole('combobox', { name: 'Sort accounts' }).click();
-  await page.getByRole('option', { name: 'Sort: Platform' }).click();
-  expect((await page.locator('[data-account]').first().getAttribute('data-account')) === 'FTMO 100K', 'platform sort');
   await card('FTMO 100K').getByRole('button', { name: 'Edit FTMO 100K' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
   await card('FTMO 100K').waitFor({ state: 'detached' });
@@ -623,7 +617,7 @@ const drag = async (from, to) => {
 await step('Copy trading: add a script, drag accounts and the script onto a group, its alerts trade every account', async () => {
   await page.setViewportSize({ width: 1360, height: 2200 }); // the open group and the accounts fit on one screen
   await page.goto(`${base()}/accounts`);
-  await page.getByRole('heading', { name: 'Copy trading' }).waitFor();
+  await page.getByRole('heading', { name: 'Accounts' }).waitFor();
   // A new account gets a random trader name, a ranked picture and Lucid 50K rules with $300 risk
   await page.getByRole('button', { name: 'Add account' }).click();
   const d = page.getByRole('dialog');
@@ -635,7 +629,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   expect((await d.getByLabel('Risk per trade').inputValue()) === '300', 'Lucid 50K risk should default to $300');
   await d.getByRole('button', { name: 'Save' }).click();
   await d.waitFor({ state: 'detached' });
-  await page.locator('[data-account="Lucid 50K #3"] [data-tier="Unranked"]').waitFor();
+  await page.locator('[data-account="Lucid 50K #3"]').waitFor();
   // A script, with its own webhook address
   await page.getByRole('button', { name: 'Add script' }).click();
   await page.getByRole('dialog').getByPlaceholder('e.g. Gold London-NY breakout').fill('Gold Breakout');
@@ -654,9 +648,9 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   // The new group opens; accounts dropped anywhere on it join it
   const panel = page.getByTestId('group-panel');
   await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
-  await page.getByRole('button', { name: /^All accounts/ }).click();
-  await drag(page.locator('[data-account="Lucid 50K #2"]'), panel);
-  await drag(page.locator('[data-account="Lucid 50K #3"]'), panel);
+  // Accounts join a group from the Group column of the accounts table
+  await page.locator('[data-account="Lucid 50K #2"]').getByTestId('fleet-group').selectOption({ label: 'Lucid squad' });
+  await page.locator('[data-account="Lucid 50K #3"]').getByTestId('fleet-group').selectOption({ label: 'Lucid squad' });
   await page.locator('[data-member]').nth(1).waitFor();
   await drag(page.locator('[data-script="Gold Breakout"]'), page.getByTestId('script-slot'));
   await panel.locator('[data-group-script="Gold Breakout"]').waitFor();
@@ -672,8 +666,6 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await page.getByTestId('group-pnl').locator('p.text-2xl').getByText('+$7,000.00').waitFor(); // 2 accounts x 50 points x 7 x $10
   await page.getByTestId('group-pnl').getByTitle('2 winning trades').waitFor();
   await page.getByTestId('group-accounts').locator('p.text-emerald-400', { hasText: /^2$/ }).waitFor(); // both passed the $3,000 target
-  await page.locator('tr[data-trade="closed"]').first().getByText('+50 XP').waitFor();
-  await page.locator('[data-script="Gold Breakout"]').getByText(/· 100 XP/).waitFor();
   await page.locator('[data-script="Gold Breakout"]').getByText(/^2 trades ·/).waitFor();
   await snap('copy-trading');
   // The activity log has every step: setup, the signal, each account's sizing and fill, the close and the pass
@@ -682,7 +674,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await log.locator('li[data-event="signal"]').filter({ hasText: 'Gold Breakout: buy MGC1! @ 2400 SL 2396 TP 2450' }).waitFor();
   await log.locator('li[data-event="open"]').filter({ hasText: /bought 7 MGC1! @ 2400 .*risk \$300 \/ \(4 stop x \$10\) = 7/ }).first().waitFor();
   await log.locator('li[data-event="status"]').filter({ hasText: /PASSED: balance \$53,500\.00 reached the target/ }).first().waitFor();
-  await page.getByRole('tab', { name: /^Ranks & pass \/ fail/ }).click();
+  await page.getByRole('tab', { name: /^Pass \/ fail/ }).click();
   await expectCount(log.locator('li[data-event]'), 2);
   await log.locator('li[data-event="status"]').first().click();
   await log.locator('pre').filter({ hasText: '"status": "passed"' }).waitFor();
@@ -803,7 +795,7 @@ await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, ne
   await page.getByRole('dialog').waitFor({ state: 'detached' });
   const panel = page.getByTestId('group-panel');
   await panel.getByTestId('group-title').filter({ hasText: 'FTMO squad' }).waitFor();
-  await drag(page.locator('[data-account="FTMO 100K #1"]'), panel);
+  await page.locator('[data-account="FTMO 100K #1"]').getByTestId('fleet-group').selectOption({ label: 'FTMO squad' });
   await panel.locator('[data-member="FTMO 100K #1"]').waitFor();
   await drag(page.locator('[data-script="Silver Scalper"]'), page.getByTestId('script-slot'));
   await panel.locator('[data-group-script="Silver Scalper"]').waitFor();
