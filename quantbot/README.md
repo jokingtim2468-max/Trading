@@ -106,6 +106,16 @@ once for a faster version with the same logic. Stop ends a test at once. Bars ca
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
+## Market Lab (quant-data engine)
+
+The Market Lab page (`/market-lab`) turns your candles into the numbers a quant checks before trusting a market, and
+charts them: volatility by hour / session / weekday, the per-bar return distribution (mean, std, skew, fat-tail
+kurtosis), a volatility-regime ATR line, autocorrelation at lags 1–5 (positive = trending, negative = mean-reverting),
+P(up after up) vs the base rate, breakout rate, gaps and longest runs. It all computes from the minute-derived data
+you already have (`src/lib/quant/features.js`). A "Copy feature vector" button exports the market as one flat numeric
+row — the input an ML signal filter trains on. ML is for sharpening a bot that already has an edge (a take/skip filter,
+regime gating); it can't turn a negative-edge idea into a winner, so the engine stays honest about that.
+
 ## Fleet, account profiles and payouts
 
 The Accounts page opens with a **Fleet panel**: four KPI cards (Active, Passed, Failed, Net Fleet P&L) and one row per

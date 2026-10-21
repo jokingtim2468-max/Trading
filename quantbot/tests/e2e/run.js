@@ -242,6 +242,22 @@ await step('Chat: delete confirmation fades in, then deletes', async () => {
   await item.waitFor({ state: 'detached' });
 });
 
+await step('Market Lab: the quant feature pack and charts for a market', async () => {
+  await sidebarLink('Market Lab').click();
+  await page.getByRole('heading', { name: 'Market Lab' }).waitFor();
+  await page.getByTestId('lab-symbol').selectOption('XAUUSD');
+  await page.getByTestId('lab-tf').selectOption('M5');
+  await page.getByTestId('lab-range').selectOption('90');
+  await page.getByTestId('lab-run').click();
+  await page.getByTestId('lab-results').waitFor({ timeout: 90000 });
+  await page.getByTestId('lab-hist').waitFor();
+  await page.getByTestId('lab-atr').waitFor();
+  await page.getByTestId('lab-vector').waitFor();
+  await snap('market-lab');
+  await page.goto(`${base()}/`); // back to the page that has the sidebar for the next step
+  await sidebarLink('Strategy Tester').waitFor();
+});
+
 await step('Strategy Tester: 3 built-in markets (XAUUSD, US100, NQ) on M15 / last 120 days', async () => {
   await sidebarLink('Strategy Tester').click();
   await page.getByRole('heading', { name: 'Strategy Tester' }).waitFor();

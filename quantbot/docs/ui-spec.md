@@ -409,3 +409,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Agent team / loop-fix: timeframe (M5 by default)
 - The Agent team card has a Timeframe select (testid `agent-tf`, M5 / M15 / M30 / H1 / H4; M5 labelled "most accurate"). Loop-fix always uses M5. The built-in market data is stored as minute (M1) bars and every timeframe is resampled from it, so M5 is the most granular — the tightest intrabar SL/TP sequencing and the closest to real fills. The agent kickoff and the loop-fix report state the timeframe actually used.
+
+### Market Lab (quant-data engine) — /market-lab
+- Sidebar link "Market Lab" (microscope icon). Pick a market, timeframe (M5 default) and range, press Analyze; it loads the bars and computes the quant feature pack client-side (`src/lib/quant/features.js`, pure + unit-tested) — the same numbers the AI and an ML filter read.
+- Cards: period summary (return, up-bar %, median & 95th-pct bar range); Volatility by hour (24 themed bars, testid area under `lab-results`); by session and weekday; Return distribution (21-bucket histogram, testid `lab-hist`; mean/std/skew/kurtosis in the hint); Volatility regime (ATR filled line, testid `lab-atr`); Momentum & autocorrelation (lag 1–5 bars — positive = trending, negative = mean-reverting — plus P(up|up) vs base rate, breakout rate, gaps, longest runs).
+- "For machine learning" card: a Copy feature vector button (testid `lab-vector`) copies the flat numeric row `featureVector` produces, with a one-line honesty note that ML sharpens a bot that already has an edge and can't rescue a losing one. Bars render red for negative values, the theme primary for positive.

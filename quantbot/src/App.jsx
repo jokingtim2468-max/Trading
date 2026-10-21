@@ -19,6 +19,7 @@ import Train from '@/pages/Train';
 import Terminal from '@/pages/Terminal';
 import Journal from '@/pages/Journal';
 import Overview from '@/pages/Overview';
+import MarketLab from '@/pages/MarketLab';
 
 const AuthenticatedApp = () => (
   <Routes>
@@ -35,6 +36,7 @@ const AuthenticatedApp = () => (
       <Route path="/terminal" element={<Terminal />} />
       <Route path="/journal" element={<Journal />} />
       <Route path="/overview" element={<Overview />} />
+      <Route path="/market-lab" element={<MarketLab />} />
     </Route>
     <Route path="*" element={<PageNotFound />} />
   </Routes>
