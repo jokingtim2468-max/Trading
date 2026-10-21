@@ -38,3 +38,13 @@ test('unsupported code and MQL5 ask for the rewrite', () => {
   assert.throws(() => runIndicator('#property indicator_chart_window\nint OnCalculate(){return 0;}', bars), UnsupportedPine);
   assert.ok(isMql5('int OnCalculate(const int rates_total) {}'));
 });
+
+test('replay forms the current candle up to the clock', async () => {
+  const { replayBars, pathPrice } = await import('../../src/lib/terminalLive.js');
+  assert.equal(pathPrice(10, 14, 8, 12, 0), 10); assert.equal(pathPrice(10, 14, 8, 12, 1), 12);
+  const H = 3600000, b = { time: [0, H, 2 * H], open: [10, 12, 13], high: [14, 15, 16], low: [8, 11, 12], close: [12, 13, 15] };
+  const half = replayBars(b, null, H, H + H / 2);
+  assert.equal(half.time.length, 2); assert.equal(half.open[1], 12); assert.ok(half.high[1] <= 15 && half.low[1] >= 11);
+  const end = replayBars(b, null, H, 2 * H - 1);
+  assert.ok(Math.abs(end.close[1] - 13) < 0.2);
+});

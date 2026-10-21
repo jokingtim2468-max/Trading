@@ -17,7 +17,55 @@ export function mergeCandles(bars, candles, tfMs) {
   return changed ? out : bars;
 }
 
-export const sliceBars = (bars, n) => (bars ? Object.fromEntries(['time', 'open', 'high', 'low', 'close'].map((c) => [c, bars[c].slice(0, n)])) : bars);
+export const sliceBars = (bars, n) => (bars ? Object.fromEntries(['time', 'open', 'high', 'low', 'close'].map((c) => [c, Array.from(bars[c].slice(0, n))])) : bars);
+
+// Where price is a fraction f (0..1) through a candle, the way a chart replays it: a rising candle goes
+// open -> low -> high -> close, a falling one open -> high -> low -> close, each leg taking time by its length
+export function pathPrice(o, h, l, c, f) {
+  const pts = c >= o ? [o, l, h, c] : [o, h, l, c];
+  const legs = [Math.abs(pts[1] - pts[0]), Math.abs(pts[2] - pts[1]), Math.abs(pts[3] - pts[2])];
+  const total = legs[0] + legs[1] + legs[2];
+  if (!total) return c;
+  let d = Math.max(0, Math.min(1, f)) * total;
+  for (let k = 0; k < 3; k++) {
+    if (d <= legs[k] || k === 2) return pts[k] + (pts[k + 1] - pts[k]) * (legs[k] ? Math.min(1, d / legs[k]) : 1);
+    d -= legs[k];
+  }
+  return c;
+}
+
+// Replay in real time: the bars closed before `clock`, plus the candle forming at `clock` built from 1-minute bars
+// (minutes, when loaded) or from the candle's own path. -> bars, or null before the first bar
+export function replayBars(bars, minutes, tfMs, clock) {
+  if (!bars?.time.length) return null;
+  let i = -1;
+  for (let lo = 0, hi = bars.time.length - 1; lo <= hi;) { const m = (lo + hi) >> 1; if (bars.time[m] <= clock) { i = m; lo = m + 1; } else hi = m - 1; }
+  if (i < 0) return null;
+  const out = sliceBars(bars, i);
+  const t0 = bars.time[i], end = Math.min(t0 + tfMs, i + 1 < bars.time.length ? bars.time[i + 1] : Infinity);
+  let o = null, h = -Infinity, l = Infinity, c = null;
+  const take = (p) => { if (o == null) o = p; h = Math.max(h, p); l = Math.min(l, p); c = p; };
+  const mins = minutes?.time.length && minutes.time[0] <= t0 && minutes.time[minutes.time.length - 1] >= Math.min(clock, end) - 60000;
+  if (mins) {
+    for (let k = 0; k < minutes.time.length; k++) {
+      const mt = minutes.time[k];
+      if (mt < t0) continue;
+      if (mt > clock || mt >= end) break;
+      const f = (clock - mt) / 60000;
+      if (f >= 1) { take(minutes.open[k]); take(minutes.high[k]); take(minutes.low[k]); take(minutes.close[k]); } else {
+        // The minute that is forming: walk its path up to now
+        const steps = Math.max(1, Math.round(f * 12));
+        for (let s = 0; s <= steps; s++) take(pathPrice(minutes.open[k], minutes.high[k], minutes.low[k], minutes.close[k], (f * s) / steps));
+      }
+    }
+  }
+  if (o == null) {
+    const f = (clock - t0) / (end - t0 || 1), steps = Math.max(1, Math.round(f * 40));
+    for (let s = 0; s <= steps; s++) take(pathPrice(bars.open[i], bars.high[i], bars.low[i], bars.close[i], (f * s) / steps));
+  }
+  for (const [k, v] of [['time', t0], ['open', o], ['high', h], ['low', l], ['close', c]]) out[k].push(v);
+  return out;
+}
 
 const pnlOf = (t, price) => Math.round((price - t.entry) * (t.side === 'long' ? 1 : -1) * t.qty * t.point_value * 100) / 100;
 

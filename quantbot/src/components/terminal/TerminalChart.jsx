@@ -62,26 +62,32 @@ export default function TerminalChart({
   }, [settings]);
 
   // Indicators (Pine, or MQL5 rewritten to Pine): overlays on the price pane, the rest in one pane below
-  const indSeries = useRef([]);
+  // Series are kept per plot and only their data changes, so the replay's ticking candle stays smooth
+  const indSeries = useRef(new Map());
   useEffect(() => {
     const c = chart.current;
-    if (!c || !bars) return undefined;
-    for (const x of indSeries.current) { try { c.removeSeries(x); } catch { /* already gone */ } }
-    indSeries.current = [];
+    if (!c || !bars) return;
     const keep = [];
     for (let i = 0; i < bars.time.length; i++) { const t = Math.floor(bars.time[i] / 1000); if (keep.length && t <= keep[keep.length - 1][0]) continue; keep.push([t, i]); }
+    const live = new Set();
+    let added = false;
     for (const ind of indicators) {
       const pane = ind.overlay ? 0 : 1;
-      let first = null;
-      for (const pl of ind.plots) {
-        const sr = c.addSeries(LineSeries, { color: pl.color, lineWidth: pl.width || 1.5, priceLineVisible: false, lastValueVisible: true, title: pl.name, crosshairMarkerVisible: false }, pane);
+      ind.plots.forEach((pl, k) => {
+        const key = `${ind.id}|${k}|${pane}|${pl.color}|${pl.name}|${ind.hlines.map((h) => h.price).join(',')}`;
+        live.add(key);
+        let sr = indSeries.current.get(key);
+        if (!sr) {
+          sr = c.addSeries(LineSeries, { color: pl.color, lineWidth: pl.width || 1.5, priceLineVisible: false, lastValueVisible: true, title: pl.name, crosshairMarkerVisible: false }, pane);
+          if (k === 0) for (const h of ind.hlines) sr.createPriceLine({ price: h.price, color: h.color, lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
+          indSeries.current.set(key, sr); if (pane) added = true;
+        }
         sr.setData(keep.map(([t, i]) => (Number.isFinite(pl.values[i]) ? { time: t, value: pl.values[i] } : { time: t })));
-        indSeries.current.push(sr); first = first || sr;
-      }
-      if (first) for (const h of ind.hlines) first.createPriceLine({ price: h.price, color: h.color, lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
+      });
     }
-    if (indicators.some((x) => !x.overlay)) c.panes()[1]?.setHeight(Math.round((box.current?.clientHeight || 400) * 0.25));
-    return undefined;
+    let removed = false;
+    for (const [key, sr] of indSeries.current) if (!live.has(key)) { try { c.removeSeries(sr); } catch { /* gone */ } indSeries.current.delete(key); removed = true; }
+    if ((added || removed) && indicators.some((x) => !x.overlay)) c.panes()[1]?.setHeight(Math.round((box.current?.clientHeight || 400) * 0.25));
   }, [indicators, bars]);
 
   useEffect(() => {
@@ -248,7 +254,7 @@ export default function TerminalChart({
   const startPos = (e, d, kind) => {
     e.preventDefault(); e.stopPropagation();
     setPicked(d.id);
-    setPosDrag({ id: d.id, kind, d, from: priceAtY(e.clientY) });
+    setPosDrag({ id: d.id, kind, d, d0: d, from: priceAtY(e.clientY), fromX: e.clientX, x0: timeToX(d.time) });
   };
   const posDragging = !!posDrag;
   useEffect(() => {
@@ -259,7 +265,14 @@ export default function TerminalChart({
       setPosDrag((g) => {
         if (!g) return g;
         const o = drawingsRef.current.find((x) => x.id === g.id) || g.d;
-        if (g.kind === 'entry') { const dv = Math.round((p - g.from) * 100) / 100; return { ...g, d: { ...o, entry: o.entry + dv, sl: o.sl + dv, tp: o.tp + dv } }; }
+        if (g.kind === 'entry') {
+          // Moves the whole box: up / down in price and left / right in time
+          const dv = Math.round((p - g.from) * 100) / 100;
+          const r = box.current.getBoundingClientRect();
+          const t = g.x0 != null ? xToTime(g.x0 + e.clientX - g.fromX) : null;
+          return { ...g, d: { ...o, entry: g.d0.entry + dv, sl: g.d0.sl + dv, tp: g.d0.tp + dv, ...(t != null && r ? { time: t } : {}) } };
+        }
+        if (g.kind === 'width') return { ...g, d: { ...g.d, w: Math.max(60, (g.d.w || 260) + e.clientX - g.fromX) }, fromX: e.clientX };
         return { ...g, d: { ...o, [g.kind]: p } };
       });
     };
@@ -317,7 +330,7 @@ export default function TerminalChart({
           }
           if (d.type === 'position') {
             if (g.x == null || g.entry == null || g.sl == null || g.tp == null) return null;
-            const x1 = Math.max(0, g.x), x2 = Math.min(ys.w - ys.scale, g.x + 260);
+            const x1 = Math.max(0, g.x), x2 = Math.min(ys.w - ys.scale, g.x + (d.w || 260));
             if (x2 <= x1) return null;
             const box = (y1, y2, fill) => <rect x={x1} y={Math.min(y1, y2)} width={x2 - x1} height={Math.max(1, Math.abs(y2 - y1))} fill={fill} fillOpacity=".17" stroke={sel ? '#ffffff' : 'none'} strokeOpacity=".5" />;
             return (
@@ -374,7 +387,7 @@ export default function TerminalChart({
         const d0 = byId[g.id];
         if (!d0) return null;
         const d = posDrag && posDrag.id === d0.id ? posDrag.d : d0;
-        const left = Math.max(0, g.x), width = Math.min(ys.w - ys.scale, g.x + 260) - left;
+        const left = Math.max(0, g.x), width = Math.min(ys.w - ys.scale, g.x + (d.w || 260)) - left;
         if (width <= 40) return null;
         const lots = Number(d.lots) || 0;
         const long = d.tp >= d.entry;
@@ -408,6 +421,8 @@ export default function TerminalChart({
                   className="ml-1 px-2 h-5 rounded text-white font-semibold" style={{ background: long ? '#2962ff' : '#f23645' }}>{long ? 'Buy' : 'Sell'} {d.lots}</button>
               )}
             </div>
+            <div onPointerDown={(e) => startPos(e, d, 'width')} data-testid="position-width" title="Drag to make the box wider or narrower"
+              className="pointer-events-auto absolute w-2.5 h-6 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-white/80 border border-[#363a45] cursor-ew-resize" style={{ left: left + width, top: clamp(g.entry) }} />
             {level(g.tp, 'tp', '#089981', d.tp, `+${usd(reward)}`)}
             {level(g.sl, 'sl', '#f23645', d.sl, `-${usd(risk)}`)}
           </div>

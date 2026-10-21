@@ -506,3 +506,9 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Quick add: EMA 20/50, VWAP, Bollinger Bands, RSI 14, MACD, ATR 14. Paste box for Pine Script or MQL5.
 - Overlay indicators draw on price; the others share one pane below (25% of the chart height). Each row has show/hide and delete.
 - Pine runs in the app directly; MQL5 (and Pine with loops / var / functions) is rewritten to simple Pine by the model, then runs the same way.
+
+## Replay (real time) and Pine Editor
+- Replay plays in real time: 1× = one market second per second; speeds 1×, 10×, 60×, 300×. The forming candle ticks along the real 1-minute path (open→low→high→close for up candles, open→high→low→close for down). "Next candle" jumps to the next bar.
+- Practice stops/targets are checked on every price move.
+- "Pine Editor" tab under the chart: script list on the left, code editor with line numbers, Add/Update on chart, Ctrl+S.
+- Position box: drag the middle to move it in price and time; the white handle on the right edge resizes its width.

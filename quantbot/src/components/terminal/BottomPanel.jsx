@@ -7,12 +7,12 @@ const NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell l
 const COLS = 'grid grid-cols-[1.3fr_.9fr_.7fr_.6fr_.9fr_.9fr_.9fr_.6fr] items-center px-3.5';
 
 // Under the chart: open positions, pending orders and price alerts (in replay: the practice trades)
-export default function BottomPanel({ positions, pending, alerts, practice, replay, group, onClose, onCancel, onRemoveAlert, onCloseAll }) {
+export default function BottomPanel({ positions, pending, alerts, practice, replay, group, onClose, onCancel, onRemoveAlert, onCloseAll, editor }) {
   const [tab, setTab] = useState('positions');
-  const tabs = replay ? [['practice', `Practice ${practice.open.length}`]] : [['positions', `Positions ${positions.length}`], ['orders', `Orders ${pending.length}`], ['alerts', `Alerts ${alerts.length}`]];
-  const cur = replay ? 'practice' : tab;
+  const tabs = [...(replay ? [['practice', `Practice ${practice.open.length}`]] : [['positions', `Positions ${positions.length}`], ['orders', `Orders ${pending.length}`], ['alerts', `Alerts ${alerts.length}`]]), ['editor', 'Pine Editor']];
+  const cur = tabs.some(([id]) => id === tab) ? tab : tabs[0][0];
   return (
-    <div className="h-[190px] shrink-0 border-t border-[#2a2e39] flex flex-col" data-testid="terminal-positions">
+    <div className={`${cur === 'editor' ? 'h-[300px]' : 'h-[190px]'} shrink-0 border-t border-[#2a2e39] flex flex-col`} data-testid="terminal-positions">
       <div className="flex items-center gap-5 px-3.5 pt-2 border-b border-[#2a2e39]">
         {tabs.map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} data-testid={`tab-${id}`}
@@ -22,7 +22,8 @@ export default function BottomPanel({ positions, pending, alerts, practice, repl
         {cur === 'positions' && <button type="button" disabled={!positions.some((t) => t.closable)} onClick={onCloseAll} className="mb-1.5 px-2.5 py-0.5 rounded-md border border-[#f23645]/40 text-[#f23645] disabled:opacity-40">Close all</button>}
         {cur === 'practice' && <span className="pb-1.5 tabular-nums">Practice P&L <b className={practice.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'} data-testid="practice-pnl">{usdSigned(practice.pnl)}</b>{practice.closed.length ? ` · ${practice.closed.length} closed, ${Math.round((practice.closed.filter((t) => t.pnl > 0).length / practice.closed.length) * 100)}% won` : ''}</span>}
       </div>
-      <div className="overflow-y-auto">
+      {cur === 'editor' && <div className="flex-1 min-h-0">{editor}</div>}
+      <div className={`overflow-y-auto ${cur === 'editor' ? 'hidden' : ''}`}>
         {(cur === 'positions' || cur === 'practice') && (
           <>
             <div className={`${COLS} py-1.5 text-xs text-[#787b86]`}><span>{cur === 'practice' ? 'Trade' : 'Account'}</span><span>Symbol</span><span>Side</span><span>Size</span><span>Entry</span><span>Stop</span><span>Target</span><span /></div>

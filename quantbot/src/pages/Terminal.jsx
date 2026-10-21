@@ -9,7 +9,7 @@ import { client } from '@/api/client';
 import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
-import { mergeCandles, sliceBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
+import { mergeCandles, replayBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
 import { presetOf, simAccount, withDailyLimit } from '@/lib/backtest/propRules';
 import AccountPicker from '@/components/scripttester/AccountPicker';
 import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
@@ -17,6 +17,7 @@ import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
 import IndicatorsPanel from '@/components/terminal/IndicatorsPanel';
+import ScriptEditor from '@/components/terminal/ScriptEditor';
 import { runIndicator } from '@/lib/indicators/pine';
 import ChartEditor from '@/components/terminal/ChartEditor';
 import Toasts from '@/components/terminal/Toasts';
@@ -87,7 +88,7 @@ export default function Terminal() {
   const [symbol, setSymbol] = useState('XAUUSD');
   const [tf, setTf] = useState('M15');
   const tfMin = TFS.find((t) => t[0] === tf)[2];
-  const [replay, setReplay] = useState(null); // { date, idx, playing, speed }
+  const [replay, setReplay] = useState(null); // { date, clock (ms, the replay's 'now'), playing, speed (market seconds per second) }
   const range = useMemo(() => {
     if (!replay) return null;
     const days = TFS.find((t) => t[0] === tf)[1];
@@ -153,13 +154,22 @@ export default function Terminal() {
   const allBars = market.bars;
   useEffect(() => {
     // Only the replay's own bars (not the live chart's, still showing while they load)
-    if (!replay || replay.idx != null || !allBars || market.key !== `${symbol}|${tf}|${range?.from}|${range?.to}`) return;
+    if (!replay || replay.clock != null || !allBars || market.key !== `${symbol}|${tf}|${range?.from}|${range?.to}`) return;
     const start = Date.parse(`${replay.date}T00:00:00Z`);
     let i = allBars.time.findIndex((t) => t >= start);
     if (i < 0) i = allBars.time.length - 1;
-    setReplay((r) => r && { ...r, idx: Math.max(1, i) });
+    setReplay((r) => r && { ...r, clock: allBars.time[Math.max(1, i)] });
   }, [allBars, replay, market.key]);
-  const bars = useMemo(() => (replay?.idx != null ? sliceBars(allBars, replay.idx + 1) : replay ? null : allBars), [allBars, replay?.idx, !!replay]);
+  // 1-minute bars of the replay's current day, so the forming candle moves the way the market really did
+  const [minutes, setMinutes] = useState(null);
+  const minuteDay = replay?.clock != null ? day(replay.clock) : null;
+  useEffect(() => {
+    if (!minuteDay) { setMinutes(null); return undefined; }
+    let live = true;
+    loadBars({ market: true, id: symbol, symbol }, { tf: 'M1', from: minuteDay, to: minuteDay }).then((b) => live && setMinutes(b)).catch(() => live && setMinutes(null));
+    return () => { live = false; };
+  }, [minuteDay, symbol]);
+  const bars = useMemo(() => (replay?.clock != null ? replayBars(allBars, minutes, tfMin * 60000, replay.clock) : replay ? null : allBars), [allBars, minutes, replay?.clock, !!replay, tfMin]);
   const last = bars && bars.time.length ? bars.close[bars.time.length - 1] : null;
   const shown = hover || (bars && bars.time.length ? { open: bars.open.at(-1), high: bars.high.at(-1), low: bars.low.at(-1), close: last } : null);
 
@@ -453,26 +463,37 @@ export default function Terminal() {
   };
   const pendingAt = (event, price) => place(event.split('_')[0], { event, at: price, price: last });
 
-  // Replay: step / play
+  // Replay: plays in real time (1x = one market second per second); practice trades are checked on every price move
+  const nextBarTime = (clock) => { const t = allBars?.time; if (!t) return null; for (let k = 0; k < t.length; k++) if (t[k] > clock) return t[k]; return null; };
   const step = useCallback(() => {
-    setReplay((r) => {
-      if (!r || r.idx == null || !allBars || r.idx >= allBars.time.length - 1) return r && { ...r, playing: false };
-      const i = r.idx + 1;
-      const bar = { high: allBars.high[i], low: allBars.low[i], close: allBars.close[i] };
-      setPractice((p) => {
-        const { open, closed: hit } = stepPractice(p.open, bar);
-        const closed = hit.map((c) => ({ ...c, exitTime: allBars.time[i] }));
-        closed.forEach((c) => toast({ kind: c.pnl >= 0 ? 'set_tp' : 'set_sl', title: c.reason === 'stop' ? 'Practice stop hit' : 'Practice target hit', lines: [`${usdSigned(c.pnl)} at ${f2(c.exit)}`] }));
-        return { open, closed: [...p.closed, ...closed] };
-      });
-      return { ...r, idx: i };
-    });
+    setReplay((r) => { if (!r || r.clock == null) return r; const nx = nextBarTime(r.clock); return nx == null ? { ...r, playing: false } : { ...r, clock: nx }; });
   }, [allBars]);
   useEffect(() => {
     if (!replay?.playing) return undefined;
-    const t = setInterval(step, 1000 / replay.speed);
+    const TICK = 200;
+    const t = setInterval(() => setReplay((r) => {
+      if (!r || r.clock == null) return r;
+      const end = allBars?.time.length ? allBars.time[allBars.time.length - 1] + tfMin * 60000 : r.clock;
+      const clock = r.clock + TICK * r.speed;
+      return clock >= end ? { ...r, clock: end - 1, playing: false } : { ...r, clock };
+    }), TICK);
     return () => clearInterval(t);
-  }, [replay?.playing, replay?.speed, step]);
+  }, [replay?.playing, replay?.speed, allBars, tfMin]);
+  const prevPrice = useRef(null);
+  useEffect(() => {
+    if (!replay || last == null) { prevPrice.current = null; return; }
+    const from = prevPrice.current ?? last;
+    prevPrice.current = last;
+    const bar = { high: Math.max(from, last), low: Math.min(from, last), close: last };
+    setPractice((p) => {
+      if (!p.open.length) return p;
+      const { open, closed: hit } = stepPractice(p.open, bar);
+      if (!hit.length && open.every((t, k) => t === p.open[k])) return p;
+      const closed = hit.map((c) => ({ ...c, exitTime: replay.clock }));
+      closed.forEach((c) => toast({ kind: c.pnl >= 0 ? 'set_tp' : 'set_sl', title: c.reason === 'stop' ? 'Practice stop hit' : 'Practice target hit', lines: [`${usdSigned(c.pnl)} at ${f2(c.exit)}`] }));
+      return { open, closed: [...p.closed, ...closed] };
+    });
+  }, [last, !!replay]);
   // The trader's indicators, run on the bars on screen
   const indicatorList = prefs.indicators || [];
   const [indicators, indicatorErrors] = useMemo(() => {
@@ -535,18 +556,18 @@ export default function Terminal() {
       <div className="h-[46px] shrink-0 flex items-center gap-1 px-2.5 border-b border-[#2a2e39]">
         <Link to="/" className="p-2 rounded-md hover:bg-[#2a2e39]" aria-label="Back" data-testid="back"><ArrowLeft className="w-4 h-4" /></Link>
         <LogoMark className="w-6 h-6" />
-        <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setReplay((r) => r && { ...r, idx: null, playing: false }); setPractice({ open: [], closed: [] }); }} aria-label="Symbol" data-testid="symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
+        <select value={symbol} onChange={(e) => { setSymbol(e.target.value); setReplay((r) => r && { ...r, clock: null, playing: false }); setPractice({ open: [], closed: [] }); }} aria-label="Symbol" data-testid="symbol" className="h-8 px-2 rounded-md bg-transparent hover:bg-[#2a2e39] font-semibold text-white outline-none">
           {SYMBOLS.map((s) => <option key={s} value={s} className="bg-[#1e222d]">{s}</option>)}
         </select>
         <div className="w-px h-5 bg-[#2a2e39] mx-1.5" />
         {TFS.map(([t]) => (
-          <button key={t} type="button" onClick={() => { setTf(t); setReplay((r) => r && { ...r, idx: null, playing: false }); }} className={`h-8 px-2.5 rounded-md transition-colors ${tf === t ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tf-${t}`}>{t}</button>
+          <button key={t} type="button" onClick={() => { setTf(t); setReplay((r) => r && { ...r, clock: null, playing: false }); }} className={`h-8 px-2.5 rounded-md transition-colors ${tf === t ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tf-${t}`}>{t}</button>
         ))}
         <div className="w-px h-5 bg-[#2a2e39] mx-1.5" />
         <button type="button" onClick={() => setEditor(true)} className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-editor"><Pencil className="w-4 h-4" />Edit chart</button>
-        <button type="button" onClick={() => { if (replay) { setReplay(null); setPractice({ open: [], closed: [] }); } else setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); }}
+        <button type="button" onClick={() => { if (replay) { setReplay(null); setPractice({ open: [], closed: [] }); } else setReplay({ date: day(Date.now() - 30 * DAY), clock: null, playing: false, speed: 1 }); }}
           className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${replay ? 'bg-[#2962ff] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid="open-replay"><History className="w-4 h-4" />Replay</button>
-        <button type="button" onClick={() => { if (!replay) setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); setSimOpen(true); }} title="Practice in replay on a simulated prop firm account"
+        <button type="button" onClick={() => { if (!replay) setReplay({ date: day(Date.now() - 30 * DAY), clock: null, playing: false, speed: 1 }); setSimOpen(true); }} title="Practice in replay on a simulated prop firm account"
           className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${simPreset ? 'text-[#5b8def]' : ''} hover:bg-[#2a2e39]`} data-testid="open-sim-account">Prop account</button>
         <IndicatorsPanel list={indicatorList} onChange={(indicators) => setPrefs({ indicators })} bars={bars} errors={indicatorErrors} />
         <Link to="/journal" className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-journal"><BookOpen className="w-4 h-4" />Journal</Link>
@@ -576,12 +597,12 @@ export default function Terminal() {
       {replay && (
         <div className="h-[42px] shrink-0 flex items-center gap-2 px-3 border-b border-[#2a2e39] bg-[#1e222d] animate-in fade-in-0 slide-in-from-top-1 duration-pop ease-pop calm:animate-none" data-testid="replay-bar">
           <History className="w-4 h-4 text-[#2962ff]" /><span className="font-semibold text-white">Replay</span>
-          <input type="date" value={replay.date} max={day(Date.now() - DAY)} min="2004-01-01" onChange={(e) => { if (e.target.value) { setReplay({ ...replay, date: e.target.value, idx: null, playing: false }); setPractice({ open: [], closed: [] }); } }}
+          <input type="date" value={replay.date} max={day(Date.now() - DAY)} min="2004-01-01" onChange={(e) => { if (e.target.value) { setReplay({ ...replay, date: e.target.value, clock: null, playing: false }); setPractice({ open: [], closed: [] }); } }}
             className="h-7 px-2 rounded-md bg-[#131722] border border-[#363a45] text-[#d1d4dc] outline-none [color-scheme:dark]" data-testid="replay-date" aria-label="Replay from" />
           <button type="button" onClick={() => setReplay({ ...replay, playing: !replay.playing })} aria-label={replay.playing ? 'Pause' : 'Play'} className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-play">{replay.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}</button>
           <button type="button" onClick={step} aria-label="Next candle" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-step"><StepForward className="w-4 h-4" /></button>
-          {[1, 2, 5, 10].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
-          <span className="text-[#787b86] tabular-nums">{bars?.time.length ? new Date(bars.time.at(-1)).toISOString().slice(0, 16).replace('T', ' ') : ''} · → next candle · space play</span>
+          {[1, 10, 60, 300].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
+          <span className="text-[#787b86] tabular-nums">{replay.clock != null ? new Date(replay.clock).toISOString().slice(0, 19).replace('T', ' ') : ''} · → next candle · space play</span>
           <span className="ml-auto tabular-nums">Practice P&L <b className={practiceSum.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(practiceSum.pnl)}</b></span>
           <button type="button" onClick={() => practiceOrder('close')} disabled={!practice.open.length} data-testid="replay-close-all"
             title="Close every open practice trade at the current price"
@@ -703,7 +724,8 @@ export default function Terminal() {
           <BottomPanel positions={positions} pending={book.pending} alerts={book.alerts} practice={practiceSum} replay={!!replay} group={group}
             onClose={(t) => place('close', { price: last, trade_id: t.trade_id })} onCloseAll={() => place('close', { price: last })}
             onCancel={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(loadTrading)}
-            onRemoveAlert={(a) => post('/api/terminal/alert', { remove: a.id }).then(loadTrading)} />
+            onRemoveAlert={(a) => post('/api/terminal/alert', { remove: a.id }).then(loadTrading)}
+            editor={<ScriptEditor list={indicatorList} onChange={(indicators) => setPrefs({ indicators })} bars={bars} />} />
         </div>
 
         <OrderTicket symbol={symbol} last={last} ticket={ticket} setTicket={setTicket} preview={preview} guardRows={guardRows}

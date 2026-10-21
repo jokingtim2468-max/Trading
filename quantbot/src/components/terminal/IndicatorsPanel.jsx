@@ -14,6 +14,25 @@ const BUILT_IN = [
   ['ATR 14', 'indicator("ATR 14", overlay=false)\nplot(ta.atr(14), "ATR", color=color.red)'],
 ];
 
+// Pine or MQL5 source -> { name, lang, code, pine }. Pine the chart can run is kept as is; MQL5 and Pine using loops,
+// var or functions are rewritten into simple Pine by the model first. onBusy(text) reports a rewrite in progress.
+export async function compileIndicator(source, bars, onBusy = () => {}) {
+  const src = String(source || '').trim();
+  let pine = src, why = isMql5(src) ? 'it is MQL5' : '';
+  if (!why && bars) {
+    try { runIndicator(src, bars); } catch (e) { if (e instanceof UnsupportedPine) why = e.message; else throw e; }
+  }
+  if (why) {
+    onBusy(isMql5(src) ? 'Rewriting the MQL5 indicator for the chart…' : `Rewriting for the chart (${why})…`);
+    const r = await fetch('/api/terminal/indicator', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: src, why }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'The rewrite failed');
+    pine = j.pine;
+  }
+  const name = bars ? runIndicator(pine, bars).title : (pine.match(/indicator\s*\(\s*["']([^"']+)/)?.[1] || 'Indicator');
+  return { name, lang: isMql5(src) ? 'MQL5' : 'Pine', code: src, pine };
+}
+
 // Indicators on the chart: paste Pine Script or MQL5. Pine runs directly; MQL5 (and Pine using loops, var or
 // functions) is rewritten into simple Pine by the local / chosen model first, then runs the same way.
 export default function IndicatorsPanel({ list, onChange, bars, errors }) {
@@ -22,26 +41,12 @@ export default function IndicatorsPanel({ list, onChange, bars, errors }) {
   const [msg, setMsg] = useState('');
 
   const add = async (source, preset) => {
-    const src = String(source || '').trim();
-    if (!src) return;
+    if (!String(source || '').trim()) return;
     setMsg('');
-    let pine = src, why = isMql5(src) ? 'it is MQL5' : '';
-    if (!why && bars) {
-      try { runIndicator(src, bars); } catch (e) { if (e instanceof UnsupportedPine) why = e.message; else { setMsg(e.message); return; } }
-    }
-    if (why) {
-      setBusy(isMql5(src) ? 'Rewriting the MQL5 indicator for the chart…' : `Rewriting for the chart (${why})…`);
-      try {
-        const r = await fetch('/api/terminal/indicator', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: src, why }) });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(j.error || 'The rewrite failed');
-        pine = j.pine;
-        if (bars) runIndicator(pine, bars);
-      } catch (e) { setBusy(''); setMsg(`Couldn't add it: ${e.message}`); return; } finally { setBusy(''); }
-    }
-    let name = 'Indicator';
-    try { name = bars ? runIndicator(pine, bars).title : (pine.match(/indicator\s*\(\s*["']([^"']+)/)?.[1] || name); } catch { /* shown on the row */ }
-    onChange([...list, { id: `I-${Date.now()}`, name, lang: isMql5(src) ? 'MQL5' : 'Pine', code: src, pine, on: true }]);
+    try {
+      const ind = await compileIndicator(source, bars, setBusy);
+      onChange([...list, { id: `I-${Date.now()}`, ...ind, on: true }]);
+    } catch (e) { setMsg(`Couldn't add it: ${e.message}`); return; } finally { setBusy(''); }
     if (!preset) setCode('');
   };
 
