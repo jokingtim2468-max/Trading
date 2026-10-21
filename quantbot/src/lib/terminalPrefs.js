@@ -1,15 +1,15 @@
 // The Terminal's per-PC preferences (toasts, sounds, alerts) and drawings, kept in this browser
 const KEY = 'quantbot.terminal.prefs';
 export const PREFS = {
-  v: 2, oneClickQty: '1', sessions: true, templates: [], bracket: { on: false, slPts: 5, tpR: 2 },
+  v: 3, oneClickQty: '0.01', sessions: true, templates: [], bracket: { on: false, slPts: 5, tpR: 2 },
   hotkeys: false, keys: { buy: 'b', sell: 's', closeAll: 'c', breakeven: 'e', half: 'h' },
   toastPos: 'tr', toastSecs: 5, sound: true, voice: true, levelAlerts: true, newsMarkers: true, newsToast: true, guard: true };
 
 export function readPrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY)) || {};
-    // v2: toasts moved to the top right
-    return { ...PREFS, ...saved, ...(saved.v === 2 ? {} : { v: 2, toastPos: 'tr' }) };
+    // v2: toasts moved to the top right. v3: trading size defaults to 0.01 lots
+    return { ...PREFS, ...saved, ...((saved.v || 0) < 2 ? { toastPos: 'tr' } : {}), ...((saved.v || 0) < 3 ? { v: 3, oneClickQty: '0.01' } : {}) };
   } catch { return { ...PREFS }; }
 }
 export function writePrefs(p) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private window */ } }

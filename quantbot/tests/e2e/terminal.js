@@ -65,8 +65,34 @@ await tid('tool-trend').click();
 await p.mouse.move(box.x + 300, box.y + 450); await p.mouse.down(); await p.mouse.move(box.x + 700, box.y + 250, { steps: 8 }); await p.mouse.up();
 await tid('tool-fib').click();
 await p.mouse.move(box.x + 820, box.y + 120); await p.mouse.down(); await p.mouse.move(box.x + 1000, box.y + 420, { steps: 8 }); await p.mouse.up();
-await tid('tool-cross').click();
+ok((await tid('draw-surface').count()) === 0, 'after drawing, the tool is back to the cursor');
 ok((await p.locator('[data-testid=drawings] line').count()) > 8, 'trendline and fib drawn');
+// Click a drawing, Backspace deletes it
+const lines0 = await p.locator('[data-testid=drawings] line').count();
+await p.mouse.click(box.x + 500, box.y + 350); await p.keyboard.press('Backspace'); await p.waitForTimeout(300);
+ok((await p.locator('[data-testid=drawings] line').count()) < lines0, 'clicked trendline deleted with Backspace');
+// Horizontal line: a drawing too (selectable, Backspace deletes it), and the tool goes back to the cursor
+await tid('tool-hline').click();
+await p.mouse.click(box.x + 400, box.y + 200); await p.waitForTimeout(300);
+ok((await p.locator('[data-drawing=hline]').count()) === 1, 'horizontal line placed');
+await p.mouse.click(box.x + 150, box.y + 200); await p.keyboard.press('Backspace'); await p.waitForTimeout(300);
+ok((await p.locator('[data-drawing=hline]').count()) === 0, 'horizontal line deleted with Backspace');
+// Position tool: place, see the $ at stake at 0.01 lots, drag the target, never an order
+const orders0 = await tid('pending-pill').count();
+await tid('tool-position').click();
+await p.mouse.click(box.x + 600, box.y + 300); await p.waitForTimeout(400);
+const posTool = tid('position-tool');
+ok((await posTool.count()) === 1 && (await tid('draw-surface').count()) === 0, 'position placed, tool back to the cursor');
+ok((await tid('position-lots').inputValue()) === '0.01', 'position defaults to 0.01 lots');
+const label0 = await posTool.innerText();
+ok(/Target \$[\d.,]+ · [\d.]+ pts/.test(label0) && /Stop -\$[\d.,]+/.test(label0) && /R:R 2\.00/.test(label0), `position labels: ${label0.replace(/\n/g, ' | ')}`);
+const tp = await tid('position-tp').boundingBox();
+await p.mouse.move(tp.x + 5, tp.y + 5); await p.mouse.down(); await p.mouse.move(tp.x + 5, tp.y - 60, { steps: 6 }); await p.mouse.up(); await p.waitForTimeout(300);
+ok((await posTool.innerText()) !== label0, 'dragging the target changes the $ and R:R');
+ok((await tid('pending-pill').count()) === orders0, 'the position tool placed no order');
+await p.screenshot({ path: `${OUT}/a2b-position-tool.png` });
+await p.keyboard.press('Backspace'); await p.waitForTimeout(300);
+ok((await tid('position-tool').count()) === 0, 'position deleted with Backspace');
 // Alert via right-click above price
 await p.mouse.click(box.x + 600, box.y + 60, { button: 'right' }); await p.waitForTimeout(400);
 await p.screenshot({ path: `${OUT}/a3-menu.png` });
@@ -161,6 +187,16 @@ const rb = await tid('replay-bar').innerText();
 const want = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 ok(/Practice P&L/.test(rb) && rb.includes(want), `replay starts on ${want}: ${rb.split('\n').join(' | ')}`);
 await p.screenshot({ path: `${OUT}/a7-replay.png` });
+// Simulate a prop account in replay: FTMO $10K, judged live
+await tid('sim-account-toggle').click();
+await tid('sim-account-picker').locator('[data-firm="FTMO"]').click(); await p.waitForTimeout(400);
+const sa = await tid('sim-account').innerText();
+ok(/Floor \$9,000/.test(sa) && /daily loss left \$500/.test(sa) && /To target \$1,000/.test(sa), `sim account: ${sa.replace(/\n/g, ' | ')}`);
+await tid('ticket-place').click();
+for (let i = 0; i < 6; i++) await tid('replay-step').click();
+await p.waitForTimeout(400);
+ok(/active|failed|passed/i.test(await tid('sim-status').innerText()), `sim status: ${await tid('sim-status').innerText()}`);
+await p.screenshot({ path: `${OUT}/a7b-sim-account.png` });
 // Overview
 await p.goto(`${base}/overview`); await p.waitForTimeout(1500);
 ok((await tid('overview-row').count()) === 2, 'overview lists both accounts');

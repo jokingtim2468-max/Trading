@@ -76,3 +76,42 @@ export function evaluateProp(trades, preset) {
     finalBalance: r2(balance), lowestBalance: r2(lowest), tradingDays, timeline,
   };
 }
+
+// A live prop account while you trade (the Terminal's account simulation): closed trades plus the open trades'
+// floating P&L, judged the way the firms do it — the max-loss floor (static or trailing the best end-of-day
+// balance) and the daily loss limit both count unrealised losses. closed: [{ exitTime, pnl }], floating: $ now,
+// now: the current candle's time (ms).
+export function simAccount(preset, closed = [], floating = 0, now = Date.now()) {
+  const start = preset.size;
+  const trailing = preset.drawdown_type === 'eod_trailing';
+  const lockAt = /lucid/i.test(preset.firm) ? start + 100 : start;
+  const today = dayOf(now);
+  const ts = closed.filter((t) => Number.isFinite(t.exitTime)).sort((a, b) => a.exitTime - b.exitTime);
+  let balance = start, peakEod = start, day = null, closedToday = 0;
+  for (const t of ts) {
+    const d = dayOf(t.exitTime);
+    if (day && d !== day) peakEod = Math.max(peakEod, balance); // the previous day closed at this balance
+    day = d;
+    balance += t.pnl;
+    if (d === today) closedToday += t.pnl;
+  }
+  if (day && day !== today) peakEod = Math.max(peakEod, balance);
+  const floor = trailing ? Math.min(peakEod - preset.max_drawdown, lockAt) : start - preset.max_drawdown;
+  const equity = balance + floating;
+  const dayPnl = closedToday + floating;
+  const dll = preset.broker_daily_limit || null;
+  const profit = balance - start;
+  let status = 'active', reason = '';
+  if (equity <= floor) { status = 'failed'; reason = `equity $${r2(equity).toLocaleString()} hit the ${trailing ? 'trailing ' : ''}max-loss floor $${r2(floor).toLocaleString()}`; }
+  else if (dll && dayPnl <= -dll) { status = 'failed'; reason = `daily loss limit: -$${r2(-dayPnl).toLocaleString()} today (limit $${dll.toLocaleString()})`; }
+  else if (preset.profit_target && profit >= preset.profit_target && !floating) {
+    const r = evaluateProp(ts, preset);
+    status = r.status === 'passed' ? 'passed' : 'active';
+    reason = r.status === 'passed' ? `profit target $${preset.profit_target.toLocaleString()} reached` : r.reason;
+  }
+  return {
+    status, reason, start, balance: r2(balance), equity: r2(equity), floor: r2(floor), dayPnl: r2(dayPnl),
+    dailyLeft: dll ? r2(dll + dayPnl) : null, roomToFloor: r2(equity - floor),
+    toTarget: preset.profit_target ? r2(Math.max(0, preset.profit_target - profit)) : null,
+  };
+}

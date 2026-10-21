@@ -40,3 +40,21 @@ test('consistency: a target hit by one huge day must be diluted first', () => {
   assert.equal(r.status, 'in progress');
   assert.match(r.reason, /consistency/);
 });
+
+test('simAccount: floating losses count toward the floor and the daily limit, like the firms', async () => {
+  const { simAccount } = await import('../../src/lib/backtest/propRules.js');
+  const ftmo = presetOf(presets, 'FTMO', 'Evaluation (2-Step)', 10000);
+  const now = T0;
+  const ok = simAccount(ftmo, [{ exitTime: now - 3600000, pnl: -200 }], -100, now);
+  assert.equal(ok.status, 'active');
+  assert.equal(ok.dailyLeft, 200, '$500 limit - $200 closed - $100 floating');
+  const dll = simAccount(ftmo, [{ exitTime: now - 3600000, pnl: -200 }], -320, now);
+  assert.equal(dll.status, 'failed');
+  assert.match(dll.reason, /daily loss/);
+  // Lucid Flex 25K: the floor trails yesterday's close and stops at start + $100
+  const flex = presetOf(presets, 'Lucid Trading', 'LucidFlex', 25000);
+  const s = simAccount(flex, [{ exitTime: now - 2 * DAY, pnl: 900 }], 0, now);
+  assert.equal(s.floor, 24900, 'peak 25,900 - 1,000');
+  const s2 = simAccount(flex, [{ exitTime: now - 2 * DAY, pnl: 1500 }], 0, now);
+  assert.equal(s2.floor, 25100, 'locked at start + $100');
+});

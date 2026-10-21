@@ -5,17 +5,19 @@ import { createChart, CandlestickSeries, CrosshairMode, LineStyle } from 'lightw
 
 export const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const PENDING_NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell limit', sell_stop: 'Sell stop' };
-const DRAW_TOOLS = ['trend', 'rect', 'fib'];
+const DRAW_TOOLS = ['trend', 'rect', 'fib', 'position'];
 
 // The Terminal's chart: candles drawn with TradingView's open-source Lightweight Charts (Apache 2.0, credited in the
 // page footer), colored from the chart settings; the model's high / low, horizontal lines and the open positions'
 // stops and targets as price lines. On top: the Terminal's own trades and pending orders (drag to move), drawings
 // (trendlines, rectangles, Fibonacci) and upcoming news. onPriceAt(price) reports the price under the last right-click.
 export default function TerminalChart({
-  bars, settings, levels = [], lines = [], tool, onAddLine, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
+  bars, settings, levels = [], lines = [], tool, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [],
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1,
 }) {
+  const drawingsRef = useRef(drawings);
+  drawingsRef.current = drawings;
   const box = useRef(null);
   const chart = useRef(null);
   const series = useRef(null);
@@ -90,11 +92,14 @@ export default function TerminalChart({
     const onClick = (p) => {
       if (tool !== 'hline' || !p.point) return;
       const price = series.current.coordinateToPrice(p.point.y);
-      if (price != null) onAddLine?.(price);
+      if (price == null) return;
+      const id = `D-${Date.now()}`;
+      onDrawingsChange?.([...drawingsRef.current, { id, type: 'hline', price: Math.round(price * 100) / 100 }]);
+      onToolDone?.();
     };
     chart.current.subscribeClick(onClick);
     return () => chart.current?.unsubscribeClick(onClick);
-  }, [tool, onAddLine]);
+  }, [tool, onDrawingsChange, onToolDone]);
 
   // Time (s) <-> x through the bar index, so drawings and news also sit past the last bar
   const timeToX = (t) => {
@@ -125,6 +130,9 @@ export default function TerminalChart({
   const [drag, setDrag] = useState(null); // { key, trade, kind: 'sl' | 'tp' | 'pending', price }
   const [draft, setDraft] = useState(null); // drawing in progress
   const [picked, setPicked] = useState(null); // selected drawing id
+  const [posDrag, setPosDrag] = useState(null); // { id, kind: 'tp' | 'sl' | 'entry', d, from }
+  const posDragRef = useRef(null);
+  posDragRef.current = posDrag;
   const [trailFor, setTrailFor] = useState(null);
   const dragRef = useRef(null);
   dragRef.current = drag;
@@ -140,7 +148,12 @@ export default function TerminalChart({
         }
         for (const p of pending) pend[p.id] = at(drag && drag.key === p.id ? drag.price : p.at);
         const pt = (q) => ({ x: timeToX(q.time), y: at(q.price) });
-        const draw = [...drawings, ...(draft ? [draft] : [])].map((d) => ({ id: d.id, a: pt(d.a), b: pt(d.b) }));
+        const draw = [...drawings, ...(draft ? [draft] : [])].map((d0) => {
+          const d = posDrag && posDrag.id === d0.id ? posDrag.d : d0;
+          if (d.type === 'hline') return { id: d.id, y: at(d.price) };
+          if (d.type === 'position') return { id: d.id, x: timeToX(d.time), entry: at(d.entry), sl: at(d.sl), tp: at(d.tp) };
+          return { id: d.id, a: pt(d.a), b: pt(d.b) };
+        });
         const nx = news.map((n) => ({ ...n, x: timeToX(n.time) }));
         const ses = sessions.map((x) => ({ ...x, x1: timeToX(x.from), x2: timeToX(x.to) })).filter((x) => x.x1 != null && x.x2 != null && x.x2 > 0 && x.x1 < (box.current?.clientWidth || 0));
         const scale = chart.current.priceScale('right').width();
@@ -152,7 +165,7 @@ export default function TerminalChart({
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [trades, pending, drag, drawings, draft, news, barSec, sessions]);
+  }, [trades, pending, drag, drawings, draft, news, barSec, sessions, posDrag]);
 
   const priceAtY = (clientY) => {
     const r = box.current.getBoundingClientRect();
@@ -188,14 +201,50 @@ export default function TerminalChart({
   const drawDown = (e) => {
     const a = pointAt(e);
     if (!a) return;
+    if (tool === 'position') {
+      // Stop ~3 average candles away, target at 2R; long by default (drag the handles or flip it)
+      const n = bars?.time?.length || 0, k = Math.max(0, n - 50);
+      let sum = 0; for (let i = k; i < n; i++) sum += bars.high[i] - bars.low[i];
+      const dist = Math.max(0.01, Math.round(((n - k ? sum / (n - k) : a.price * 0.002) * 3) * 100) / 100);
+      const pos = { id: `D-${Date.now()}`, type: 'position', time: a.time, entry: a.price, sl: Math.round((a.price - dist) * 100) / 100, tp: Math.round((a.price + 2 * dist) * 100) / 100, lots: '0.01' };
+      onDrawingsChange?.([...drawings, pos]);
+      setPicked(pos.id);
+      onToolDone?.();
+      return;
+    }
     e.currentTarget.setPointerCapture(e.pointerId);
     setDraft({ id: `D-${Date.now()}`, type: tool, a, b: a });
   };
   const drawMove = (e) => { if (draft) { const b = pointAt(e); if (b) setDraft((d) => ({ ...d, b })); } };
   const drawUp = () => {
-    if (draft && (draft.a.time !== draft.b.time || draft.a.price !== draft.b.price)) onDrawingsChange?.([...drawings, draft]);
+    if (draft && (draft.a.time !== draft.b.time || draft.a.price !== draft.b.price)) { onDrawingsChange?.([...drawings, draft]); onToolDone?.(); }
     setDraft(null);
   };
+  const updateDrawing = (d) => onDrawingsChange?.(drawingsRef.current.map((x) => (x.id === d.id ? d : x)));
+  // Position handles: drag the target, the stop, or the entry (which moves all three)
+  const startPos = (e, d, kind) => {
+    e.preventDefault(); e.stopPropagation();
+    setPicked(d.id);
+    setPosDrag({ id: d.id, kind, d, from: priceAtY(e.clientY) });
+  };
+  const posDragging = !!posDrag;
+  useEffect(() => {
+    if (!posDragging) return undefined;
+    const move = (e) => {
+      const p = priceAtY(e.clientY);
+      if (p == null) return;
+      setPosDrag((g) => {
+        if (!g) return g;
+        const o = drawingsRef.current.find((x) => x.id === g.id) || g.d;
+        if (g.kind === 'entry') { const dv = Math.round((p - g.from) * 100) / 100; return { ...g, d: { ...o, entry: o.entry + dv, sl: o.sl + dv, tp: o.tp + dv } }; }
+        return { ...g, d: { ...o, [g.kind]: p } };
+      });
+    };
+    const up = () => { const g = posDragRef.current; if (g) updateDrawing(g.d); setPosDrag(null); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, [posDragging]);
   useEffect(() => {
     const key = (e) => {
       if (e.key === 'Escape') { setDraft(null); setPicked(null); setTrailFor(null); }
@@ -235,10 +284,27 @@ export default function TerminalChart({
         ))}
         {ys.draw.map((g) => {
           const d = byId[g.id];
-          if (!d || g.a.x == null || g.b.x == null || g.a.y == null || g.b.y == null) return null;
+          if (!d) return null;
           const sel = picked === d.id;
           const color = sel ? '#ffffff' : '#2962ff';
           const hit = { className: 'pointer-events-auto cursor-pointer', onPointerDown: (e) => { e.stopPropagation(); setPicked(d.id); } };
+          if (d.type === 'hline') {
+            if (g.y == null) return null;
+            return <g key={d.id} data-drawing="hline"><line x1={0} x2="100%" y1={g.y} y2={g.y} stroke="transparent" strokeWidth="10" {...hit} /><line x1={0} x2="100%" y1={g.y} y2={g.y} stroke={color} strokeWidth={sel ? 2 : 1.5} /></g>;
+          }
+          if (d.type === 'position') {
+            if (g.x == null || g.entry == null || g.sl == null || g.tp == null) return null;
+            const x1 = Math.max(0, g.x), x2 = Math.min(ys.w - ys.scale, g.x + 260);
+            if (x2 <= x1) return null;
+            const box = (y1, y2, fill) => <rect x={x1} y={Math.min(y1, y2)} width={x2 - x1} height={Math.max(1, Math.abs(y2 - y1))} fill={fill} fillOpacity=".2" stroke={sel ? '#ffffff' : 'none'} strokeOpacity=".5" />;
+            return (
+              <g key={d.id} data-drawing="position" className="pointer-events-auto cursor-move" onPointerDown={(e) => startPos(e, d, 'entry')}>
+                {box(g.entry, g.tp, '#089981')}{box(g.entry, g.sl, '#f23645')}
+                <line x1={x1} x2={x2} y1={g.entry} y2={g.entry} stroke="#d1d4dc" strokeWidth="1.5" />
+              </g>
+            );
+          }
+          if (g.a.x == null || g.b.x == null || g.a.y == null || g.b.y == null) return null;
           if (d.type === 'trend') {
             return <g key={d.id}><line x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} stroke="transparent" strokeWidth="10" {...hit} /><line x1={g.a.x} y1={g.a.y} x2={g.b.x} y2={g.b.y} stroke={color} strokeWidth="2" /></g>;
           }
@@ -269,10 +335,52 @@ export default function TerminalChart({
       {DRAW_TOOLS.includes(tool) && (
         <div className="absolute inset-0 z-[6] cursor-crosshair touch-none" style={{ right: ys.scale }} onPointerDown={drawDown} onPointerMove={drawMove} onPointerUp={drawUp} data-testid="draw-surface" />
       )}
-      {picked && (() => { const g = ys.draw.find((x) => x.id === picked); return g?.b.x != null && g?.b.y != null && (
-        <button type="button" aria-label="Remove this drawing" onClick={() => { onDrawingsChange?.(drawings.filter((d) => d.id !== picked)); setPicked(null); }}
-          className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f23645] text-white flex items-center justify-center shadow" style={{ left: g.b.x, top: g.b.y }} data-testid="drawing-remove"><X className="w-3 h-3" /></button>
-      ); })()}
+      {picked && (() => {
+        const g = ys.draw.find((x) => x.id === picked);
+        const at = !g ? null : g.y !== undefined && g.a === undefined ? (g.y != null ? { x: ys.w - ys.scale - 14, y: g.y } : null)
+          : g.entry !== undefined ? (g.x != null && g.tp != null ? { x: Math.min(ys.w - ys.scale, g.x + 260), y: Math.min(g.tp, g.sl) } : null)
+            : g.b.x != null && g.b.y != null ? { x: g.b.x, y: g.b.y } : null;
+        return at && (
+          <button type="button" aria-label="Remove this drawing" onClick={() => { onDrawingsChange?.(drawings.filter((d) => d.id !== picked)); setPicked(null); }}
+            className="absolute z-20 w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#f23645] text-white flex items-center justify-center shadow" style={{ left: at.x, top: at.y }} data-testid="drawing-remove"><X className="w-3 h-3" /></button>
+        );
+      })()}
+      {/* Position tool: labels with the $ at stake, the lot size and R:R, and handles to drag the target / stop.
+          It never sends an order. */}
+      {ys.draw.filter((g) => g.entry !== undefined && g.x != null && g.entry != null && g.sl != null && g.tp != null).map((g) => {
+        const d0 = byId[g.id];
+        if (!d0) return null;
+        const d = posDrag && posDrag.id === d0.id ? posDrag.d : d0;
+        const left = Math.max(0, g.x), width = Math.min(ys.w - ys.scale, g.x + 260) - left;
+        if (width <= 40) return null;
+        const lots = Number(d.lots) || 0;
+        const long = d.tp >= d.entry;
+        const reward = Math.abs(d.tp - d.entry), risk = Math.abs(d.entry - d.sl);
+        const usd = (pts) => `$${(pts * lots * pointValue).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+        const tag = 'absolute -translate-y-1/2 px-1.5 py-0.5 rounded text-[11px] font-medium tabular-nums text-white whitespace-nowrap shadow';
+        // Labels and handles stay inside the chart even when a level is scrolled or dragged off it, so they can be grabbed
+        const H = box.current?.clientHeight || 0;
+        const clamp = (y) => Math.max(12, Math.min(H - 12, y));
+        const handle = (y, kind, bg) => (
+          <div onPointerDown={(e) => startPos(e, d, kind)} data-testid={`position-${kind}`}
+            className="pointer-events-auto absolute w-3 h-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white cursor-ns-resize" style={{ left: left + width / 2, top: clamp(y), background: bg }} />
+        );
+        return (
+          <div key={g.id} className="absolute inset-0 z-[7] pointer-events-none overflow-hidden" style={{ right: ys.scale }} data-testid="position-tool">
+            <div className={tag} style={{ left, top: clamp(g.tp + (long ? -10 : 10)), background: '#089981' }}>Target {usd(reward)} · {Math.round(reward * 100) / 100} pts</div>
+            <div className={tag} style={{ left, top: clamp(g.sl + (long ? 10 : -10)), background: '#f23645' }}>Stop -{usd(risk)} · {Math.round(risk * 100) / 100} pts</div>
+            <div className={`${tag} pointer-events-auto flex items-center gap-1.5 bg-[#1e222d] border border-[#363a45]`} style={{ left: Math.min(left + width + 6, ys.w - ys.scale - 230), top: clamp(g.entry) }}>
+              <button type="button" className="font-semibold" style={{ color: long ? '#089981' : '#f23645' }} data-testid="position-flip" title="Flip long / short"
+                onClick={() => updateDrawing({ ...d, sl: 2 * d.entry - d.sl, tp: 2 * d.entry - d.tp })}>{long ? 'Long' : 'Short'}</button>
+              <input value={d.lots} onChange={(e) => updateDrawing({ ...d, lots: e.target.value })} inputMode="decimal" aria-label="Position lots"
+                className="w-12 bg-transparent border-b border-[#363a45] text-center outline-none" data-testid="position-lots" />
+              <span className="text-[#9598a1]">lots @ {d.entry.toFixed(2)} · R:R {risk ? (reward / risk).toFixed(2) : '–'}</span>
+            </div>
+            {handle(g.tp, 'tp', '#089981')}
+            {handle(g.sl, 'sl', '#f23645')}
+          </div>
+        );
+      })}
 
       <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden" style={{ right: ys.scale }}>
         {pending.map((p) => {

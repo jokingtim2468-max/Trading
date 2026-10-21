@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft, Bell, BookOpen, Crosshair, Minus, Trash2, Pencil, Palette, Undo2, RotateCcw, ShieldAlert, Target, OctagonX,
-  History, Settings2, TrendingUp, Square, Sigma, Play, Pause, StepForward, X, Clock,
+  History, Settings2, TrendingUp, Square, Sigma, Play, Pause, StepForward, X, Clock, Ruler,
 } from 'lucide-react';
 import { LineStyle } from 'lightweight-charts';
 import { client } from '@/api/client';
@@ -10,6 +10,8 @@ import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
 import { mergeCandles, sliceBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
+import { presetOf, simAccount } from '@/lib/backtest/propRules';
+import AccountPicker from '@/components/scripttester/AccountPicker';
 import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
 import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
@@ -93,7 +95,6 @@ export default function Terminal() {
   const [market, setMarket] = useMarket(symbol, tf, range);
   const [chart, setChart] = useState(null);
   const [tool, setTool] = useState('cross');
-  const [hlines, setHlines] = useState([]);
   const [drawings, setDrawingsState] = useState(() => readDrawings('XAUUSD'));
   const setDrawings = (list) => { setDrawingsState(list); writeDrawings(symbol, list); };
   useEffect(() => { setDrawingsState(readDrawings(symbol)); }, [symbol]);
@@ -106,12 +107,18 @@ export default function Terminal() {
   const [accounts, setAccounts] = useState([]);
   const [book, setBook] = useState({ positions: [], pending: [], alerts: [], trails: {} });
   const positions = book.positions;
-  const [ticket, setTicket] = useState({ side: 'buy', type: 'market', at: '', sizing: 'lots', qty: '1', risk: '250', sl: '', tp: '' });
+  const [ticket, setTicket] = useState({ side: 'buy', type: 'market', at: '', sizing: 'lots', qty: '0.01', risk: '250', sl: '', tp: '' });
   const [toasts, setToasts] = useState([]);
   const [guardRows, setGuardRows] = useState([]);
   const [pred, setPred] = useState(null);
   const [news, setNews] = useState([]);
   const [practice, setPractice] = useState({ open: [], closed: [] });
+  // Account simulation in replay: practice trades judged by a prop firm's rules (size / firm / account type)
+  const [simPick, setSimPick] = useState({ size: 10000, firm: null, model: null });
+  const [simOpen, setSimOpen] = useState(false);
+  const [presets, setPresets] = useState(null);
+  useEffect(() => { fetch('/api/presets').then((r) => r.json()).then(setPresets).catch(() => {}); }, []);
+  const simPreset = simPick.firm && simPick.model ? presetOf(presets, simPick.firm, simPick.model, simPick.size) : null;
   const shot = useRef(null);
   const toast = (t) => {
     setToasts((v) => [...v, { id: `${Date.now()}-${Math.random()}`, ...t }]);
@@ -331,7 +338,6 @@ export default function Terminal() {
 
   const lines = useMemo(() => [
     ...prevDay,
-    ...hlines.map((p) => ({ price: p, color: '#2962ff', title: '' })),
     ...(ticket.sl ? [{ price: Number(ticket.sl), color: '#f23645', title: 'SL', style: LineStyle.Dotted }] : []),
     ...(ticket.tp ? [{ price: Number(ticket.tp), color: '#089981', title: 'TP', style: LineStyle.Dotted }] : []),
     ...(ticket.type !== 'market' && ticket.at && !replay ? [{ price: Number(ticket.at), color: '#9598a1', title: ticket.type === 'limit' ? 'Limit' : 'Stop', style: LineStyle.Dotted }] : []),
@@ -342,7 +348,7 @@ export default function Terminal() {
       ...(t.sl != null ? [{ price: t.sl, color: '#f23645', title: 'SL', style: LineStyle.Dashed }] : []),
       ...(t.tp != null ? [{ price: t.tp, color: '#089981', title: 'TP', style: LineStyle.Dashed }] : []),
     ])),
-  ], [hlines, ticket.sl, ticket.tp, ticket.type, ticket.at, tradesLive, limitLine, !!replay, prevDay]);
+  ], [ticket.sl, ticket.tp, ticket.type, ticket.at, tradesLive, limitLine, !!replay, prevDay]);
 
   // Live risk / reward of the ticket's stop and target across the group
   const preview = useMemo(() => {
@@ -361,6 +367,10 @@ export default function Terminal() {
 
   // Practice trades in replay: nothing goes to the accounts
   const practiceOrder = (event, extra = {}) => {
+    if ((event === 'buy' || event === 'sell') && sim?.status === 'failed') {
+      toast({ kind: 'error', title: 'Account failed', lines: [`${sim.reason}. Pick the account again (or another date) to restart.`] });
+      return;
+    }
     if (event === 'buy' || event === 'sell') {
       const qty = extra.qty ? Number(extra.qty) || 1 : ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
       const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: ticket.sl === '' ? null : Number(ticket.sl), tp: ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
@@ -369,7 +379,7 @@ export default function Terminal() {
     } else if (event === 'close') {
       setPractice((p) => {
         const out = p.open.filter((t) => !extra.trade_id || t.trade_id === extra.trade_id);
-        const done = out.map((t) => closePractice(t, last));
+        const done = out.map((t) => ({ ...closePractice(t, last), exitTime: bars?.time.at(-1) }));
         done.forEach((d) => toast({ kind: 'close', title: 'Practice trade closed', lines: [`${usdSigned(d.pnl)} at ${f2(last)}`] }));
         return { open: p.open.filter((t) => !out.includes(t)), closed: [...p.closed, ...done] };
       });
@@ -448,7 +458,8 @@ export default function Terminal() {
       const i = r.idx + 1;
       const bar = { high: allBars.high[i], low: allBars.low[i], close: allBars.close[i] };
       setPractice((p) => {
-        const { open, closed } = stepPractice(p.open, bar);
+        const { open, closed: hit } = stepPractice(p.open, bar);
+        const closed = hit.map((c) => ({ ...c, exitTime: allBars.time[i] }));
         closed.forEach((c) => toast({ kind: c.pnl >= 0 ? 'set_tp' : 'set_sl', title: c.reason === 'stop' ? 'Practice stop hit' : 'Practice target hit', lines: [`${usdSigned(c.pnl)} at ${f2(c.exit)}`] }));
         return { open, closed: [...p.closed, ...closed] };
       });
@@ -460,6 +471,21 @@ export default function Terminal() {
     const t = setInterval(step, 1000 / replay.speed);
     return () => clearInterval(t);
   }, [replay?.playing, replay?.speed, step]);
+  const sim = useMemo(() => {
+    if (!replay || !simPreset) return null;
+    const floating = last != null ? practice.open.reduce((x, t) => x + closePractice(t, last).pnl, 0) : 0;
+    return simAccount(simPreset, practice.closed, floating, bars?.time.at(-1) ?? Date.now());
+  }, [replay, simPreset, practice, last, bars?.time.length]);
+  // Failing the account closes everything at the current price, the way a firm would
+  const failedRef = useRef(false);
+  useEffect(() => {
+    if (sim?.status === 'failed' && !failedRef.current) {
+      failedRef.current = true;
+      setPractice((p) => ({ open: [], closed: [...p.closed, ...p.open.map((t) => ({ ...closePractice(t, last), exitTime: bars?.time.at(-1) }))] }));
+      toast({ kind: 'error', title: `${simPreset.firm} ${simPreset.model} failed`, lines: [sim.reason] });
+    }
+    if (sim?.status !== 'failed') failedRef.current = false;
+  }, [sim?.status]);
   const practiceSum = useMemo(() => ({
     open: practice.open, closed: practice.closed,
     pnl: Math.round((practice.closed.reduce((s, t) => s + t.pnl, 0) + (last != null ? practice.open.reduce((s, t) => s + closePractice(t, last).pnl, 0) : 0)) * 100) / 100,
@@ -488,7 +514,7 @@ export default function Terminal() {
 
   const priceLabel = clickPrice != null ? f2(clickPrice) : '';
   const above = clickPrice != null && last != null && clickPrice > last;
-  const tools = [['cross', Crosshair, 'Crosshair'], ['hline', Minus, 'Horizontal line: click the chart'], ['trend', TrendingUp, 'Trendline: drag on the chart'], ['rect', Square, 'Rectangle: drag on the chart'], ['fib', Sigma, 'Fibonacci retracement: drag from the swing high to the low (or low to high)']];
+  const tools = [['cross', Crosshair, 'Crosshair'], ['position', Ruler, 'Position: click to place a simulated long/short; drag its target and stop to see the $ at stake (never sends an order)'], ['hline', Minus, 'Horizontal line: click the chart'], ['trend', TrendingUp, 'Trendline: drag on the chart'], ['rect', Square, 'Rectangle: drag on the chart'], ['fib', Sigma, 'Fibonacci retracement: drag from the swing high to the low (or low to high)']];
 
   return (
     <div className="h-screen flex flex-col bg-[#131722] text-[#d1d4dc] text-[13px] overflow-hidden" data-testid="terminal">
@@ -541,7 +567,28 @@ export default function Terminal() {
           {[1, 2, 5, 10].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
           <span className="text-[#787b86] tabular-nums">{bars?.time.length ? new Date(bars.time.at(-1)).toISOString().slice(0, 16).replace('T', ' ') : ''} · → next candle · space play</span>
           <span className="ml-auto tabular-nums">Practice P&L <b className={practiceSum.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(practiceSum.pnl)}</b></span>
+          <button type="button" onClick={() => setSimOpen((o) => !o)} data-testid="sim-account-toggle"
+            className={`h-7 px-2.5 rounded-md text-[12px] border ${simPreset ? 'border-[#2962ff] text-white bg-[#2962ff]/15' : 'border-[#363a45] text-[#d1d4dc] hover:bg-[#2a2e39]'}`}>
+            {simPreset ? `${simPreset.firm} ${simPreset.model} $${(simPreset.size / 1000).toLocaleString()}K` : 'Simulate a prop account'}
+          </button>
           <button type="button" onClick={() => { setReplay(null); setPractice({ open: [], closed: [] }); }} aria-label="Leave replay" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+      {replay && simOpen && presets && (
+        <div className="shrink-0 border-b border-[#2a2e39] bg-[#131722] p-2" data-testid="sim-account-picker">
+          <AccountPicker presets={presets} value={simPick} onChange={(v) => { setSimPick(v); setPractice({ open: [], closed: [] }); }} />
+          <p className="px-1 pt-1 text-[11px] text-[#787b86]">Practice trades in this replay are judged like the real account: the max-loss floor and the daily loss limit count open losses, a failed account is closed out and blocks new trades. Picking an account starts a fresh one.</p>
+        </div>
+      )}
+      {replay && sim && (
+        <div className="h-8 shrink-0 flex items-center gap-4 px-3 border-b border-[#2a2e39] bg-[#1e222d] text-[12px] tabular-nums text-[#d1d4dc]" data-testid="sim-account">
+          <span className={`px-2 rounded-full text-[11px] font-semibold uppercase ${sim.status === 'failed' ? 'bg-[#f23645]/20 text-[#f23645]' : sim.status === 'passed' ? 'bg-[#089981]/20 text-[#089981]' : 'bg-[#2962ff]/20 text-[#5b8def]'}`} data-testid="sim-status">{sim.status === 'passed' ? 'Passed 🎯' : sim.status}</span>
+          <span>Balance <b>${sim.balance.toLocaleString()}</b></span>
+          <span>Equity <b className={sim.equity >= sim.start ? 'text-[#089981]' : 'text-[#f23645]'}>${sim.equity.toLocaleString()}</b></span>
+          <span title="Max-loss floor (equity must stay above it)">Floor ${sim.floor.toLocaleString()} · room <b className={sim.roomToFloor < simPreset.max_drawdown * 0.25 ? 'text-[#ff9800]' : ''}>${sim.roomToFloor.toLocaleString()}</b></span>
+          <span>Today <b className={sim.dayPnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(sim.dayPnl)}</b>{sim.dailyLeft != null ? ` · daily loss left $${sim.dailyLeft.toLocaleString()}` : ''}</span>
+          {sim.toTarget != null && <span>To target <b>${sim.toTarget.toLocaleString()}</b></span>}
+          {sim.reason && <span className="text-[#9598a1] truncate">{sim.reason}</span>}
         </div>
       )}
 
@@ -551,7 +598,7 @@ export default function Terminal() {
           {tools.map(([id, Icon, label]) => (
             <button key={id} type="button" aria-label={label} onClick={() => setTool(id)} className={`w-9 h-9 rounded-md flex items-center justify-center ${tool === id ? 'bg-[#2a2e39] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid={`tool-${id}`}><Icon className="w-5 h-5" /></button>
           ))}
-          <button type="button" aria-label="Remove all lines and drawings" data-testid="tool-clear" onClick={() => { setHlines([]); setDrawings([]); }} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
+          <button type="button" aria-label="Remove all lines and drawings" data-testid="tool-clear" onClick={() => setDrawings([])} className="w-9 h-9 rounded-md flex items-center justify-center hover:bg-[#2a2e39]"><Trash2 className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 flex flex-col min-w-0">
@@ -581,7 +628,7 @@ export default function Terminal() {
                       if (!replay) return place('close', { price: last, trade_id: t.trade_id, fraction: 0.5 });
                       const cut = Math.floor((t.qty / 2) * 100) / 100;
                       if (!(cut > 0)) return;
-                      const piece = closePractice({ ...t, qty: cut }, last);
+                      const piece = { ...closePractice({ ...t, qty: cut }, last), exitTime: bars?.time.at(-1) };
                       setPractice((p) => ({ open: p.open.map((x) => (x.trade_id === t.trade_id ? { ...x, qty: Math.round((x.qty - cut) * 100) / 100 } : x)), closed: [...p.closed, piece] }));
                       toast({ kind: 'close', title: 'Half closed (practice)', lines: [`${usdSigned(piece.pnl)} locked in`] });
                     }}
@@ -590,7 +637,7 @@ export default function Terminal() {
                     onCancelPending={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(() => { toast({ kind: 'close', title: `${NAME[p.event]} cancelled`, lines: [`${p.symbol} at ${f2(p.at)}`] }); loadTrading(); })}
                     drawings={drawings} onDrawingsChange={setDrawings} sessions={sessions} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
                     onReady={(api) => { shot.current = api; }}
-                    onAddLine={(p) => setHlines((h) => [...h, p])} onPriceAt={setClickPrice} onCrosshair={setHover} />
+                    onToolDone={() => setTool('cross')} pointValue={pv} onPriceAt={setClickPrice} onCrosshair={setHover} />
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent className={MENU} data-testid="chart-menu">
