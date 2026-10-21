@@ -3,7 +3,7 @@ import { client } from '@/api/client';
 const FENCE = /```([\w+-]*)[^\n]*\n([\s\S]*?)```/g;
 
 // MT5 vs Pine from the fence language or the code itself
-function languageOf(lang, code) {
+export function languageOf(lang, code) {
   if (/pine/i.test(lang) || /\/\/\s*@version\s*=\s*\d/.test(code)) return 'Pine';
   if (/mql|mq5|cpp|c\+\+/i.test(lang) || /#property|OnTick\s*\(|OnInit\s*\(/.test(code)) return 'MT5';
   if (/\b(strategy|indicator)\s*\(/.test(code)) return 'Pine';
@@ -29,3 +29,6 @@ export async function latestScript(sessionId) {
   }
   return null;
 }
+
+// Pine vs MT5 from the code alone (for a BACKTEST where there's no fenced language or file extension)
+export const detectLanguage = (code) => languageOf('', code);

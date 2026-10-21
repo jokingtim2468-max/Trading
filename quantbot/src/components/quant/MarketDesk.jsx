@@ -1,22 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { client } from '@/api/client';
+import WeekPnl from './WeekPnl';
 import { SESSIONS, sessionState, serverClock, duration } from '@/lib/sessions';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const money = (v) => (v == null ? 'n/a' : `${v < 0 ? '-' : '+'}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
 
 // Which sessions are trading now, in MT5 server time, plus the bot tested last: what a trader checks before working
 export default function MarketDesk() {
   const [now, setNow] = useState(() => new Date());
-  const [last, setLast] = useState(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 20000);
     return () => clearInterval(id);
-  }, []);
-  useEffect(() => {
-    client.entities.TestSession.filter({}, { sort: '-last_run_at', limit: 1 }).then((p) => setLast(p.items[0] || null)).catch(() => {});
   }, []);
 
   const server = serverClock(now);
@@ -55,26 +49,7 @@ export default function MarketDesk() {
         </p>
       </section>
 
-      <section aria-label="Last test" className="rounded-xl border border-border bg-card shadow-raised p-4 flex flex-col">
-        <h2 className="text-sm font-medium">Last test</h2>
-        {last ? (
-          <>
-            <div className="mt-2 font-heading text-lg font-semibold truncate">{last.bot_name}</div>
-            <div className="text-xs text-muted-foreground">
-              {last.symbol} {last.timeframe}, {last.versions || 0} version{last.versions === 1 ? '' : 's'}
-            </div>
-            <div className={`mt-2 font-heading text-2xl tabular-nums ${last.latest_net >= 0 ? 'text-chart-2' : 'text-destructive'}`}>{money(last.latest_net)}</div>
-            <Link to="/test-history" className="mt-auto pt-3 text-sm text-primary hover:underline self-start">Open in Test history</Link>
-          </>
-        ) : (
-          <>
-            <p className="mt-2 text-sm text-muted-foreground flex-1">
-              Nothing tested yet. Paste a strategy into the Converter: it builds the bot, tests it on gold, US100 and NQ, then opens a chat to fine-tune it.
-            </p>
-            <Link to="/strategy-converter" className="mt-3 text-sm text-primary hover:underline self-start">Open the Converter</Link>
-          </>
-        )}
-      </section>
+      <WeekPnl />
     </div>
   );
 }

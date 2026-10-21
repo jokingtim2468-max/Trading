@@ -56,7 +56,7 @@ test('deploy a profile, see it in the fleet, skip trades after the kill switch, 
   const set = await (await fetch(base + r.set_file)).text();
   assert.match(set, /RiskUsd=75/);
   const fleet = await (await fetch(`${base}/api/fleet`)).json();
-  assert.deepEqual(fleet.kpis, { active: 1, passed: 0, failed: 0, net: 0 });
+  assert.deepEqual(fleet.kpis, { active: 1, passed: 0, failed: 0, net: 0, week: 0, today: 0, week_trades: 0, week_wins: 0 });
   assert.equal(fleet.rows[0].firm, 'Lucid Trading');
 
   // Two losing trades today: the safety guard stops the next copy for the day

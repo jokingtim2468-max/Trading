@@ -51,11 +51,22 @@ export function createFleet({ dataDir, db, payouts, log = () => {} }) {
         status: (a.status || 'active'), paused: !!a.paused, stage: a.stage || '', auto_withdraw: !!a.auto_withdraw,
       };
     });
+    // This week's and today's realised P&L across every account (closed trades since Monday / midnight, local time)
+    const closed = await run('AccountTrade', 'filter', { status: 'closed' });
+    const now = new Date();
+    const midnight = new Date(now); midnight.setHours(0, 0, 0, 0);
+    const monday = new Date(midnight); monday.setDate(midnight.getDate() - ((midnight.getDay() + 6) % 7));
+    const since = (from) => closed.reduce((s, t) => (t.closed_at && Date.parse(t.closed_at) >= from ? s + (Number(t.pnl) || 0) : s), 0);
+    const inWeek = closed.filter((t) => t.closed_at && Date.parse(t.closed_at) >= monday.getTime());
     const kpis = {
       active: rows.filter((x) => x.status === 'active' && !x.paused).length,
       passed: rows.filter((x) => x.status === 'passed').length,
       failed: rows.filter((x) => x.status === 'failed').length,
       net: r2(rows.reduce((s, x) => s + x.pnl, 0)),
+      week: r2(since(monday.getTime())),
+      today: r2(since(midnight.getTime())),
+      week_trades: inWeek.length,
+      week_wins: inWeek.filter((t) => Number(t.pnl) > 0).length,
     };
     return { rows, kpis, presets: loadPresets(), notify_url: cfg.notify_url ? `${cfg.notify_url.slice(0, 30)}…` : '' };
   }

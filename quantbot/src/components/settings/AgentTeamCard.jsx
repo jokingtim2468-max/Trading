@@ -5,6 +5,7 @@ import * as api from '@/lib/quantApi';
 import { MODELS, defaultModel } from '@/lib/models';
 import { Button } from '@/components/ui/button';
 import { parseCommand } from '@/lib/agents/parse';
+import { detectLanguage } from '@/lib/chatScript';
 import { reportText } from '@/lib/agents/report';
 import { agentMarkets, backtestScript } from '@/lib/agents/backtest';
 
@@ -34,10 +35,12 @@ async function runAgent(n, { model, translator, steps, markets, signal, onLog })
       else if (c.cmd === 'DELETE') result = (await fsOp('delete', c.arg)).text;
       else if (c.cmd === 'WRITE') result = c.code == null ? 'WRITE needs the FULL file in one fenced code block right after the command.' : (await fsOp('write', c.arg, c.code)).text;
       else if (c.cmd === 'BACKTEST') {
-        const lang = langOf(c.arg);
-        const file = lang ? await fsOp('read', c.arg) : null;
-        if (!lang) result = 'BACKTEST takes a .mq5 or .pine file.';
-        else if (file.content == null) result = file.text;
+        // Detect the script type from the file name, falling back to the code itself (//@version=5 -> Pine,
+        // OnTick/#property -> MT5), so the right engine is used even if the extension is wrong or missing.
+        const file = c.arg ? await fsOp('read', c.arg) : { content: null, text: 'BACKTEST takes a file path.' };
+        const lang = langOf(c.arg) || (file.content ? detectLanguage(file.content) : null);
+        if (file.content == null) result = file.text;
+        else if (!lang) result = "Couldn't tell if that's Pine or MQL5. Make sure the file is a real strategy (Pine has //@version=5 and strategy(); MQL5 has OnTick and CTrade).";
         else {
           onLog(n, { step, cmd: 'BACKTEST', text: `${c.arg}: testing…` }, 'testing');
           const { results, errors } = await backtestScript({ code: file.content, language: lang, model: translator, markets, signal });
