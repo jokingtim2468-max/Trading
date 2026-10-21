@@ -33,3 +33,4 @@ dist-ssr
 # Local data: chats, tests, uploaded candles, encrypted API keys and the key that encrypts them
 /data
 /test-results
+scratchpad/
