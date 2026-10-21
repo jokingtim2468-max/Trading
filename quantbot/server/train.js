@@ -267,14 +267,16 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     // GGUF F16 / Q8_0 merge the full 16-bit model and crash small cards: offer Q4_K_M (what Ollama runs) under 12 GB
     const exports = gpu && gpu >= 12 ? ['adapter', 'gguf_q8_0'] : ['adapter', 'gguf_q4_k_m'];
     const blockers = [];
-    if (v.code !== 0) blockers.push('Docker Desktop is not running (start it, or install it from docker.com)');
+    // A closed Docker Desktop or a missing Unsloth image is handled by the run itself; only what can't be fixed blocks
+    const notes = [];
+    if (v.code !== 0) { if (dockerDesktop()) notes.push('Docker Desktop will be started for you'); else blockers.push('Docker Desktop is not installed: get it from docker.com'); }
     if (!gpu) blockers.push('No NVIDIA GPU found (nvidia-smi did not answer): Unsloth needs one');
-    if (img.code !== 0) blockers.push("Unsloth isn't installed yet: download its image below");
+    if (img.code !== 0) notes.push('Unsloth (several GB) will be downloaded on the first run');
     return {
       gpu: gName ? { name: gName, memory_gb: gpu } : null, docker: v.code === 0,
       unsloth: { installed: img.code === 0, size_gb: img.code === 0 ? Math.round(Number(img.out) / 1e8) / 10 : null, pulling: pulling ? { ...pulling } : null },
       recommended: { id: rec.id, name: rec.name, hf: rec.hf, vram: rec.vram, tag: rec.tag, note: rec.note },
-      settings, why, exports, ready: blockers.length === 0, blockers, gpu_gb: gpu,
+      settings, why, exports, ready: blockers.length === 0, blockers, notes, gpu_gb: gpu,
       models: MODELS.map((m) => ({ id: m.id, name: m.name, vram: m.vram, tag: m.tag, note: m.note, fits: gpu ? m.vram <= gpu - 0.5 : false })),
     };
   }
@@ -288,6 +290,46 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     if (a.gpu_gb && m.vram > a.gpu_gb - 0.5) throw Object.assign(new Error(`${m.name} needs about ${m.vram} GB: too big for this ${a.gpu_gb} GB GPU. Pick a smaller one.`), { status: 400 });
     const { settings } = autoSettings(m, a.gpu_gb);
     return start({ ...DEFAULTS, auto: true, model_source: 'recommended', model: m.id, ...settings, exports: a.exports });
+  }
+
+  // Downloads Unsloth's image (several GB) in the background
+  function pullImage() {
+    if (pulling?.state === 'running') return { ...pulling };
+    pulling = { state: 'running', line: '', started: Date.now() };
+    const p = spawn(...dockerCmd(['pull', IMAGE]), { windowsHide: true });
+    const onData = (d) => { const l = String(d).trim().split('\n').pop(); if (l) pulling.line = l.slice(0, 200); };
+    p.stdout.on('data', onData); p.stderr.on('data', onData);
+    p.on('error', (e) => Object.assign(pulling, { state: 'error', line: e.message }));
+    p.on('close', (code) => { if (pulling.state === 'running') Object.assign(pulling, { state: code === 0 ? 'done' : 'error' }); log(`train: docker pull ${IMAGE} ${code === 0 ? 'done' : `failed (${code})`}`); });
+    return { ...pulling };
+  }
+
+  // Start Docker Desktop if it's installed but closed, and wait for its engine (first start can take a minute)
+  function dockerDesktop() {
+    if (process.env.QUANTBOT_DOCKER || process.env.CI || process.env.QUANTBOT_NO_AUTOSTART) return null; // never launch apps from CI or tests
+    if (process.platform === 'win32') {
+      const exe = path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Docker', 'Docker', 'Docker Desktop.exe');
+      return fs.existsSync(exe) ? [exe, []] : null;
+    }
+    if (process.platform === 'darwin') return fs.existsSync('/Applications/Docker.app') ? ['open', ['-a', 'Docker']] : null;
+    return ['systemctl', ['--user', 'start', 'docker-desktop']];
+  }
+  const dockerUp = async () => (await run(...dockerCmd(['version', '--format', '{{.Server.Version}}']))).code === 0;
+  async function ensureDocker(say) {
+    if (await dockerUp()) return;
+    const app = dockerDesktop();
+    if (!app) throw new Error('Docker is not running and Docker Desktop was not found: install it from https://www.docker.com/products/docker-desktop/');
+    say('starting Docker Desktop…');
+    try { const p = spawn(app[0], app[1], { detached: true, stdio: 'ignore', windowsHide: true }); p.on('error', () => {}); p.unref(); } catch { /* reported below */ }
+    for (let t = 0; t < 180; t += 3) { if (await dockerUp()) return; await new Promise((r) => setTimeout(r, 3000)); }
+    throw new Error('Docker Desktop did not start within 3 minutes. Open it once by hand (it may need you to accept its terms), then start the run again.');
+  }
+  // Download Unsloth's image if it's missing, and wait for it
+  async function ensureImage(say) {
+    if ((await run(...dockerCmd(['image', 'inspect', IMAGE, '--format', '{{.Size}}']))).code === 0) return;
+    pullImage();
+    while (pulling?.state === 'running') { say(`downloading Unsloth (one time, several GB): ${pulling.line || 'starting'}`.slice(0, 160)); await new Promise((r) => setTimeout(r, 2000)); }
+    if (pulling?.state !== 'done') throw new Error(`Couldn't download Unsloth's image: ${pulling?.line || 'unknown error'}`);
   }
 
   async function start(input) {
@@ -320,6 +362,12 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     live.set(id, entry);
     (async () => {
       try {
+        // Bring up whatever the run needs: Docker Desktop if it's closed, Unsloth's image if it's missing
+        const say = (phase) => { st.phase = phase; saveState(id, st); };
+        await ensureDocker(say);
+        await ensureImage(say);
+        if (entry.stopped) throw new Error('Stopped');
+        st.phase = 'starting'; saveState(id, st);
         await dataFile(id, cfg, st);
         fs.writeFileSync(path.join(dir(id), 'config.json'), JSON.stringify({ ...cfg, data_file: '/workspace/job/data.csv' }, null, 1));
         st.phase = 'training'; saveState(id, st);
@@ -398,17 +446,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
         pulling: pulling ? { ...pulling } : null,
       };
     },
-    // Downloads Unsloth's image (several GB) in the background
-    pull() {
-      if (pulling?.state === 'running') return { ...pulling };
-      pulling = { state: 'running', line: '', started: Date.now() };
-      const p = spawn(...dockerCmd(['pull', IMAGE]), { windowsHide: true });
-      const onData = (d) => { const l = String(d).trim().split('\n').pop(); if (l) pulling.line = l.slice(0, 200); };
-      p.stdout.on('data', onData); p.stderr.on('data', onData);
-      p.on('error', (e) => Object.assign(pulling, { state: 'error', line: e.message }));
-      p.on('close', (code) => { if (pulling.state === 'running') Object.assign(pulling, { state: code === 0 ? 'done' : 'error' }); log(`train: docker pull ${IMAGE} ${code === 0 ? 'done' : `failed (${code})`}`); });
-      return { ...pulling };
-    },
+    pull: pullImage,
     start,
     stop,
     runs() {

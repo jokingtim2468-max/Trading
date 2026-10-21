@@ -9,6 +9,7 @@ import { createDb } from '../../server/db.js';
 import { createCipher } from '../../server/crypto.js';
 import { createBackend, entityDefaults } from '../../server/backend.js';
 import { startServer } from '../../server/index.js';
+process.env.QUANTBOT_NO_AUTOSTART = '1'; // never install or launch Ollama/Docker from the tests
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'quantbot-test-'));
 const ENTITIES = path.resolve('server/entities');
@@ -198,7 +199,7 @@ describe('AI functions', () => {
     } finally {
       await new Promise((r) => ollama.close(r));
     }
-    await assert.rejects(be.handle('function', 'localModel', { action: 'test', url }), /Ollama is not running/);
+    await assert.rejects(be.handle('function', 'localModel', { action: 'test', url }), /Ollama isn't running/);
   });
 
   test('Gemini key is used when chosen', async () => {

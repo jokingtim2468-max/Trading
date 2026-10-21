@@ -10,12 +10,19 @@ export function ollamaBase(url) {
   return base;
 }
 
-async function request(url, init, timeoutMs) {
+// If Ollama isn't answering, start it (or install it on Windows) in the background and try once more, so a chat,
+// agent or /loopfix never fails just because Ollama wasn't open yet
+async function request(url, init, timeoutMs, retried = false) {
   try {
     return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     if (e.name === 'TimeoutError') throw new Error('The local model took too long to answer.');
-    throw new Error(`Ollama is not running at ${new URL(url).origin}. Install it from ollama.com, then run: ollama pull ${DEFAULT_OLLAMA_MODEL}`);
+    if (!retried) {
+      const { ensureOllama } = await import('./ollamaSpecs.js');
+      try { await ensureOllama(new URL(url).origin); } catch (why) { throw new Error(`Ollama isn't running and couldn't be started: ${why.message}`); }
+      return request(url, init, timeoutMs, true);
+    }
+    throw new Error(`Ollama is not answering at ${new URL(url).origin}. Open the Ollama app, then try again (model: ollama pull ${DEFAULT_OLLAMA_MODEL}).`);
   }
 }
 

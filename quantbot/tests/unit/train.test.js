@@ -121,6 +121,28 @@ describe('Train API with a stand-in docker', () => {
     }
   });
 
+  test('a run brings up what it needs: a missing Unsloth image is downloaded first, then training runs', async () => {
+    process.env.FAKE_NO_IMAGE = '1';
+    try {
+      const a = await (await fetch(`${base}/api/train/autoconfig`)).json();
+      assert.equal(a.unsloth.installed, false);
+      assert.ok(!a.blockers.some((b) => /isn't installed|download/i.test(b)), 'a missing image is not a blocker');
+      assert.match(a.notes.join(' '), /Unsloth .* downloaded on the first run/);
+      const cfg = { source: 'file', data_path: file, train_from: '2020-01-01', train_to: '2020-12-31', test_from: '2021-01-01', test_to: '2021-12-31', model: 'qwen3.5-0.8b' };
+      const { id } = await (await post('/api/train/start', cfg)).json();
+      let run;
+      for (let i = 0; i < 300; i++) {
+        run = await (await fetch(`${base}/api/train/runs/${id}`)).json();
+        if (run.status !== 'running') break;
+        await wait(100);
+      }
+      assert.equal(run.status, 'done', JSON.stringify(run));
+      const st = await (await fetch(`${base}/api/train/status`)).json();
+      assert.equal(st.pulling?.state, 'done', 'the image was pulled before training');
+      await fetch(`${base}/api/train/runs/${id}`, { method: 'DELETE' });
+    } finally { delete process.env.FAKE_NO_IMAGE; }
+  });
+
   test('status, pull, a full run, refusals and delete', async () => {
     const st = await (await fetch(`${base}/api/train/status`)).json();
     assert.equal(st.docker, true);

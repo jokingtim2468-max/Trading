@@ -54,8 +54,8 @@ function AutoTrainCard({ status, onStarted }) {
         <>
           <div className="grid sm:grid-cols-3 gap-2">
             <Check ok={!!a.gpu}>{a.gpu ? <>GPU: <b>{a.gpu.name}</b>, {a.gpu.memory_gb} GB</> : 'No NVIDIA GPU found'}</Check>
-            <Check ok={a.docker}>{a.docker ? 'Docker running' : 'Docker not running'}</Check>
-            <Check ok={a.unsloth.installed}>{a.unsloth.installed ? <>Unsloth installed ({a.unsloth.size_gb} GB)</> : pulling ? 'Unsloth downloading…' : 'Unsloth not installed (download it in "This PC" below)'}</Check>
+            <Check ok={a.docker}>{a.docker ? 'Docker running' : 'Docker closed — starts automatically'}</Check>
+            <Check ok={a.unsloth.installed}>{a.unsloth.installed ? <>Unsloth installed ({a.unsloth.size_gb} GB)</> : pulling ? 'Unsloth downloading…' : 'Unsloth downloads on the first run'}</Check>
           </div>
           <div className="rounded-xl bg-background/50 border border-border p-3 text-sm space-y-1" data-testid="auto-train-plan">
             <div>Recommended model: <b>{a.recommended.name}</b> <span className="text-xs text-muted-foreground">({a.recommended.tag}, ~{a.recommended.vram} GB) — {a.recommended.note}</span></div>
@@ -63,6 +63,7 @@ function AutoTrainCard({ status, onStarted }) {
             <div className="text-xs text-muted-foreground">Exports: {a.exports.join(', ')}{a.exports.includes('gguf_q4_k_m') ? ' (Q4_K_M is what Ollama runs; F16 / Q8_0 merge the full model and can crash cards under 12 GB)' : ''}</div>
           </div>
           {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}
+          {a.notes?.length > 0 && <ul className="text-xs text-muted-foreground list-disc pl-5" data-testid="auto-train-notes">{a.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
           <div className="flex items-center gap-2">
             <Button onClick={() => go()} disabled={!a.ready || !!busy} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy === true ? 'Starting…' : `Auto-train ${a.recommended.name}`}</Button>
             {error && <span className="text-xs text-destructive">{error}</span>}

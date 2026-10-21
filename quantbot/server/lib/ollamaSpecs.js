@@ -73,8 +73,10 @@ async function waitUp(base, ms) {
 
 // Make sure Ollama answers before pulling: start it if it's installed but stopped, and on Windows install it with
 // winget (Ollama's official package) if it's missing. A remote address is never touched, only reported.
-async function ensureOllama(base, say) {
+export async function ensureOllama(base, say = () => {}) {
   if (await ollamaUp(base)) return;
+  // Never install or launch programs from CI or the test suite
+  if (process.env.CI || process.env.QUANTBOT_NO_AUTOSTART) throw new Error(`Ollama is not running at ${base} (auto-start is off here).`);
   const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(base);
   if (!local) throw new Error(`Ollama isn't answering at ${base}. Start it on that machine, or set the address to http://127.0.0.1:11434.`);
   let exe = await findOllama();

@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { startFakeDukascopy } from '../support/fakeDukascopy.js';
 import { startFakeModels } from '../support/fakeModels.js';
+process.env.QUANTBOT_NO_AUTOSTART = '1'; // never install or launch Ollama/Docker from the tests
 
 const OUT = path.resolve('test-results/e2e');
 fs.rmSync(OUT, { recursive: true, force: true });

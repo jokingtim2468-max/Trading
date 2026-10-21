@@ -450,3 +450,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Local model install: Ollama handled too
 - "Install <model>" now makes sure Ollama answers first: starts it if installed but stopped, and on Windows installs it with winget (`Ollama.Ollama`) if missing, then pulls the model. Status text shows each phase ("installing Ollama (winget)…", "starting Ollama…", "downloading…"); failures say what to do instead of "fetch failed". A non-local Ollama address is never touched, only reported.
+
+### Background services start themselves
+- **Ollama:** any local-model call (chat, agent team, /loopfix, Settings test/install) that finds Ollama not answering starts it — or on Windows installs it with winget first — then retries once. Remote Ollama addresses are never touched.
+- **Docker + Unsloth:** a training run (manual, Auto-train or click-a-model) starts Docker Desktop if it's closed (Windows `Docker Desktop.exe`, macOS `open -a Docker`, Linux `systemctl --user start docker-desktop`, waits up to 3 min) and downloads Unsloth's image if it's missing, showing each step as the run's phase. On the Auto-train card these show as grey notes ("Docker Desktop will be started for you", "Unsloth … will be downloaded on the first run"), not blockers; only things the app can't fix (no NVIDIA GPU, Docker Desktop not installed) block.
+- Never under CI or the test suite (`CI` / `QUANTBOT_NO_AUTOSTART`): there the app reports instead of installing or launching anything.
