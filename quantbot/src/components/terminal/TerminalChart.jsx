@@ -14,7 +14,7 @@ const DRAW_TOOLS = ['trend', 'rect', 'fib', 'position'];
 export default function TerminalChart({
   bars, settings, levels = [], lines = [], tool, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1,
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition,
 }) {
   const drawingsRef = useRef(drawings);
   drawingsRef.current = drawings;
@@ -296,7 +296,7 @@ export default function TerminalChart({
             if (g.x == null || g.entry == null || g.sl == null || g.tp == null) return null;
             const x1 = Math.max(0, g.x), x2 = Math.min(ys.w - ys.scale, g.x + 260);
             if (x2 <= x1) return null;
-            const box = (y1, y2, fill) => <rect x={x1} y={Math.min(y1, y2)} width={x2 - x1} height={Math.max(1, Math.abs(y2 - y1))} fill={fill} fillOpacity=".2" stroke={sel ? '#ffffff' : 'none'} strokeOpacity=".5" />;
+            const box = (y1, y2, fill) => <rect x={x1} y={Math.min(y1, y2)} width={x2 - x1} height={Math.max(1, Math.abs(y2 - y1))} fill={fill} fillOpacity=".17" stroke={sel ? '#ffffff' : 'none'} strokeOpacity=".5" />;
             return (
               <g key={d.id} data-drawing="position" className="pointer-events-auto cursor-move" onPointerDown={(e) => startPos(e, d, 'entry')}>
                 {box(g.entry, g.tp, '#089981')}{box(g.entry, g.sl, '#f23645')}
@@ -338,7 +338,7 @@ export default function TerminalChart({
       {picked && (() => {
         const g = ys.draw.find((x) => x.id === picked);
         const at = !g ? null : g.y !== undefined && g.a === undefined ? (g.y != null ? { x: ys.w - ys.scale - 14, y: g.y } : null)
-          : g.entry !== undefined ? (g.x != null && g.tp != null ? { x: Math.min(ys.w - ys.scale, g.x + 260), y: Math.min(g.tp, g.sl) } : null)
+          : g.entry !== undefined ? (g.x != null && g.tp != null ? { x: Math.max(10, g.x), y: Math.min(g.tp, g.sl) } : null)
             : g.b.x != null && g.b.y != null ? { x: g.b.x, y: g.b.y } : null;
         return at && (
           <button type="button" aria-label="Remove this drawing" onClick={() => { onDrawingsChange?.(drawings.filter((d) => d.id !== picked)); setPicked(null); }}
@@ -361,23 +361,32 @@ export default function TerminalChart({
         // Labels and handles stay inside the chart even when a level is scrolled or dragged off it, so they can be grabbed
         const H = box.current?.clientHeight || 0;
         const clamp = (y) => Math.max(12, Math.min(H - 12, y));
-        const handle = (y, kind, bg) => (
-          <div onPointerDown={(e) => startPos(e, d, kind)} data-testid={`position-${kind}`}
-            className="pointer-events-auto absolute w-3 h-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white cursor-ns-resize" style={{ left: left + width / 2, top: clamp(y), background: bg }} />
+        // TradingView-style order lines: dashed line across the box, a price pill on the right you drag up / down
+        const level = (y, kind, bg, price, money) => (
+          <div key={kind}>
+            <div className="absolute" style={{ left, width, top: y, borderTop: `1px dashed ${bg}` }} />
+            <div onPointerDown={(e) => startPos(e, d, kind)} data-testid={`position-${kind}`} title="Drag to move"
+              className={`${pill} cursor-ns-resize touch-none ${posDrag?.id === d.id && posDrag.kind === kind ? 'ring-2 ring-white/70' : ''}`} style={{ top: clamp(y), background: bg, color: '#fff', right: 'auto', left: Math.min(left + width + 6, ys.w - ys.scale - 190) }}>
+              <span>{kind.toUpperCase()} {Number(price).toFixed(2)}</span>
+              <span className="px-1.5 rounded bg-black/20">{money}</span>
+            </div>
+          </div>
         );
         return (
           <div key={g.id} className="absolute inset-0 z-[7] pointer-events-none overflow-hidden" style={{ right: ys.scale }} data-testid="position-tool">
-            <div className={tag} style={{ left, top: clamp(g.tp + (long ? -10 : 10)), background: '#089981' }}>Target {usd(reward)} · {Math.round(reward * 100) / 100} pts</div>
-            <div className={tag} style={{ left, top: clamp(g.sl + (long ? 10 : -10)), background: '#f23645' }}>Stop -{usd(risk)} · {Math.round(risk * 100) / 100} pts</div>
-            <div className={`${tag} pointer-events-auto flex items-center gap-1.5 bg-[#1e222d] border border-[#363a45]`} style={{ left: Math.min(left + width + 6, ys.w - ys.scale - 230), top: clamp(g.entry) }}>
+            <div className={`${tag} pointer-events-auto flex items-center gap-1.5 bg-[#1e222d] border border-[#363a45]`} style={{ left, top: clamp(g.entry) }}>
               <button type="button" className="font-semibold" style={{ color: long ? '#089981' : '#f23645' }} data-testid="position-flip" title="Flip long / short"
                 onClick={() => updateDrawing({ ...d, sl: 2 * d.entry - d.sl, tp: 2 * d.entry - d.tp })}>{long ? 'Long' : 'Short'}</button>
               <input value={d.lots} onChange={(e) => updateDrawing({ ...d, lots: e.target.value })} inputMode="decimal" aria-label="Position lots"
                 className="w-12 bg-transparent border-b border-[#363a45] text-center outline-none" data-testid="position-lots" />
               <span className="text-[#9598a1]">lots @ {d.entry.toFixed(2)} · R:R {risk ? (reward / risk).toFixed(2) : '–'}</span>
+              {onPlacePosition && (
+                <button type="button" onClick={() => onPlacePosition(d)} data-testid="position-place" title="Send this trade now at market, with the stop and target the same distance away as in the box"
+                  className="ml-1 px-2 h-5 rounded text-white font-semibold" style={{ background: long ? '#2962ff' : '#f23645' }}>{long ? 'Buy' : 'Sell'} {d.lots}</button>
+              )}
             </div>
-            {handle(g.tp, 'tp', '#089981')}
-            {handle(g.sl, 'sl', '#f23645')}
+            {level(g.tp, 'tp', '#089981', d.tp, `+${usd(reward)}`)}
+            {level(g.sl, 'sl', '#f23645', d.sl, `-${usd(risk)}`)}
           </div>
         );
       })}

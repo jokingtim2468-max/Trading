@@ -37,6 +37,13 @@ export default function AccountPicker({ presets, value, onChange, allowAll = fal
   };
   const setFirm = (firm) => onChange({ ...value, firm, model: firm && firm !== 'all' ? firms[firm][0] : null });
   const all = value.firm === 'all';
+  // Firms that don't offer this size stay listed (dimmed); picking one moves to the nearest size it offers
+  const others = [...new Set((presets?.presets || []).map((p) => p.firm))].filter((f) => !firms[f]);
+  const jumpTo = (firm) => {
+    const have = [...new Set(presets.presets.filter((p) => p.firm === firm).map((p) => p.size))];
+    const size = have.reduce((a, b) => (Math.abs(b - value.size) < Math.abs(a - value.size) ? b : a));
+    onChange({ size, firm, model: firmsForSize(presets, size)[firm][0] });
+  };
   const count = presets?.presets?.length || 0;
 
   return (
@@ -61,6 +68,10 @@ export default function AccountPicker({ presets, value, onChange, allowAll = fal
                 </motion.button>
               ))}
             </AnimatePresence>
+            {others.map((f) => (
+              <button key={f} type="button" onClick={() => jumpTo(f)} data-firm={f} title={`${f} doesn't offer ${k(value.size)}: picks its nearest size`}
+                className="h-10 px-3 rounded-lg border border-dashed border-border text-sm whitespace-nowrap text-muted-foreground/60 hover:bg-accent">{f}</button>
+            ))}
           </div>
         </div>
         {preset?.daily_loss_optional && (

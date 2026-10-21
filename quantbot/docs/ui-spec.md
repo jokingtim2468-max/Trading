@@ -494,3 +494,9 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Only control: a grid of model buttons (best fit for this GPU preselected, too-big models disabled) and one large "Train" button.
 - Settings, markets (XAUUSD + NQ), dates, exports, Docker and Unsloth are chosen automatically. No Hugging Face / API options.
 - Runs list below shows progress, loss chart, results and Stop/Delete.
+
+## Chart: position tool and prop account
+- Position box: TP zone green #089981, SL zone red #f23645, both at fill opacity 0.17 (15% more transparent than 0.2).
+- TP/SL are TradingView-style order lines: dashed line + draggable price pill (price and $) just right of the box.
+- Box label has a Buy/Sell quick button: sends at market with the box's stop/target distances.
+- "Prop account" toolbar button opens Replay with the account picker. Firms that don't offer the chosen size show dimmed (dashed) and jump to their nearest size.

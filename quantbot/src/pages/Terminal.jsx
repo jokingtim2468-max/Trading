@@ -373,7 +373,7 @@ export default function Terminal() {
     }
     if (event === 'buy' || event === 'sell') {
       const qty = extra.qty ? Number(extra.qty) || 1 : ticket.sizing === 'risk' && ticket.sl ? Math.floor((Number(ticket.risk) / (Math.abs(last - Number(ticket.sl)) * pv)) * 100) / 100 : Number(ticket.qty) || 1;
-      const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: ticket.sl === '' ? null : Number(ticket.sl), tp: ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
+      const t = { key: `R-${Date.now()}`, trade_id: `R-${Date.now()}`, symbol, side: event === 'buy' ? 'long' : 'short', qty, entry: last, sl: extra.sl != null ? Number(extra.sl) : ticket.sl === '' ? null : Number(ticket.sl), tp: extra.tp != null ? Number(extra.tp) : ticket.tp === '' ? null : Number(ticket.tp), point_value: pv, accounts: 1, closable: true };
       setPractice((p) => ({ ...p, open: [...p.open, t] }));
       toast({ kind: event, filled: true, title: 'Practice order filled', lines: [`${event === 'buy' ? 'Buy' : 'Sell'} ${qty} ${symbol} at ${f2(last)}`] });
     } else if (event === 'close') {
@@ -533,6 +533,8 @@ export default function Terminal() {
         <button type="button" onClick={() => setEditor(true)} className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-editor"><Pencil className="w-4 h-4" />Edit chart</button>
         <button type="button" onClick={() => { if (replay) { setReplay(null); setPractice({ open: [], closed: [] }); } else setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); }}
           className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${replay ? 'bg-[#2962ff] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid="open-replay"><History className="w-4 h-4" />Replay</button>
+        <button type="button" onClick={() => { if (!replay) setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); setSimOpen(true); }} title="Practice in replay on a simulated prop firm account"
+          className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${simPreset ? 'text-[#5b8def]' : ''} hover:bg-[#2a2e39]`} data-testid="open-sim-account">Prop account</button>
         <Link to="/journal" className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-journal"><BookOpen className="w-4 h-4" />Journal</Link>
         <div className="flex-1" />
         <label className="h-8 px-2.5 rounded-md border border-[#2a2e39] inline-flex items-center gap-2">
@@ -627,6 +629,7 @@ export default function Terminal() {
                   <TerminalChart bars={bars} settings={chart?.settings} levels={levels} lines={lines} tool={tool} trades={trades} last={last}
                     pending={replay ? [] : book.pending.filter((p) => p.symbol === symbol)} trails={book.trails}
                     onModify={(t, kind, price) => place(kind === 'tp' ? 'set_tp' : 'set_sl', { [kind]: price, price: last, trade_id: t.trade_id })}
+                    onPlacePosition={(d) => { const dv = last - d.entry, r = (v) => Math.round((v + dv) * 100) / 100; place(d.tp >= d.entry ? 'buy' : 'sell', { qty: d.lots, risk_usd: '', at: '', sl: r(d.sl), tp: r(d.tp) }); }}
                     onCloseTrade={(t) => place('close', { price: last, trade_id: t.trade_id })}
                     onBreakEven={(t) => place('set_sl', { sl: Number(t.entry), price: last, trade_id: t.trade_id })}
                     onHalf={(t) => {
