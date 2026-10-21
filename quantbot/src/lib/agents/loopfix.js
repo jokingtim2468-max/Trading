@@ -6,6 +6,7 @@ import { client } from '@/api/client';
 import { scriptFromMessage } from '@/lib/chatScript';
 import { agentMarkets, backtestScript } from '@/lib/agents/backtest';
 import { scoreOf } from '@/lib/agents/loopfixScore';
+import { robustnessVerdict } from '@/lib/backtest/walkForward';
 export { scoreOf };
 
 const AGENT = 1; // loop-fix uses the first agent folder of the chosen model
@@ -18,9 +19,10 @@ const ext = (lang) => (lang === 'MT5' ? 'mq5' : 'pine');
 function reportFor(name, code, results, errors) {
   const lines = (results || []).map((r) => {
     const m = r.metrics || {};
-    return `- ${r.symbol}: PF ${Number(m.profitFactor || 0).toFixed(2)}, net ${Math.round(m.net || 0)}, max DD ${Number(m.maxDDPct || 0).toFixed(1)}%, ${m.trades || 0} trades, ${Number(m.winRate || 0).toFixed(0)}% win`;
+    const wf = r.robust ? `\n    walk-forward: ${robustnessVerdict(r.robust)}${r.robust.enough ? ` (OOS net ${r.robust.oos.net}, PF ${r.robust.oos.pf})` : ''}` : '';
+    return `- ${r.symbol}: PF ${Number(m.profitFactor || 0).toFixed(2)}, net ${Math.round(m.net || 0)}, max DD ${Number(m.maxDDPct || 0).toFixed(1)}%, ${m.trades || 0} trades, ${Number(m.winRate || 0).toFixed(0)}% win${wf}`;
   });
-  return `# ${name} backtest\n\n${lines.join('\n') || '(no trades)'}\n${errors?.length ? `\nErrors:\n${errors.join('\n')}` : ''}`;
+  return `# ${name} backtest\n\n${lines.join('\n') || '(no trades)'}\n\nAim for a strategy that holds up out-of-sample (OOS) and is profitable across all windows, not just one — a great full-period result that fails OOS is overfit.\n${errors?.length ? `\nErrors:\n${errors.join('\n')}` : ''}`;
 }
 
 const state = {
@@ -59,7 +61,7 @@ async function round() {
     if (improved) {
       state.best = { code: state.current.code, report, ...sc, round: state.round };
       await fsWrite('results/best.md', `${report}\n\n<!-- best so far, round ${state.round}, score ${sc.score} -->`);
-      addLog(`Round ${state.round}: new best — PF ${sc.pf}, DD ${sc.ddPct}%, net ${sc.net}, ${sc.trades} trades`);
+      addLog(`Round ${state.round}: new best — PF ${sc.pf}, DD ${sc.ddPct}%, net ${sc.net}, ${sc.trades} trades, OOS ${sc.oosHolds ? 'holds' : 'weak'} (robust ${sc.robust})`);
     } else {
       addLog(`Round ${state.round}: no better (PF ${sc.pf}, score ${sc.score} vs best ${state.best.score}) — kept the best`);
       state.current = { ...state.current, code: state.best.code }; // roll the live script back to the best

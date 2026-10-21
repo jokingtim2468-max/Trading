@@ -4,6 +4,7 @@ import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics } from '@/lib/backtest/metrics';
 import { marketStats } from '@/lib/backtest/marketStats';
 import { testSignals } from '@/lib/backtest/signals';
+import { walkForward } from '@/lib/backtest/walkForward';
 
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
@@ -38,7 +39,8 @@ export async function backtestScript({ code, language, model, markets, signal, o
         { maxMs: 90000, signal },
       );
       const metrics = computeMetrics(sim.trades, sim.equity, prepared.settings.balance, m.ds.contract_size || 100);
-      results.push({ symbol: m.ds.symbol, timeframe: m.tf, from: m.from, to: m.to, metrics, rules: testSignals(sim.trades).results, errors: sim.errors });
+      const robust = walkForward(sim.trades);
+      results.push({ symbol: m.ds.symbol, timeframe: m.tf, from: m.from, to: m.to, metrics, robust, rules: testSignals(sim.trades).results, errors: sim.errors });
     } catch (e) {
       if (e.name === 'AbortError') break;
       errors.push(`${m.ds.symbol}: ${e.response?.data?.error || e.message}`);

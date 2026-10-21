@@ -24,7 +24,7 @@ export default function LoopFixPanel() {
         <span className="text-xs text-muted-foreground">Round {s.round} · {PHASE[s.phase] || s.phase}</span>
         {active && s.phase === 'waiting' && <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" />next in {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}</span>}
         <div className="ml-auto flex items-center gap-2">
-          {best && <span className="text-xs text-chart-2 flex items-center gap-1" data-testid="loopfix-best"><Trophy className="w-3.5 h-3.5" />Best: PF {best.pf} · DD {best.ddPct}% · net {best.net} · {best.trades} trades</span>}
+          {best && <span className={`text-xs flex items-center gap-1 ${best.oosHolds ? 'text-chart-2' : 'text-chart-4'}`} data-testid="loopfix-best"><Trophy className="w-3.5 h-3.5" />Best: PF {best.pf} · DD {best.ddPct}% · net {best.net} · {best.trades} trades · OOS {best.oosHolds ? 'holds ✓' : 'weak'}</span>}
           {active ? <Button size="sm" variant="destructive" onClick={stop} data-testid="loopfix-stop"><Square className="w-3.5 h-3.5 mr-1" />Stop</Button>
             : <span className="text-xs text-muted-foreground">{s.phase === 'done' ? 'As good as it got.' : 'Stopped.'}</span>}
         </div>

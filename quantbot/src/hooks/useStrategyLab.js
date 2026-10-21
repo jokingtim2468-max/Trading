@@ -5,6 +5,7 @@ import { loadDatasets, loadTestBars, sliceBars, asTested, firstDate, lastDate, W
 import { WINDOWS, findUnseenWindow, customWindow, fmtDate } from '@/lib/backtest/windows';
 import { runInWorker } from '@/lib/backtest/runWorker';
 import { computeMetrics, downsample } from '@/lib/backtest/metrics';
+import { walkForward, robustnessVerdict } from '@/lib/backtest/walkForward';
 import { buildFixPrompt } from '@/lib/backtest/fixPrompt';
 import { createTestSession, saveRun } from '@/lib/backtest/persist';
 import { testSignals } from '@/lib/backtest/signals';
@@ -110,6 +111,8 @@ export default function useStrategyLab(config) {
     sim.log.forEach((e) => log.push(e));
     const metrics = computeMetrics(sim.trades, sim.equity, config.balance, ds.contract_size || 100);
     add(metrics.net >= 0 ? 'info' : 'warn', `Backtest: ${metrics.trades} trades, net ${metrics.net.toFixed(2)}, max DD ${metrics.maxDDPct.toFixed(2)}%`);
+    const wf = walkForward(sim.trades);
+    add(wf.enough && wf.oosHolds ? 'info' : 'warn', `Walk-forward: ${robustnessVerdict(wf)}`);
     const signals = testSignals(sim.trades);
     const results = [...conv.results, ...signals.results];
     const sigFailed = signals.results.filter((r) => r.status !== 'pass').length;

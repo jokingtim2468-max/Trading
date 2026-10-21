@@ -28,7 +28,7 @@ WORKFLOW:
 2. WRITE a complete script to scripts/<name>.mq5 (or .pine). Never send partial code or "..." placeholders.
 3. BACKTEST it.
 4. Find the single biggest weakness (drawdown, low PF, too few/many trades, costs eating profit, SL hits) and fix it. WRITE the full updated file, then BACKTEST again.
-5. Repeat. Delete scripts that are dead ends. Send DONE only when PF > 1.3, max DD < 10%, there are at least 30 trades and results hold across markets, or when you've run out of improvements.
+5. Repeat. Delete scripts that are dead ends. The backtest reports a WALK-FORWARD result: whether the edge holds out-of-sample (OOS) and across time windows, not just over the full period. A great full-period result that fails OOS is OVERFIT and worthless live — fix robustness, don't chase the in-sample curve. Send DONE only when PF > 1.3, max DD < 10%, at least 30 trades, it HOLDS OUT-OF-SAMPLE and results hold across markets, or when you've run out of improvements.
 
 SCRIPT RULES (mandatory):
 - Clear BUY, SELL, CLOSE logic. Every trade has a stop loss and a take profit set at entry.

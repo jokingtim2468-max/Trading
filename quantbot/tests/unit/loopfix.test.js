@@ -26,3 +26,12 @@ test('aggregates across markets and rounds the readout', () => {
   assert.equal(s.net, 1200);
   assert.ok(s.pf > 1.2 && s.pf < 1.4);
 });
+
+test('robustness dominates the score: OOS-holding beats a prettier overfit curve', () => {
+  const overfit = [{ metrics: { profitFactor: 2.2, maxDDPct: 6, net: 5000, trades: 120 }, robust: { enough: true, score: 0.2, oosHolds: false, oos: { net: -300, pf: 0.8 } } }];
+  const robust = [{ metrics: { profitFactor: 1.4, maxDDPct: 9, net: 2500, trades: 120 }, robust: { enough: true, score: 0.95, oosHolds: true, oos: { net: 900, pf: 1.5 } } }];
+  const so = scoreOf(overfit), sr = scoreOf(robust);
+  assert.ok(sr.score > so.score, `robust ${sr.score} should beat overfit ${so.score}`);
+  assert.equal(sr.oosHolds, true);
+  assert.equal(so.oosHolds, false);
+});

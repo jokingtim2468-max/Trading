@@ -106,6 +106,16 @@ once for a faster version with the same logic. Stop ends a test at once. Bars ca
 Migrated off Base44: everything runs on this PC. Chats, tests, uploaded candle files and settings are saved in
 `data/` (one JSON file per table). API keys are encrypted with AES-256-GCM using a secret created in `data/secret.key`.
 
+## Walk-forward robustness (the overfit guard)
+
+A backtest that looks great over the full history often only got lucky in one stretch — deploy it and it bleeds. The
+walk-forward check (`src/lib/backtest/walkForward.js`) splits a run's trades by time into consecutive windows and into
+an in-sample / out-of-sample split, and reports whether the edge holds on the unseen portion, how many windows are
+profitable, and a robustness score. The Strategy Tester shows it beside the Monte Carlo result; **/loopfix and the
+agent team optimise for it** — keep-best rewards a strategy that holds out-of-sample over one with a prettier in-sample
+curve, which is the main thing stopping the auto-improvers from overfitting. A bot that only wins in-sample is reported
+as overfit, not as a winner.
+
 ## Market Lab (quant-data engine)
 
 The Market Lab page (`/market-lab`) turns your candles into the numbers a quant checks before trusting a market, and
