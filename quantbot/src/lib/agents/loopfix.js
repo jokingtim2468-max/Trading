@@ -7,6 +7,7 @@ import { scriptFromMessage } from '@/lib/chatScript';
 import { agentMarkets, backtestScript } from '@/lib/agents/backtest';
 import { scoreOf } from '@/lib/agents/loopfixScore';
 import { robustnessVerdict } from '@/lib/backtest/walkForward';
+import { optimizeScript } from '@/lib/quant/optimize';
 export { scoreOf };
 
 const AGENT = 1; // loop-fix uses the first agent folder of the chosen model
@@ -27,7 +28,7 @@ function reportFor(name, code, results, errors) {
 
 const state = {
   running: false, scriptId: null, name: '', language: 'Pine', model: '', translator: 'builtin',
-  intervalMs: 600000, round: 0, phase: 'idle', current: null, best: null, history: [], log: [], nextAt: 0, error: '',
+  intervalMs: 600000, trials: 5, round: 0, phase: 'idle', current: null, best: null, history: [], log: [], nextAt: 0, error: '',
 };
 let timer = null;
 let markets = null;
@@ -49,9 +50,22 @@ async function round() {
     state.phase = 'testing';
     emit();
     await fsWrite(file, state.current.code);
-    const { results, errors } = await backtestScript({ code: state.current.code, language: state.language, model: state.translator, markets });
-    const sc = scoreOf(results);
-    const report = reportFor(state.name, state.current.code, results, errors);
+    // Two passes: the script as written (vanilla), then parameter-optimization trials. The better one, judged on
+    // out-of-sample robustness, becomes the live script with the tuned numbers baked in.
+    const bt = (code) => backtestScript({ code, language: state.language, model: state.translator, markets, signal: { aborted: !state.running } });
+    const opt = await optimizeScript({ code: state.current.code, language: state.language, trials: state.trials, backtest: bt, onPhase: (p) => { state.phase = p; emit(); } });
+    const results = opt.best.results;
+    const errors = [];
+    const sc = { score: opt.best.score, pf: opt.best.pf, ddPct: opt.best.ddPct, net: opt.best.net, trades: opt.best.trades, robust: opt.best.robust, oosHolds: opt.best.oosHolds };
+    if (opt.improved) {
+      state.current = { code: opt.best.code };
+      await fsWrite(file, opt.best.code);
+      await client.entities.Script.update(state.scriptId, { code: opt.best.code, language: state.language });
+      addLog(`Round ${state.round}: optimization tuned ${Object.entries(opt.best.params || {}).map(([k, v]) => `${k}=${v}`).join(', ')} — score ${opt.vanilla.score} → ${opt.best.score}${opt.best.oosHolds ? ', holds OOS' : ''}`);
+    } else if (opt.tunable.length) {
+      addLog(`Round ${state.round}: tried ${opt.tried.length} parameter variant(s) of ${opt.tunable.join(', ')}; none beat the script as written`);
+    }
+    const report = `${reportFor(state.name, state.current.code, results, errors)}\n\n## Optimization pass\nVanilla score ${opt.vanilla.score} (PF ${opt.vanilla.pf}, net ${opt.vanilla.net}, OOS ${opt.vanilla.oosHolds ? 'holds' : 'weak'}). Tunable inputs: ${opt.tunable.join(', ') || 'none'}.\n${opt.tried.map((t) => `- ${Object.entries(t.params).map(([k, v]) => `${k}=${v}`).join(', ')}: score ${t.score}, PF ${t.pf}, net ${t.net}${t.oosHolds ? ', OOS holds' : ''}`).join('\n') || '- (no tunable inputs found to optimize)'}\nKept: ${opt.improved ? `optimized (${Object.entries(opt.best.params || {}).map(([k, v]) => `${k}=${v}`).join(', ')})` : 'the script as written'}.`;
     await fsWrite(`results/${slug(state.name)}.results.md`, report);
     await fsWrite('results/latest.md', report);
     state.current = { ...state.current, ...sc, report };
@@ -118,12 +132,12 @@ function finish(phase) {
 }
 
 // Start loop-fixing one script with a local model. intervalMinutes defaults to 10.
-export async function start({ scriptId, model, translator, intervalMinutes = 10 }) {
+export async function start({ scriptId, model, translator, intervalMinutes = 10, trials = 5 }) {
   if (state.running) throw new Error('Loop-fix is already running — stop it first.');
   const script = await client.entities.Script.get(scriptId);
   if (!script?.code) throw new Error(`"${script?.name || 'That script'}" has no code yet — write a first version, then run /loopfix.`);
   Object.assign(state, {
-    running: true, scriptId, name: script.name, language: script.language || 'Pine', model, translator,
+    running: true, scriptId, name: script.name, language: script.language || 'Pine', model, translator, trials: Math.max(0, Number(trials) || 0),
     intervalMs: Math.max(1, Number(intervalMinutes) || 10) * 60000, round: 0, phase: 'starting',
     current: { code: script.code }, best: null, history: [], log: [], nextAt: 0, error: '',
   });
