@@ -138,15 +138,16 @@ function NewRunCard({ status, hf, onStarted }) {
     <div className="bg-card border border-border rounded-2xl p-5 space-y-4" data-testid="train-new">
       <div className="flex items-center gap-2"><Cpu className="w-4 h-4 text-primary" /><h3 className="font-medium">New training run</h3></div>
       <p className="text-xs text-muted-foreground">
-        Teaches the model to predict each day&apos;s high and low (as % from the open) from the 10 days before it. It trains on one date range
-        and is then tested on a later range it never saw, against a simple guess (open ± half the 20-day average range).
+        Teaches the model to predict each day&apos;s high and low (as % from the open) from the 10 days before it, for every market you pick:
+        each example names its market and that market&apos;s last-year profile (typical range, volatility), so one model learns how gold and the
+        Nasdaq-100 differ. It trains on one date range and is then tested, per market, on a later range it never saw, against a simple guess.
       </p>
       <div className="grid sm:grid-cols-2 gap-4">
         <Field label="Data">
           <Select value={c.source} onValueChange={(v) => set('source', v)}>
             <SelectTrigger data-testid="train-source"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="builtin">Built-in XAUUSD (hourly, 2004 to today)</SelectItem>
+              <SelectItem value="builtin">Built-in markets (hourly, downloaded automatically)</SelectItem>
               <SelectItem value="file">An MT5 export on this PC</SelectItem>
             </SelectContent>
           </Select>
@@ -155,7 +156,21 @@ function NewRunCard({ status, hf, onStarted }) {
           <Field label="MT5 export file" hint="Full path, e.g. C:\Users\you\Downloads\XAUUSD_M5_200406110715_202610152120.csv">
             <Input value={c.data_path} onChange={(e) => set('data_path', e.target.value)} placeholder="C:\…\XAUUSD_M5_….csv" data-testid="train-path" />
           </Field>
-        ) : <div />}
+        ) : (
+          <Field label="Markets" hint="NQ and US100 share the Nasdaq-100 prices, so pick one of them (MNQ is the same prices too)">
+            <div className="flex flex-wrap gap-2 pt-1" data-testid="train-markets">
+              {[['XAUUSD', 'Gold (XAUUSD)'], ['NQ', 'Nasdaq-100 (NQ)'], ['US100', 'US100']].map(([sym, label]) => {
+                const on = (c.symbols || []).includes(sym);
+                const twin = sym === 'NQ' ? 'US100' : sym === 'US100' ? 'NQ' : null;
+                return (
+                  <button key={sym} type="button" aria-pressed={on} data-market={sym}
+                    onClick={() => set('symbols', on ? c.symbols.filter((x) => x !== sym) : [...(c.symbols || []).filter((x) => x !== twin), sym])}
+                    className={`h-9 px-3 rounded-lg border text-sm ${on ? 'border-primary bg-primary/10' : 'border-border text-muted-foreground hover:bg-accent'}`}>{label}</button>
+                );
+              })}
+            </div>
+          </Field>
+        )}
         <ModelPicker c={c} set={set} status={status} />
         <Field label="Train on">
           <div className="flex items-center gap-2">

@@ -82,40 +82,65 @@ def pct(a, b):
     return 100.0 * (a - b) / b
 
 
-def examples(days):
-    """One example per day that has 20 days before it."""
+# What the model is told about each market, so one model learns them apart (NQ and US100 share the Nasdaq-100
+# price feed, so they're one market here; MNQ is the same prices on a smaller contract)
+MARKETS = {
+    "XAUUSD": "Gold (XAUUSD, spot gold vs US dollar; MGC is its micro future)",
+    "NQ": "Nasdaq-100 (NQ E-mini futures; US100 and MNQ trade the same prices)",
+    "US100": "Nasdaq-100 (US100 index CFD; NQ and MNQ trade the same prices)",
+}
+
+
+def examples(days, market=None):
+    """One example per day that has 250 days before it (20 days of context plus a year for the market profile).
+    The profile only uses days before the forecast day, so nothing leaks from the answer."""
+    name = MARKETS.get(market, market or "Gold (XAUUSD)")
     out = []
-    for i in range(20, len(days)):
+    for i in range(250, len(days)):
         d, o, h, l, c = days[i]
         prev_close = days[i - 1][4]
         ctx = []
         for k in range(CONTEXT_DAYS, 0, -1):
             _, po, ph, pl, pc = days[i - k]
             ctx.append(f"day-{k}: high {pct(ph, po):+.2f}% low {pct(pl, po):+.2f}% close {pct(pc, po):+.2f}%")
-        avg20 = sum(pct(x[2], x[1]) - pct(x[3], x[1]) for x in days[i - 20:i]) / 20  # mean (high-low) % of open
-        prompt = ("Gold (XAUUSD) daily range forecast.\n" + "\n".join(ctx) +
+        rng = [pct(x[2], x[1]) - pct(x[3], x[1]) for x in days[i - 250:i]]  # (high-low) % of open
+        avg20, avg250 = sum(rng[-20:]) / 20, sum(rng) / 250
+        moves = [pct(days[j][4], days[j - 1][4]) for j in range(i - 249, i)]
+        sd = math.sqrt(sum(m * m for m in moves) / len(moves))
+        prompt = (f"{name} daily range forecast.\n"
+                  f"Market profile (last year): average daily range {avg250:.2f}%, daily close-to-close moves {sd:.2f}% (1 sd).\n"
+                  + "\n".join(ctx) +
                   f"\ntoday: {d.strftime('%A')}, gap from yesterday's close {pct(o, prev_close):+.2f}%, 20-day average range {avg20:.2f}%"
                   "\nAnswer with today's high and low as % from today's open.")
         answer = json.dumps({"high": round(pct(h, o), 2), "low": round(pct(l, o), 2)})
-        out.append({"date": d.isoformat(), "prompt": prompt, "answer": answer,
+        out.append({"date": d.isoformat(), "market": market or "", "prompt": prompt, "answer": answer,
                     "high": pct(h, o), "low": pct(l, o), "guess": avg20 / 2})
     return out
 
 
 def prepare(job, cfg):
-    days = daily(cfg["data_file"])
-    if len(days) < 300:
-        raise SystemExit(f"Only {len(days)} trading days in the data file; need at least 300")
-    ex = examples(days)
-    tr = [e for e in ex if cfg["train_from"] <= e["date"] <= cfg["train_to"]]
-    te = [e for e in ex if cfg["test_from"] <= e["date"] <= cfg["test_to"]]
+    # One file per market (built-in data), or the trader's single file
+    files = cfg.get("data_files") or {cfg.get("symbol") or "": cfg["data_file"]}
+    tr, te, lines = [], [], []
+    for market, path in files.items():
+        days = daily(path)
+        if len(days) < 300:
+            raise SystemExit(f"Only {len(days)} trading days of {market or 'data'}; need at least 300")
+        ex = examples(days, market or None)
+        mtr = [e for e in ex if cfg["train_from"] <= e["date"] <= cfg["train_to"]]
+        mte = [e for e in ex if cfg["test_from"] <= e["date"] <= cfg["test_to"]]
+        tr += mtr; te += mte
+        lines.append(f"{market or 'data'}: {len(days)} trading days {days[0][0]} to {days[-1][0]}: {len(mtr)} for training, {len(mte)} for the test")
     if not tr or not te:
-        raise SystemExit("The train or test date range has no days in the data file")
+        raise SystemExit("The train or test date range has no days in the data")
+    tr.sort(key=lambda e: (e["date"], e["market"]))
+    te.sort(key=lambda e: (e["date"], e["market"]))
     for name, rows in (("train", tr), ("test", te)):
         with open(os.path.join(job, f"{name}.jsonl"), "w") as f:
             for e in rows:
                 f.write(json.dumps(e) + "\n")
-    emit("log", message=f"{len(days)} trading days {days[0][0]} to {days[-1][0]}: {len(tr)} for training, {len(te)} for the test")
+    for m in lines:
+        emit("log", message=m)
     studio_recipe(job, cfg, tr)
     return tr, te
 
@@ -258,6 +283,15 @@ def parse_answer(text):
 
 
 def score(rows, preds):
+    """Overall scores, plus the same per market when the test holds more than one."""
+    res = score_one(rows, preds)
+    markets = sorted({r.get("market", "") for r in rows})
+    if len(markets) > 1:
+        res["markets"] = {m: score_one([r for r in rows if r.get("market", "") == m], [p for r, p in zip(rows, preds) if r.get("market", "") == m]) for m in markets}
+    return res
+
+
+def score_one(rows, preds):
     """Mean error in % of price for the model and for the simple guess, plus how often price reached each level."""
     m_err, g_err, reach_h, reach_l, bad = [], [], 0, 0, 0
     for r, p in zip(rows, preds):

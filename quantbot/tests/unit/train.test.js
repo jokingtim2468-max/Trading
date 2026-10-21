@@ -260,3 +260,10 @@ describe('Train API with a stand-in docker', () => {
     assert.equal(run.status, 'stopped');
   });
 });
+
+test('built-in data trains on every chosen market, one per price feed', () => {
+  assert.deepEqual(validateConfig({}).symbols, ['XAUUSD', 'NQ'], 'default: gold and the Nasdaq-100');
+  assert.deepEqual(validateConfig({ symbols: ['NQ', 'US100', 'XAUUSD'] }).symbols, ['NQ', 'XAUUSD'], 'US100 is the same prices as NQ');
+  assert.deepEqual(validateConfig({ symbols: [], symbol: 'US100' }).symbols, ['US100'], 'an old single-market config still works');
+  assert.throws(() => validateConfig({ symbols: ['EURUSD'], symbol: 'EURUSD' }), /at least one market/);
+});

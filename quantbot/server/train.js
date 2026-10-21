@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { INSTRUMENTS } from './market/instruments.js';
 import { fileURLToPath } from 'node:url';
 
 export const IMAGE = 'unsloth/unsloth:core';
@@ -55,7 +56,7 @@ export const EXPORTS = [
 ];
 export const DEFAULTS = {
   auto: true, model_source: 'recommended', model: 'qwen3.5-2b', hf_model: '', local_model: '', method: 'auto',
-  exports: ['adapter'], push_repo: '', push_private: true, source: 'builtin', symbol: 'XAUUSD', data_path: '',
+  exports: ['adapter'], push_repo: '', push_private: true, source: 'builtin', symbol: 'XAUUSD', symbols: ['XAUUSD', 'NQ'], data_path: '',
   train_from: '2004-01-01', train_to: '2022-12-31', test_from: '2023-01-01', test_to: '2026-12-31',
   epochs: 2, learning_rate: 0.0002, lora_r: 16, batch_size: 4, grad_accum: 4, max_seq_length: 768,
 };
@@ -108,6 +109,13 @@ export function validateConfig(input) {
   if (c.test_from <= c.train_to) throw Object.assign(new Error('The test range must start after the training range ends, so the test is on days the model never saw'), { status: 400 });
   if (c.source === 'file' && !c.data_path) throw Object.assign(new Error('Choose the data file (an MT5 export)'), { status: 400 });
   if (c.source !== 'file' && c.source !== 'builtin') throw Object.assign(new Error('Unknown data source'), { status: 400 });
+  // Built-in data: every chosen market, one per price feed (NQ and US100 share the Nasdaq-100 prices)
+  if (c.source === 'builtin') {
+    const asked = (Array.isArray(c.symbols) && c.symbols.length ? c.symbols : [c.symbol]).filter((x) => INSTRUMENTS[x]);
+    const seen = new Set();
+    c.symbols = asked.filter((x) => { const code = INSTRUMENTS[x].code; if (seen.has(code)) return false; seen.add(code); return true; });
+    if (!c.symbols.length) throw Object.assign(new Error('Pick at least one market'), { status: 400 });
+  }
   const num = (k, lo, hi) => {
     const v = Number(c[k]);
     if (!(v >= lo && v <= hi)) throw Object.assign(new Error(`${k} must be between ${lo} and ${hi}`), { status: 400 });
@@ -168,15 +176,20 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
       fs.copyFileSync(cfg.data_path, target);
       return target;
     }
-    st.phase = 'downloading data'; saveState(id, st);
+    // Every chosen market's hourly history, downloaded if it isn't on this PC yet, one file each
     const to = new Date().toISOString().slice(0, 10);
-    const from = cfg.train_from < '2004-01-01' ? '2004-01-01' : cfg.train_from;
-    const bars = await market.bars(cfg.symbol, 'H1', from, to < cfg.test_to ? to : cfg.test_to);
-    if (!bars.time.length) throw new Error('No market data came back for that range');
-    const rows = ['time,open,high,low,close'];
-    for (let i = 0; i < bars.time.length; i++) rows.push(`${new Date(bars.time[i]).toISOString()},${bars.open[i]},${bars.high[i]},${bars.low[i]},${bars.close[i]}`);
-    fs.writeFileSync(target, rows.join('\n'));
-    return target;
+    const files = {};
+    for (const sym of cfg.symbols || [cfg.symbol]) {
+      st.phase = `downloading ${sym} data`; saveState(id, st);
+      const from = [cfg.train_from, INSTRUMENTS[sym]?.hourStart || '2004-01-01', '2004-01-01'].sort().at(-1);
+      const bars = await market.bars(sym, 'H1', from, to < cfg.test_to ? to : cfg.test_to);
+      if (!bars.time.length) throw new Error(`No ${sym} market data came back for that range`);
+      const rows = ['time,open,high,low,close'];
+      for (let i = 0; i < bars.time.length; i++) rows.push(`${new Date(bars.time[i]).toISOString()},${bars.open[i]},${bars.high[i]},${bars.low[i]},${bars.close[i]}`);
+      fs.writeFileSync(path.join(dir(id), `data_${sym}.csv`), rows.join('\n'));
+      files[sym] = `/workspace/job/data_${sym}.csv`;
+    }
+    return files;
   }
 
   // ---------- Hugging Face: token (stored encrypted), search, model check
@@ -368,8 +381,8 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
         await ensureImage(say);
         if (entry.stopped) throw new Error('Stopped');
         st.phase = 'starting'; saveState(id, st);
-        await dataFile(id, cfg, st);
-        fs.writeFileSync(path.join(dir(id), 'config.json'), JSON.stringify({ ...cfg, data_file: '/workspace/job/data.csv' }, null, 1));
+        const files = await dataFile(id, cfg, st);
+        fs.writeFileSync(path.join(dir(id), 'config.json'), JSON.stringify({ ...cfg, data_file: '/workspace/job/data.csv', ...(typeof files === 'object' ? { data_files: files } : {}) }, null, 1));
         st.phase = 'training'; saveState(id, st);
         if (entry.stopped) throw new Error('Stopped');
         const args = ['run', '--rm', '--name', `quantbot-train-${id}`, '--gpus', 'all', '--ipc=host',
@@ -414,7 +427,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
       }
     })();
     if (cfg.auto_reason) fs.appendFileSync(path.join(dir(id), 'events.jsonl'), `${JSON.stringify({ type: 'log', time: Date.now() / 1000, message: `Auto settings: ${cfg.auto_reason}` })}\n`);
-    log(`train ${id}: started ${cfg.model} on ${cfg.source === 'file' ? path.basename(cfg.data_path) : cfg.symbol}`);
+    log(`train ${id}: started ${cfg.model} on ${cfg.source === 'file' ? path.basename(cfg.data_path) : (cfg.symbols || [cfg.symbol]).join(' + ')}`);
     return { id };
   }
 
