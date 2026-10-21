@@ -500,3 +500,9 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - TP/SL are TradingView-style order lines: dashed line + draggable price pill (price and $) just right of the box.
 - Box label has a Buy/Sell quick button: sends at market with the box's stop/target distances.
 - "Prop account" toolbar button opens Replay with the account picker. Firms that don't offer the chosen size show dimmed (dashed) and jump to their nearest size.
+
+## Chart: indicators (Pine + MQL5)
+- "Indicators" button in the Terminal top bar opens a popover (same glass style and click-origin pop as the settings menu).
+- Quick add: EMA 20/50, VWAP, Bollinger Bands, RSI 14, MACD, ATR 14. Paste box for Pine Script or MQL5.
+- Overlay indicators draw on price; the others share one pane below (25% of the chart height). Each row has show/hide and delete.
+- Pine runs in the app directly; MQL5 (and Pine with loops / var / functions) is rewritten to simple Pine by the model, then runs the same way.

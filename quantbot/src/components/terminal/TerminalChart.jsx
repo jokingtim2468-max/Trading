@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { moveAt, moneyAt, usdSigned } from '@/lib/tradeMath';
-import { createChart, CandlestickSeries, CrosshairMode, LineStyle } from 'lightweight-charts';
+import { createChart, CandlestickSeries, LineSeries, CrosshairMode, LineStyle } from 'lightweight-charts';
 
 export const FIB = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 const PENDING_NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell limit', sell_stop: 'Sell stop' };
@@ -14,7 +14,7 @@ const DRAW_TOOLS = ['trend', 'rect', 'fib', 'position'];
 export default function TerminalChart({
   bars, settings, levels = [], lines = [], tool, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition,
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition, indicators = [],
 }) {
   const drawingsRef = useRef(drawings);
   drawingsRef.current = drawings;
@@ -60,6 +60,29 @@ export default function TerminalChart({
       wickUpColor: s.wickUp || s.up, wickDownColor: s.wickDown || s.down,
     });
   }, [settings]);
+
+  // Indicators (Pine, or MQL5 rewritten to Pine): overlays on the price pane, the rest in one pane below
+  const indSeries = useRef([]);
+  useEffect(() => {
+    const c = chart.current;
+    if (!c || !bars) return undefined;
+    for (const x of indSeries.current) { try { c.removeSeries(x); } catch { /* already gone */ } }
+    indSeries.current = [];
+    const keep = [];
+    for (let i = 0; i < bars.time.length; i++) { const t = Math.floor(bars.time[i] / 1000); if (keep.length && t <= keep[keep.length - 1][0]) continue; keep.push([t, i]); }
+    for (const ind of indicators) {
+      const pane = ind.overlay ? 0 : 1;
+      let first = null;
+      for (const pl of ind.plots) {
+        const sr = c.addSeries(LineSeries, { color: pl.color, lineWidth: pl.width || 1.5, priceLineVisible: false, lastValueVisible: true, title: pl.name, crosshairMarkerVisible: false }, pane);
+        sr.setData(keep.map(([t, i]) => (Number.isFinite(pl.values[i]) ? { time: t, value: pl.values[i] } : { time: t })));
+        indSeries.current.push(sr); first = first || sr;
+      }
+      if (first) for (const h of ind.hlines) first.createPriceLine({ price: h.price, color: h.color, lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: false });
+    }
+    if (indicators.some((x) => !x.overlay)) c.panes()[1]?.setHeight(Math.round((box.current?.clientHeight || 400) * 0.25));
+    return undefined;
+  }, [indicators, bars]);
 
   useEffect(() => {
     if (!series.current || !bars) return;

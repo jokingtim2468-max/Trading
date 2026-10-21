@@ -215,6 +215,7 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     if (req.method === 'POST' && p === 'chart/set') { const b = await body(); return send(res, 200, terminal.set(b.change, b.note)); }
     if (req.method === 'POST' && p === 'chart/revert') { await body(); return send(res, 200, terminal.revert()); }
     if (req.method === 'POST' && p === 'chart/restore') return send(res, 200, terminal.restore((await body()).n));
+    if (req.method === 'POST' && p === 'indicator') { const b = await body(); return send(res, 200, await terminal.indicator(b.code, b.why, b.model)); }
     if (req.method === 'POST' && p === 'chart/edit') { const b = await body(); return send(res, 200, await terminal.edit(b.message, b.model)); }
     if (req.method === 'POST' && p === 'order') return send(res, 200, await terminal.order(await body()));
     if (req.method === 'GET' && p === 'positions') return send(res, 200, await terminal.positionsAll(url.searchParams.get('group')));

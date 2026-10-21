@@ -16,6 +16,8 @@ import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFil
 import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
+import IndicatorsPanel from '@/components/terminal/IndicatorsPanel';
+import { runIndicator } from '@/lib/indicators/pine';
 import ChartEditor from '@/components/terminal/ChartEditor';
 import Toasts from '@/components/terminal/Toasts';
 import OrderTicket from '@/components/terminal/OrderTicket';
@@ -471,6 +473,17 @@ export default function Terminal() {
     const t = setInterval(step, 1000 / replay.speed);
     return () => clearInterval(t);
   }, [replay?.playing, replay?.speed, step]);
+  // The trader's indicators, run on the bars on screen
+  const indicatorList = prefs.indicators || [];
+  const [indicators, indicatorErrors] = useMemo(() => {
+    const out = [], errs = {};
+    if (!bars) return [out, errs];
+    for (const x of indicatorList) {
+      if (!x.on) continue;
+      try { out.push({ id: x.id, ...runIndicator(x.pine, bars) }); } catch (e) { errs[x.id] = e.message; }
+    }
+    return [out, errs];
+  }, [indicatorList, bars]);
   const sim = useMemo(() => {
     if (!replay || !simPreset) return null;
     const floating = last != null ? practice.open.reduce((x, t) => x + closePractice(t, last).pnl, 0) : 0;
@@ -535,6 +548,7 @@ export default function Terminal() {
           className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${replay ? 'bg-[#2962ff] text-white' : 'hover:bg-[#2a2e39]'}`} data-testid="open-replay"><History className="w-4 h-4" />Replay</button>
         <button type="button" onClick={() => { if (!replay) setReplay({ date: day(Date.now() - 30 * DAY), idx: null, playing: false, speed: 2 }); setSimOpen(true); }} title="Practice in replay on a simulated prop firm account"
           className={`h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 ${simPreset ? 'text-[#5b8def]' : ''} hover:bg-[#2a2e39]`} data-testid="open-sim-account">Prop account</button>
+        <IndicatorsPanel list={indicatorList} onChange={(indicators) => setPrefs({ indicators })} bars={bars} errors={indicatorErrors} />
         <Link to="/journal" className="h-8 px-2.5 rounded-md hover:bg-[#2a2e39] inline-flex items-center gap-1.5" data-testid="open-journal"><BookOpen className="w-4 h-4" />Journal</Link>
         <div className="flex-1" />
         <label className="h-8 px-2.5 rounded-md border border-[#2a2e39] inline-flex items-center gap-2">
@@ -629,6 +643,7 @@ export default function Terminal() {
                   <TerminalChart bars={bars} settings={chart?.settings} levels={levels} lines={lines} tool={tool} trades={trades} last={last}
                     pending={replay ? [] : book.pending.filter((p) => p.symbol === symbol)} trails={book.trails}
                     onModify={(t, kind, price) => place(kind === 'tp' ? 'set_tp' : 'set_sl', { [kind]: price, price: last, trade_id: t.trade_id })}
+                    indicators={indicators}
                     onPlacePosition={(d) => { const dv = last - d.entry, r = (v) => Math.round((v + dv) * 100) / 100; place(d.tp >= d.entry ? 'buy' : 'sell', { qty: d.lots, risk_usd: '', at: '', sl: r(d.sl), tp: r(d.tp) }); }}
                     onCloseTrade={(t) => place('close', { price: last, trade_id: t.trade_id })}
                     onBreakEven={(t) => place('set_sl', { sl: Number(t.entry), price: last, trade_id: t.trade_id })}

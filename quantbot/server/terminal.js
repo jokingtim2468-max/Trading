@@ -57,6 +57,18 @@ If the request isn't about these settings, reply {"change": {}, "say": "<what yo
 Current settings: ${JSON.stringify(settings)}`;
 }
 
+const INDICATOR_REWRITE = `You rewrite trading indicators (MQL5 or Pine Script) into a restricted Pine Script v5 indicator that QuantBot's chart runs. Keep the maths and the default input values the same.
+Allowed, one statement per line, no indentation:
+- indicator("Title", overlay=true|false)   (overlay=true when it draws on price)
+- name = input.int(14, "Label") / input.float / input.bool / input.source(close, "Source")
+- name = <expression>, [a, b, c] = ta.macd(src, fast, slow, signal) or ta.bb(src, len, mult)
+- plot(series, "Title", color=color.blue or #RRGGBB, linewidth=1-4), hline(70, color=color.gray)
+Expressions: numbers, open high low close volume hl2 hlc3 ohlc4 bar_index, + - * / %, comparisons, and or not, cond ? a : b, history x[1],
+ta.sma ema rma wma hma vwma rsi atr tr stdev highest lowest change mom roc cum crossover crossunder cross vwap macd bb stoch, math.abs sqrt log exp pow round floor ceil max min avg, nz na fixnan.
+Not allowed: if/for/while blocks, var, functions, arrays, request.security, labels, lines, tables.
+Every value is a whole series computed at once, so turn loops into these functions. Buffers become plot() calls. Separate-window MQL5 indicators use overlay=false.
+Reply with ONLY the Pine code in one \`\`\`pine block.`;
+
 export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
   const dir = path.join(dataDir, 'terminal');
   fs.mkdirSync(dir, { recursive: true });
@@ -127,6 +139,15 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
 
   return {
     chart: view,
+    // Rewrite an MQL5 indicator (or Pine the chart can't run as is) into the Pine subset the chart runs
+    async indicator(code, why, model) {
+      const src = String(code || '').slice(0, 60000);
+      if (!src.trim()) throw Object.assign(new Error('Paste the indicator code first'), { status: 400 });
+      const reply = await ask(model, INDICATOR_REWRITE, [{ role: 'user', content: `${why ? `The chart couldn't run it as is: ${why}\n\n` : ''}Indicator code:\n${src}` }], 3000);
+      const pine = String(reply).replace(/^[\s\S]*?```(?:pine|pinescript)?\s*\n/i, '').replace(/```[\s\S]*$/, '').trim();
+      if (!/\bplot\s*\(|\bhline\s*\(/.test(pine)) throw Object.assign(new Error("The model's rewrite had no plot() in it. Try again."), { status: 502 });
+      return { pine };
+    },
     preset(id) {
       const p = CHART_PRESETS.find((x) => x.id === id);
       if (!p) throw Object.assign(new Error('No such preset'), { status: 400 });
