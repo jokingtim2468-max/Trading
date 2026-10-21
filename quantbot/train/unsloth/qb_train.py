@@ -30,6 +30,12 @@ MODELS = {
 }
 
 
+def text_tokenizer(tok):
+    """Vision-language models (Qwen3.5, Gemma 3, ...) come with a processor that reads its first argument as images;
+    this training is text only, so use the processor's own text tokenizer."""
+    return getattr(tok, "tokenizer", None) or tok
+
+
 def model_of(cfg):
     """(weights to load: a Hugging Face id or /workspace/model, load in 4-bit)"""
     if cfg.get("hf_id"):
@@ -213,6 +219,7 @@ def train(job, cfg):
     emit("log", message=f"Loading {hf_id} on {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory / 2**30:.1f} GB)")
     model, tok = FastLanguageModel.from_pretrained(model_name=hf_id, max_seq_length=cfg["max_seq_length"],
                                                    load_in_4bit=four_bit, load_in_16bit=not four_bit, full_finetuning=False)
+    tok = text_tokenizer(tok)
     model = FastLanguageModel.get_peft_model(model, r=cfg["lora_r"], lora_alpha=cfg["lora_r"], lora_dropout=0, bias="none",
                                              target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
                                              use_gradient_checkpointing="unsloth", random_state=3407, max_seq_length=cfg["max_seq_length"])
@@ -319,6 +326,7 @@ def evaluate(job, cfg, model=None, tok=None):
         model, tok = FastLanguageModel.from_pretrained(model_name=os.path.join(job, "adapter"), max_seq_length=cfg["max_seq_length"],
                                                        load_in_4bit=model_of(cfg)[1])
     FastLanguageModel.for_inference(model)
+    tok = text_tokenizer(tok)
     tok.padding_side = "left"
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
