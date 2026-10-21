@@ -61,6 +61,8 @@ export const DEFAULTS = {
 };
 
 const docker = () => process.env.QUANTBOT_DOCKER || 'docker';
+// A docker stand-in written in JavaScript (the tests' fake) runs through Node: Windows can't start a .mjs file itself
+const dockerCmd = (args) => (/\.(mjs|cjs|js)$/i.test(docker()) ? [process.execPath, [docker(), ...args]] : [docker(), args]);
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 
 // Runs a short command and resolves with its exit code and output (never rejects)
@@ -286,7 +288,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
           IMAGE, 'python', '/workspace/code/qb_train.py', '/workspace/job'];
         const evFile = fs.createWriteStream(path.join(dir(id), 'events.jsonl'), { flags: 'a' });
         const logFile = fs.createWriteStream(path.join(dir(id), 'output.log'), { flags: 'a' });
-        const proc = spawn(docker(), args, { windowsHide: true, env: { ...process.env, ...(hfToken() ? { HF_TOKEN: hfToken() } : {}) } });
+        const proc = spawn(...dockerCmd(args), { windowsHide: true, env: { ...process.env, ...(hfToken() ? { HF_TOKEN: hfToken() } : {}) } });
         entry.proc = proc;
         let buf = '';
         const onOut = (d) => {
@@ -325,7 +327,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     if (!entry) return { ok: false };
     entry.stopped = true;
     try { fs.writeFileSync(path.join(dir(id), 'STOP'), ''); } catch { /* folder gone */ }
-    await run(docker(), ['stop', '-t', '20', `quantbot-train-${id}`], 30000);
+    await run(...dockerCmd(['stop', '-t', '20', `quantbot-train-${id}`]), 30000);
     entry.proc?.kill();
     return { ok: true };
   }
@@ -336,9 +338,9 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     image: IMAGE,
     // What this PC has: Docker, its engine, the NVIDIA GPU, and whether Unsloth's image is downloaded
     async status() {
-      const v = await run(docker(), ['version', '--format', '{{.Server.Version}}']);
+      const v = await run(...dockerCmd(['version', '--format', '{{.Server.Version}}']));
       const gpu = await run('nvidia-smi', ['--query-gpu=name,memory.total', '--format=csv,noheader,nounits']);
-      const img = v.code === 0 ? await run(docker(), ['image', 'inspect', IMAGE, '--format', '{{.Size}}']) : { code: 1 };
+      const img = v.code === 0 ? await run(...dockerCmd(['image', 'inspect', IMAGE, '--format', '{{.Size}}'])) : { code: 1 };
       const [gName, gMem] = gpu.code === 0 ? gpu.out.split('\n')[0].split(',').map((x) => x.trim()) : [];
       return {
         docker: v.code === 0, docker_version: v.code === 0 ? v.out : null,
@@ -352,7 +354,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     pull() {
       if (pulling?.state === 'running') return { ...pulling };
       pulling = { state: 'running', line: '', started: Date.now() };
-      const p = spawn(docker(), ['pull', IMAGE], { windowsHide: true });
+      const p = spawn(...dockerCmd(['pull', IMAGE]), { windowsHide: true });
       const onData = (d) => { const l = String(d).trim().split('\n').pop(); if (l) pulling.line = l.slice(0, 200); };
       p.stdout.on('data', onData); p.stderr.on('data', onData);
       p.on('error', (e) => Object.assign(pulling, { state: 'error', line: e.message }));
