@@ -64,6 +64,7 @@ export default function AgentTeamCard() {
   const [model, setModel] = useState('');
   const [translator, setTranslator] = useState('builtin');
   const [count, setCount] = useState(2);
+  const [tf, setTf] = useState('M5');
   const [steps, setSteps] = useState(40);
   const [agents, setAgents] = useState([]);
   const [phase, setPhase] = useState('');
@@ -89,7 +90,7 @@ export default function AgentTeamCard() {
     setAgents(Array.from({ length: count }, (_, i) => ({ n: i + 1, status: 'starting', log: [] })));
     try {
       setPhase('Loading market data…');
-      const markets = await agentMarkets({}, setPhase);
+      const markets = await agentMarkets({ tf }, setPhase);
       const stats = Object.fromEntries(markets.map((m) => [`${m.ds.symbol}_${m.tf}`, m.stats]));
       await post('setup', { model, agents: count, stats });
       setPhase('Running');
@@ -108,7 +109,7 @@ export default function AgentTeamCard() {
         <h3 className="font-semibold">Agent team</h3>
         <span className="text-xs text-muted-foreground">Local agents write and backtest MQL5 / Pine scripts in their own folders</span>
       </div>
-      <div className="grid sm:grid-cols-4 gap-3 text-sm">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Running model</span>
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2" data-testid="agent-model">
             {!models.length && <option value="">No Ollama models found</option>}
@@ -120,6 +121,11 @@ export default function AgentTeamCard() {
             {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </label>
+        <label className="space-y-1"><span className="text-xs text-muted-foreground">Timeframe</span>
+          <select value={tf} onChange={(e) => setTf(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2" data-testid="agent-tf">
+            {['M5', 'M15', 'M30', 'H1', 'H4'].map((t) => <option key={t} value={t}>{t}{t === 'M5' ? ' (most accurate)' : ''}</option>)}
+          </select>
+        </label>
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Step limit per agent</span>
           <input value={steps} onChange={(e) => setSteps(e.target.value)} disabled={running} inputMode="numeric" className="w-full h-9 rounded-md border border-border bg-background px-2" />
         </label>
@@ -129,7 +135,7 @@ export default function AgentTeamCard() {
           </select>
         </label>
       </div>
-      <p className="text-xs text-muted-foreground">Each agent works in data/agents/&lt;model&gt;/agent-N and can only list, read, write and delete files there (data/ is read-only); BACKTEST runs the Script Tester on XAUUSD, US100 and NQ (M15, last 180 days). Keep this page open while they run. For agents to work at the same time, start Ollama with <code>OLLAMA_NUM_PARALLEL={count}</code>; otherwise they take turns.</p>
+      <p className="text-xs text-muted-foreground">Each agent works in data/agents/&lt;model&gt;/agent-N and can only list, read, write and delete files there (data/ is read-only); BACKTEST runs the Script Tester on XAUUSD, US100 and NQ ({tf}, last 180 days — M5 is the most candle-accurate). Keep this page open while they run. For agents to work at the same time, start Ollama with <code>OLLAMA_NUM_PARALLEL={count}</code>; otherwise they take turns.</p>
       <div className="flex items-center gap-2">
         {!running
           ? <Button onClick={start} disabled={!model} data-testid="agent-start"><Play className="w-4 h-4 mr-1.5" />Start {count} agent{count > 1 ? 's' : ''}</Button>

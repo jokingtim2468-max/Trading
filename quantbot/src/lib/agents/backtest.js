@@ -8,7 +8,7 @@ import { testSignals } from '@/lib/backtest/signals';
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 // The markets an agent tests on and their stats files (data/<SYMBOL>_<TF>.stats.json)
-export async function agentMarkets({ tf = 'M15', days = 180 } = {}, onPhase = () => {}) {
+export async function agentMarkets({ tf = 'M5', days = 180 } = {}, onPhase = () => {}) {
   const to = day(Date.now()), from = day(Date.now() - days * 86400000);
   const out = [];
   for (const ds of await loadDatasets()) {

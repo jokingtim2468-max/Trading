@@ -76,7 +76,7 @@ async function round() {
     // Ask the model to improve it, using the result it just saw
     state.phase = 'fixing';
     emit();
-    const kickoff = `WRITE ${file}\nThis is "${state.name}" (${state.language}). Its latest backtest on XAUUSD, US100 and NQ (M15, 180 days):\n\n${report}\n\nHere is the current full script:\n\n\`\`\`${state.language === 'MT5' ? 'mql5' : 'pine'}\n${state.current.code}\n\`\`\`\n\nFind its single biggest weakness from the result above (drawdown, low profit factor, too few/many trades, costs, SL hits) and fix exactly that. Reply with WRITE ${file} and the FULL improved script in one code block — no partial code, no placeholders.`;
+    const kickoff = `WRITE ${file}\nThis is "${state.name}" (${state.language}). Its latest backtest on XAUUSD, US100 and NQ (${markets[0]?.tf || 'M5'}, 180 days):\n\n${report}\n\nHere is the current full script:\n\n\`\`\`${state.language === 'MT5' ? 'mql5' : 'pine'}\n${state.current.code}\n\`\`\`\n\nFind its single biggest weakness from the result above (drawdown, low profit factor, too few/many trades, costs, SL hits) and fix exactly that. Reply with WRITE ${file} and the FULL improved script in one code block — no partial code, no placeholders.`;
     const { reply } = await post('chat', { model: state.model, messages: [{ role: 'user', content: kickoff }] });
     const next = scriptFromMessage(reply || '');
     if (next && next.code && next.code.length > 40) {
@@ -126,7 +126,7 @@ export async function start({ scriptId, model, translator, intervalMinutes = 10 
     current: { code: script.code }, best: null, history: [], log: [], nextAt: 0, error: '',
   });
   emit();
-  if (!markets) { addLog('Loading market data…'); markets = await agentMarkets({}); }
+  if (!markets) { addLog('Loading market data…'); markets = await agentMarkets({ tf: 'M5' }); }
   const stats = Object.fromEntries(markets.map((m) => [`${m.ds.symbol}_${m.tf}`, m.stats]));
   await post('setup', { model, agents: 1, stats });
   addLog(`Loop-fixing "${script.name}" every ${state.intervalMs / 60000} min with ${model}. Keep QuantBot open.`);

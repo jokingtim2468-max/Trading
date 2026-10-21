@@ -389,7 +389,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Card (testid `agent-team`) in the Models section, under Default models and Local model. Bot icon `text-primary`.
 - Controls: Running model select (testid `agent-model`, from the Ollama test), Agents 1–4 (testid `agent-count`), Step limit per agent (default 40), Backtest translator (the app's models, default the user's default model).
 - Start / Stop buttons (testids `agent-start` / `agent-stop`). Per-agent log cards (testid `agent-log`): status color thinking `text-primary`, testing `text-chart-4`, done `text-chart-2`, error `text-destructive`, limit / stopped `text-muted-foreground`.
-- Each agent works in `data/agents/<model>/agent-N/` (data/ read-only), acts through one command per reply (LIST / READ / WRITE / DELETE / BACKTEST / DONE), and backtests on XAUUSD, US100 and NQ (M15, last 180 days) with the same engine as the Script Tester. Note mentions `OLLAMA_NUM_PARALLEL=<count>` so agents run at the same time.
+- Each agent works in `data/agents/<model>/agent-N/` (data/ read-only), acts through one command per reply (LIST / READ / WRITE / DELETE / BACKTEST / DONE), and backtests on XAUUSD, US100 and NQ (M5 by default, last 180 days) with the same engine as the Script Tester. Note mentions `OLLAMA_NUM_PARALLEL=<count>` so agents run at the same time.
 
 ### Settings: Local model — "Set up a model for my PC"
 - A box (testid `model-setup`) at the top of the Local model card. "Check my specs" button (testid `model-detect`) calls `localModel` action `recommend`: the server reads the NVIDIA GPU (`nvidia-smi`), RAM and CPU and returns the largest coding model that fits with headroom.
@@ -398,7 +398,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Chat: /loopfix (auto-improve a script on a timer)
 - Typed in the main chat: `/loopfix` (improve the chat's linked script, else the most recently updated one), `/loopfix <name>` (a named script), or `/loopfix stop`.
-- A local Ollama model backtests the script on XAUUSD / US100 / NQ (M15, 180 days), scores it (profit factor and net up, drawdown and too-few-trades down), keeps the best version, writes a better one, and repeats every 10 minutes until the best hasn't improved for 3 rounds ("as good as it got"). The engine (`src/lib/agents/loopfix.js`) is a module singleton so it keeps running as you move between pages; it stops when the app closes.
+- A local Ollama model backtests the script on XAUUSD / US100 / NQ (M5, 180 days), scores it (profit factor and net up, drawdown and too-few-trades down), keeps the best version, writes a better one, and repeats every 10 minutes until the best hasn't improved for 3 rounds ("as good as it got"). The engine (`src/lib/agents/loopfix.js`) is a module singleton so it keeps running as you move between pages; it stops when the app closes.
 - Status panel (testid `loopfix-panel`) above the composer: spinning icon while testing / fixing, round number and phase, a countdown to the next round, the best-so-far line (testid `loopfix-best`, `text-chart-2`: PF · DD% · net · trades), a Stop button (testid `loopfix-stop`) and the last few log lines (testid `loopfix-log`). The improved script is written back to its Script record each round, so the Copy trading page and its chart show the latest version live.
 
 ### Home screen: this week's P&L (replaces "Last test")
@@ -406,3 +406,6 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ### Backtest: candle-accurate language auto-detection
 - BACKTEST (agent team and /loopfix) detects Pine vs MQL5 from the file name and, failing that, from the code itself (`//@version=5` / `strategy()` → Pine; `OnTick` / `#property` / `CTrade` → MT5) via `detectLanguage`, so the right engine runs even if the extension is wrong. The engine (`src/lib/backtest/engine.js`) is bar-close accurate: signals fire on the candle close, fills at the next candle's open, SL is checked before TP intrabar (worst case), spread is applied, and exact candle timestamps are kept. It has no sub-candle tick fills — 20-year tick data isn't available — so intrabar order is always resolved pessimistically rather than guessed.
+
+### Agent team / loop-fix: timeframe (M5 by default)
+- The Agent team card has a Timeframe select (testid `agent-tf`, M5 / M15 / M30 / H1 / H4; M5 labelled "most accurate"). Loop-fix always uses M5. The built-in market data is stored as minute (M1) bars and every timeframe is resampled from it, so M5 is the most granular — the tightest intrabar SL/TP sequencing and the closest to real fills. The agent kickoff and the loop-fix report state the timeframe actually used.

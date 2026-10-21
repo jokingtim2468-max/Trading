@@ -131,7 +131,7 @@ button on a row shows each rule as a pass / cross against the live account.
 Settings → Models → **Agent team**: point it at a model you run in Ollama (a coder model such as `qwen2.5-coder`),
 pick 1–4 agents and a step limit, and each agent works in its own folder `data/agents/<model>/agent-N/` (`data/` holds
 the market stats read-only). An agent acts through one command per reply — LIST, READ, WRITE, DELETE, BACKTEST, DONE —
-writing `.mq5` / `.pine` scripts and backtesting them on XAUUSD, US100 and NQ (M15, last 180 days) with the same
+writing `.mq5` / `.pine` scripts and backtesting them on XAUUSD, US100 and NQ (M5 by default, last 180 days) with the same
 engine as the Script Tester, looping until its strategy holds up or it hits the step limit. Server: `server/agents.js`
 (the sandbox and the system prompt); UI: `src/components/settings/AgentTeamCard.jsx`. Start Ollama with
 `OLLAMA_NUM_PARALLEL=<agents>` to run them at the same time.
