@@ -50,6 +50,8 @@ int OnInit() { trade.SetExpertMagicNumber(4821); return INIT_SUCCEEDED; }
 void OnTick() { /* breakout logic */ }`;
 
 function reply(system, last = '') {
+  // Chat naming: a stable title from the first words, so tests can find the chat
+  if (system.startsWith('You name chats')) return last.split(/\s+/).slice(0, 4).join(' ');
   if (/long ea/i.test(last)) return longReply();
   if (/basic pine/i.test(last) && !system.startsWith("You are QuantBot's strategy tester")) {
     return `Here is a basic EMA cross strategy.\n\n\`\`\`pine\n${BASIC_PINE}\n\`\`\``;

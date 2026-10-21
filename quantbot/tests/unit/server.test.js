@@ -196,6 +196,11 @@ describe('AI functions', () => {
       be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'hi' });
       const { message } = await be.handle('function', 'quantChat', { session_id: s.id, model: 'builtin' });
       assert.equal(message.content, 'qwen2.5-coder:7b ctx 32768 sys system', 'Auto falls back to the local model when no key is linked');
+      // No script in the reply: a second call names the chat, and the name becomes the chat's workspace folder
+      const named = be.handle('entity', 'ChatSession', 'get', s.id);
+      assert.equal(named.title, 'qwen2.5-coder:7b ctx 32768 sys system', 'the model named the chat');
+      assert.ok(named.workspace && fs.existsSync(path.join(named.workspace, 'README.md')), 'workspace folder created');
+      assert.equal(path.basename(named.workspace), 'qwen2-5-coder-7b-ctx-32768-sys-system');
     } finally {
       await new Promise((r) => ollama.close(r));
     }

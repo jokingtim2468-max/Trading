@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createDb } from './db.js';
 import { createUser, createKeys, createFiles } from './store.js';
 import { createFunctions } from './functions.js';
+import { createWorkspaces } from './workspaces.js';
 
 // Default field values from the entity schemas, so new records match what the pages expect
 export function entityDefaults(dir) {
@@ -22,7 +23,7 @@ export function createBackend({ dataDir, encrypt, decrypt, userName, defaults, m
   const db = createDb(path.join(dataDir, 'entities'), 'local', defaults);
   const keys = createKeys(dataDir, encrypt, decrypt);
   const files = createFiles(path.join(dataDir, 'files'));
-  const functions = createFunctions({ db, user, keys, market, folders: () => folders });
+  const functions = createFunctions({ db, user, keys, market, folders: () => folders, workspaces: createWorkspaces(path.join(dataDir, 'workspaces')) });
   const setFolders = (f) => { folders = f; };
 
   return {

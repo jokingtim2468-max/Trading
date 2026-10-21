@@ -288,6 +288,14 @@ ipcMain.handle('logs:open', async (e) => {
   if (!fs.existsSync(logFile())) log('Log opened from Settings');
   return shell.openPath(logDir()); // '' when it opened
 });
+// A chat's workspace folder (only folders inside the app's data/workspaces can be opened)
+ipcMain.handle('workspace:open', async (e, dir) => {
+  if (!fromMain(e)) return 'Not allowed';
+  const root = path.resolve(dataDir(), 'workspaces');
+  const full = path.resolve(String(dir || ''));
+  if (!full.startsWith(root + path.sep) || !fs.existsSync(full)) return 'Not a QuantBot workspace';
+  return shell.openPath(full);
+});
 
 // Opening: the main window appears at its real size (resizing a window every frame is what made it stutter) and fades
 // in while its content zooms out of the middle (CSS, on the graphics card: html.app-opening in src/index.css) and the

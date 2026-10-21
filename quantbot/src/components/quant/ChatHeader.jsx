@@ -1,4 +1,4 @@
-import { Download, Trash2, Menu, Folder, FlaskConical } from 'lucide-react';
+import { Download, Trash2, Menu, Folder, FolderOpen, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { GROUPS } from '@/lib/models';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,6 +11,14 @@ export default function ChatHeader({ session, onGroupChange, onExport, onDelete,
         {session && (
           <>
             <span className="truncate text-sm font-medium">{session.title}</span>
+            {session.workspace && (
+              <button type="button" data-testid="chat-workspace"
+                title={`This chat's workspace: ${session.workspace}\nScripts the AI writes here are saved in its scripts folder.${window.quantbotDesktop?.openWorkspace ? ' Click to open it.' : ''}`}
+                onClick={() => window.quantbotDesktop?.openWorkspace?.(session.workspace)}
+                className="hidden sm:flex items-center gap-1 h-7 px-2 rounded-md border border-border text-xs text-muted-foreground hover:bg-accent max-w-[180px]">
+                <FolderOpen className="w-3 h-3 shrink-0" /><span className="truncate">{session.workspace.split(/[\\/]/).pop()}</span>
+              </button>
+            )}
             <Select value={GROUPS.some((g) => g.value === session.group) ? session.group : undefined} onValueChange={onGroupChange}>
               <SelectTrigger className="h-7 w-auto gap-1.5 border-border bg-transparent text-xs text-muted-foreground">
                 <Folder className="w-3 h-3" /><SelectValue placeholder="Project" />

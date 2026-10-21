@@ -1,4 +1,5 @@
-// Gives the QuantBot page its window buttons (the app draws its own title bar) and its log folder, nothing else
+// Gives the QuantBot page its window buttons (the app draws its own title bar), its log folder and its chats'
+// workspace folders, nothing else
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('quantbotDesktop', {
@@ -8,6 +9,7 @@ contextBridge.exposeInMainWorld('quantbotDesktop', {
   isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   logsPath: () => ipcRenderer.invoke('logs:path'),
   openLogs: () => ipcRenderer.invoke('logs:open'),
+  openWorkspace: (dir) => ipcRenderer.invoke('workspace:open', dir),
   onMaximizedChange: (cb) => {
     const listener = (_e, value) => cb(value);
     ipcRenderer.on('window:maximized', listener);

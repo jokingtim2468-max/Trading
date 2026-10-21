@@ -161,6 +161,9 @@ await step('Chat: Claude writes an EA, chat is named after the script, queue wor
   await text(/Queued \(1\)/).waitFor();
   await snap('chat-queue');
   await page.locator('aside').getByText('Gold Breakout', { exact: true }).waitFor();
+  // The chat's name is its workspace folder, and the EA it wrote is saved there
+  await page.getByTestId('chat-workspace').filter({ hasText: 'gold-breakout' }).waitFor();
+  expect(fs.existsSync(path.join(dataDir, 'workspaces', 'gold-breakout', 'scripts', 'gold-breakout.mq5')), 'the EA was saved in the chat workspace');
   await text('Queued (1)').waitFor({ state: 'detached' });
   await expectCount(page.locator('pre'), 2);
   const last = models.calls.at(-1);

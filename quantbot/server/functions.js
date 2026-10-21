@@ -9,6 +9,7 @@ import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
 import { detectSpecs, startPull, pullStatus } from './lib/ollamaSpecs.js';
 import { codeFromReply } from './scriptFolders.js';
+import { cleanTitle } from './workspaces.js';
 
 const fail = (message) => { throw new Error(message); };
 
@@ -22,7 +23,7 @@ function scriptBrief(script, context) {
   ].filter(Boolean).join('\n\n');
 }
 
-export function createFunctions({ db, user, keys, market, folders = () => null }) {
+export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null }) {
   const chatTools = createChatTools({ db, market });
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   function pickModel(model) {
@@ -99,10 +100,26 @@ export function createFunctions({ db, user, keys, market, folders = () => null }
       const reply = String(await ask(useModel, system, toTurns(chatHistory(recent)), 16000, chatTools));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
+      // A normal chat's first reply: the model names the chat, and that name becomes its workspace folder
+      let title = !script && name && name !== session.title ? name : null;
+      let workspace = session.workspace || null;
+      if (!script && !workspace && workspaces) {
+        if (!title && !recent.some((m) => m.role === 'assistant')) {
+          try {
+            title = cleanTitle(await ask(useModel, 'You name chats. Reply with ONLY a short title of 2 to 5 words saying what the user wants, no quotes and no punctuation.',
+              [{ role: 'user', content: recent.filter((m) => m.role === 'user').map((m) => m.content).join('\n').slice(0, 2000) }], 200));
+          } catch { /* keep the first words of the message as the title */ }
+        }
+        try { workspace = workspaces.create(title || session.title, session_id); } catch { workspace = null; }
+      }
       db.run('ChatSession', 'update', session_id, {
         last_message_at: new Date().toISOString(),
-        ...(!script && name && name !== session.title ? { title: name } : {}),
+        ...(title && title !== session.title ? { title } : {}),
+        ...(workspace && workspace !== session.workspace ? { workspace } : {}),
       });
+      // Scripts written in a normal chat are saved into its workspace (scripts/<name>.mq5 or .pine)
+      const inChat = !script && workspace && codeFromReply(reply);
+      if (inChat) workspaces.saveScript(workspace, inChat, name || title || session.title);
       // New code in the reply becomes the script's code (and its folder's script file)
       const found = script && codeFromReply(reply);
       if (found && found.code !== script.code) {
