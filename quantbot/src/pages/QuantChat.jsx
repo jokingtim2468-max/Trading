@@ -2,8 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
-import { missingKey, knownModel, DEFAULT_MODELS } from '@/lib/models';
+import { missingKey, knownModel, DEFAULT_MODELS, defaultModel } from '@/lib/models';
 import { useToast } from '@/components/ui/use-toast';
+import LoopFixPanel from '@/components/quant/LoopFixPanel';
+import * as loopfix from '@/lib/agents/loopfix';
 import QuantSidebar from '@/components/quant/QuantSidebar';
 import ChatHeader from '@/components/quant/ChatHeader';
 import HomeGreeting from '@/components/quant/HomeGreeting';
@@ -61,7 +63,27 @@ export default function QuantChat() {
 
   const newChat = () => { setQueue([]); setActiveId(null); setMessages([]); setSidebarOpen(false); };
 
+  // /loopfix [script name] — put a local model on a 10-minute timer to backtest and improve a script until it
+  // stops getting better; /loopfix stop ends it. Runs here in the app (the backtest engine is the browser's).
+  const runLoopfix = async (text) => {
+    const arg = text.replace(/^\/loopfix\b/i, '').trim();
+    if (/^stop$/i.test(arg)) { await loopfix.stop(); toast({ title: 'Loop-fix stopped' }); return; }
+    if (loopfix.getState().running) { toast({ title: 'Loop-fix is already running', description: 'Type /loopfix stop to end it first.', variant: 'destructive' }); return; }
+    const me = user || (await client.auth.me());
+    if (!me.ollama_model) { toast({ title: 'Set up a local model first', description: 'Settings → Models → "Set up a model for my PC", then run /loopfix.', variant: 'destructive' }); return; }
+    const scripts = await client.entities.Script.list();
+    if (!scripts.length) { toast({ title: 'No scripts yet', description: 'Make a script on the Copy trading page, then run /loopfix.', variant: 'destructive' }); return; }
+    const pick = arg ? scripts.find((s) => s.name.toLowerCase() === arg.toLowerCase()) || scripts.find((s) => s.name.toLowerCase().includes(arg.toLowerCase())) : null;
+    const script = pick || (session?.script_id && scripts.find((s) => s.id === session.script_id)) || scripts.slice().sort((a, b) => (b.updated_date || '').localeCompare(a.updated_date || ''))[0];
+    if (arg && !pick) { toast({ title: `No script called "${arg}"`, description: `Have: ${scripts.map((s) => s.name).join(', ')}`, variant: 'destructive' }); return; }
+    try {
+      await loopfix.start({ scriptId: script.id, model: me.ollama_model, translator: defaultModel(keyStatus, me), intervalMinutes: 10 });
+      toast({ title: `Loop-fixing "${script.name}"`, description: `${me.ollama_model} backtests and rewrites it every 10 minutes until it stops improving. Keep QuantBot open.` });
+    } catch (e) { toast({ title: 'Loop-fix', description: e.message, variant: 'destructive' }); }
+  };
+
   const send = async (text) => {
+    if (/^\/loopfix\b/i.test(text.trim())) { await runLoopfix(text.trim()); return; }
     setThinking(true);
     let id = activeId;
     if (!id) {
@@ -134,6 +156,7 @@ export default function QuantChat() {
         {hasChat ? <MessageList messages={messages} thinking={thinking} /> : <HomeGreeting name={firstName} />}
         {needsKey && <NoKeyBanner provider={missing} onSaved={setKeyStatus} />}
         <MessageQueue queue={queue} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
+        <LoopFixPanel />
         <Composer
           onSend={submit} disabled={needsKey}
           style={style} onStyleChange={setStyle} model={chatModel} onModelChange={changeModel} claudeOnly={claudeOnly}

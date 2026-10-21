@@ -136,6 +136,10 @@ engine as the Script Tester, looping until its strategy holds up or it hits the 
 (the sandbox and the system prompt); UI: `src/components/settings/AgentTeamCard.jsx`. Start Ollama with
 `OLLAMA_NUM_PARALLEL=<agents>` to run them at the same time.
 
+**/loopfix** (in the main chat) points one local model at a single script: it backtests it, keeps the best
+version, rewrites it, and repeats every 10 minutes until the best stops improving. `/loopfix <name>` targets a
+named script; `/loopfix stop` ends it. It runs in the app window, so keep QuantBot open. Engine: `src/lib/agents/loopfix.js`.
+
 ## Terminal
 
 A trading terminal inside the app (`/terminal`): XAUUSD / US100 candles from the built-in market data, drawn with
