@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
-import { missingKey, knownModel, DEFAULT_MODELS, defaultModel } from '@/lib/models';
+import { missingKey, knownModel, defaultModel } from '@/lib/models';
 import { useToast } from '@/components/ui/use-toast';
 import LoopFixPanel from '@/components/quant/LoopFixPanel';
 import * as loopfix from '@/lib/agents/loopfix';
@@ -44,8 +44,7 @@ export default function QuantChat() {
 
   const session = sessions.find((s) => s.id === activeId) || null;
   // A copy trading script's chat is Claude only
-  const claudeOnly = !!session?.script_id;
-  const chatModel = claudeOnly && !String(model).startsWith('claude-') ? knownModel(user?.default_claude_model, DEFAULT_MODELS.anthropic) : model;
+  const chatModel = model;
   const missing = missingKey(chatModel, keyStatus);
   const needsKey = !!missing;
 
@@ -142,7 +141,7 @@ export default function QuantChat() {
     if (thinking || !next) return;
     setQueue((q) => q.filter((x) => x.id !== next.id));
     send(next.text);
-  }, [thinking, queue, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [thinking, queue, activeId]);  
 
   const changeGroup = async (group) => {
     await api.setSessionGroup(activeId, group);
@@ -186,7 +185,7 @@ export default function QuantChat() {
         <LoopFixPanel />
         <Composer
           onSend={submit} disabled={needsKey}
-          style={style} onStyleChange={setStyle} model={chatModel} onModelChange={changeModel} claudeOnly={claudeOnly}
+          style={style} onStyleChange={setStyle} model={chatModel} onModelChange={changeModel}
         />
       </main>
     </div>

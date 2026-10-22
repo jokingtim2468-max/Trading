@@ -13,13 +13,13 @@ import CopyField from '@/components/signals/CopyField';
 
 const LANGUAGES = ['Pine', 'MT5', 'Other'];
 
-// The script's own chat: Claude only, with the script's folder (code, logs, trades, notes) as its context
+// The script's own chat, with the script's folder (code, logs, trades, notes) as its context
 export async function openScriptChat(script) {
   const { ChatSession } = client.entities;
   const found = (await ChatSession.filter({ script_id: script.id }, { sort: '-last_message_at', limit: 1 })).items[0];
   if (found) return found.id;
   const s = await ChatSession.create({ title: script.name, group: script.language === 'MT5' ? 'MT5' : 'Pine', script_id: script.id, last_message_at: new Date().toISOString() });
-  await logSetup(`Claude chat opened for ${script.name}`, { script_id: script.id });
+  await logSetup(`Chat opened for ${script.name}`, { script_id: script.id });
   return s.id;
 }
 
@@ -78,16 +78,16 @@ export default function ScriptDialog({ script, config, onClose, onSaved, onDelet
             </Select>
           </Field>
           <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 space-y-2">
-            <p className="text-xs font-medium flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-primary" />Written with Claude</p>
+            <p className="text-xs font-medium flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5 text-primary" />Written with your local model</p>
             <p className="text-[11px] text-muted-foreground">
-              The script has its own Claude chat. Claude reads the script&apos;s folder (code, activity log, trades, results, your notes)
-              and every new version it writes becomes the script&apos;s code. Needs your Anthropic key (Settings).
+              The script has its own chat. Your local model reads the script&apos;s folder (code, activity log, trades, results, your notes)
+              and every new version it writes becomes the script&apos;s code.
             </p>
             <Button type="button" size="sm" onClick={withClaude} disabled={busy || !form.name.trim()}>
-              <Sparkles className="w-3.5 h-3.5 mr-1" />{script ? 'Open its Claude chat' : 'Save and write it with Claude'}
+              <Sparkles className="w-3.5 h-3.5 mr-1" />{script ? 'Open its chat' : 'Save and write it in its chat'}
             </Button>
           </div>
-          <Field label="Code" hint="Claude writes this in the script's chat. You can also paste a script you already have.">
+          <Field label="Code" hint="The model writes this in the script's chat. You can also paste a script you already have.">
             <Textarea value={form.code} onChange={(e) => set('code', e.target.value)} rows={5} className="font-mono text-xs" placeholder="//@version=5" />
           </Field>
           {script && (

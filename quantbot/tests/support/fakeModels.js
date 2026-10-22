@@ -133,9 +133,29 @@ export async function startFakeModels({ delayMs = 800 } = {}) {
       const b = body ? JSON.parse(body) : {};
       if (req.url === '/api/tags') return json(res, { models: [{ name: 'qwen2.5-coder:7b' }] });
       if (req.url === '/api/chat') {
-        calls.push({ kind: 'ollama', model: b.model, headers: req.headers });
         const system = b.messages[0].content;
-        return setTimeout(() => json(res, { message: { role: 'assistant', content: `(local) ${reply(system)}` } }), delayMs);
+        const users = b.messages.filter((m) => m.role === 'user');
+        const lastUser = users[users.length - 1]?.content || '';
+        const lastMsg = b.messages[b.messages.length - 1];
+        calls.push({ kind: 'ollama', model: b.model, headers: req.headers, system, tools: (b.tools || []).map((t) => t.function.name), messages: b.messages, stream: !!b.stream });
+        let message;
+        if (/reply with exactly: OK/.test(lastUser) && lastMsg.role === 'user') message = { role: 'assistant', content: 'OK' };
+        else if (b.tools && lastMsg.role === 'user' && /check my tests/i.test(lastUser)) {
+          message = { role: 'assistant', content: '', tool_calls: [
+            { function: { name: 'list_tests', arguments: { bot_name: 'E2E Bot' } } },
+            { function: { name: 'market_stats', arguments: { symbol: 'XAUUSD', timeframe: 'M15', from: '2024-03-04', to: '2024-03-08' } } }] };
+        } else if (lastMsg.role === 'tool') {
+          const [tests, stats] = b.messages.filter((m) => m.role === 'tool').slice(-2).map((m) => JSON.parse(m.content));
+          const runs = tests.tests.flatMap((t) => t.runs);
+          message = { role: 'assistant', content: `I read ${runs.length} tests of E2E Bot (best net ${Math.max(...runs.map((r) => r.net)).toFixed(2)}). XAUUSD M15 median ATR(14) that week: ${stats.atr14.median}.\n\n\`\`\`mql5\n${EA}\n\`\`\`` };
+        } else {
+          // The chat sends the system prompt again as the hidden first message: answer the trader's real last message
+          const real = users.filter((m) => !/reply with exactly: OK/.test(m.content));
+          message = { role: 'assistant', content: reply(system, real[real.length - 1]?.content || '') };
+        }
+        return setTimeout(() => {
+          if (b.stream) { res.setHeader('content-type', 'application/x-ndjson'); res.end(`${JSON.stringify({ message: { role: 'assistant', content: '' } })}\n${JSON.stringify({ message, done: true })}\n`); } else json(res, { message });
+        }, delayMs);
       }
       if (req.url === '/v1/messages') {
         calls.push({ kind: 'claude', model: b.model, fallbacks: b.fallbacks, headers: req.headers, system: b.system, tools: (b.tools || []).map((t) => t.name), messages: b.messages });

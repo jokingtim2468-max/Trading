@@ -6,8 +6,7 @@ import { useLocalModels } from '@/lib/models';
 const STYLES = ['Concise', 'Code only'];
 const triggerCls = 'h-8 w-auto gap-2 border-border bg-transparent text-xs text-muted-foreground';
 
-// claudeOnly: a copy trading script's chat, which only Claude writes
-export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange, claudeOnly = false }) {
+export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange }) {
   const models = useLocalModels();
   const [text, setText] = useState('');
 

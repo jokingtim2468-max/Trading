@@ -30,6 +30,7 @@ export default function VpsGuideCard() {
         <li><b className="text-foreground">Run the daemon at logon</b> (Command Prompt as administrator; paste your token). It runs when the VPS user logs in, because MT5 terminals need a desktop session; a task run as SYSTEM at boot has none and the terminals don&apos;t start properly:
           <div className="mt-1"><CopyField label="Startup task" value={TASK} /></div></li>
         <li><b className="text-foreground">Log in automatically after a reboot:</b> use Microsoft&apos;s Sysinternals Autologon for the VPS user, so Windows logs in, QuantBot starts, and the task starts the daemon, which starts every terminal.</li>
+        <li><b className="text-foreground">Local model:</b> a VPS has no GPU, so keep Ollama and training on your home PC. The VPS only needs QuantBot, the terminals and the daemon to place trades; the daily high / low levels and the chat run on your PC. On Windows with Python installed, QuantBot starts the daemon by itself whenever MT5 accounts have saved logins.</li>
         <li><b className="text-foreground">Check it:</b> restart the VPS, wait two minutes, and open Settings &gt; MT5 &amp; deployment: every account should show Connected with its balance. Disconnect from Remote Desktop with the window&apos;s X (don&apos;t sign out), so the session keeps running.</li>
       </ol>
     </div>

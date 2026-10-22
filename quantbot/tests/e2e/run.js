@@ -1,4 +1,4 @@
-// End-to-end run: starts QuantBot with fake Claude, Ollama and Dukascopy servers, then clicks through every feature
+// End-to-end run: starts QuantBot with fake Ollama and Dukascopy servers, then clicks through every feature
 // in a real Chromium window and takes screenshots into test-results/e2e/.
 //   npm run test:e2e              (CHROME_PATH=... to use an installed Chrome / Edge)
 import fs from 'node:fs';
@@ -79,12 +79,11 @@ await step('App launches on the chat page', async () => {
   await snap('home');
 });
 
-await step('Chat without a key explains what to do', async () => {
+await step('Chat without a local model explains what to do', async () => {
   await page.getByPlaceholder('Reply to QuantBot...').fill('hello');
   await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
-  await text('Message failed').first().waitFor();
-  await text(/Add a Claude or Gemini API key/).first().waitFor();
-  await snap('no-key-toast');
+  await text(/Set up your local model/).first().waitFor();
+  await snap('no-model-toast');
 });
 
 await step('Settings: pages fade and slide', async () => {
@@ -98,39 +97,6 @@ await step('Settings: pages fade and slide', async () => {
   await page.waitForTimeout(450);
   const settled = await page.locator('[data-page]').evaluate((d) => ({ o: getComputedStyle(d).opacity, t: getComputedStyle(d).transform }));
   expect(settled.o === '1' && /^(none|matrix\(1, 0, 0, 1, 0, 0\))$/.test(settled.t), `page did not settle: ${JSON.stringify(settled)}`);
-});
-
-await step('Settings: Anthropic key is validated, saved encrypted, shown as last 4', async () => {
-  const card = page.locator('div.bg-card', { has: page.getByRole('heading', { name: 'Anthropic (Claude)' }) });
-  await card.getByPlaceholder('sk-ant-...').fill('abc');
-  await card.getByRole('button', { name: 'Save key' }).click();
-  await card.getByText('Anthropic keys start with "sk-ant-".').waitFor();
-  await card.getByPlaceholder('sk-ant-...').fill('sk-ant-e2etest1234');
-  await card.getByRole('button', { name: 'Save key' }).click();
-  await card.getByText('Linked ···· 1234').waitFor();
-  const keys = fs.readFileSync(path.join(dataDir, 'keys.json'), 'utf8');
-  expect(!keys.includes('sk-ant-e2etest1234'), 'key stored in plain text');
-});
-
-await step('Settings: Gemini key can be added and removed', async () => {
-  const card = page.locator('div.bg-card', { has: page.getByRole('heading', { name: 'Google (Gemini)' }) });
-  await card.getByPlaceholder('AIza...').fill('AIzaE2E5678');
-  await card.getByRole('button', { name: 'Save key' }).click();
-  await card.getByText('Linked ···· 5678').waitFor();
-  await card.getByRole('button', { name: 'Remove key' }).click();
-  await card.getByText('Not linked').waitFor();
-});
-
-await step('Settings: default Claude model offers the 5.5 family', async () => {
-  const card = page.locator('div.bg-card', { has: page.getByText('Tester & converter default model') });
-  const combo = card.getByRole('combobox').first();
-  expect((await combo.textContent()).includes('Claude Opus 5.5'), 'default is not Opus 5.5');
-  await combo.click();
-  for (const m of ['Claude Opus 5.5', 'Claude Sonnet 5.5', 'Claude Haiku 5.5']) await page.getByRole('option', { name: m }).waitFor();
-  await page.waitForTimeout(120);
-  await snap('select-open');
-  await page.getByRole('option', { name: 'Claude Sonnet 5.5' }).click();
-  await card.getByText('Saved').waitFor();
 });
 
 await step('Settings: local model (Ollama) connects and saves', async () => {
@@ -150,7 +116,7 @@ await step('Settings: built-in US100 hourly + daily history downloads with progr
   await snap('built-in-markets');
 });
 
-await step('Chat: Claude writes an EA, chat is named after the script, queue works', async () => {
+await step('Chat: the local model writes an EA after confirming the system prompt, chat is named after the script, queue works', async () => {
   await back();
   await page.getByRole('button', { name: 'New chat' }).click();
   const box = page.getByPlaceholder('Reply to QuantBot...');
@@ -166,9 +132,10 @@ await step('Chat: Claude writes an EA, chat is named after the script, queue wor
   expect(fs.existsSync(path.join(dataDir, 'workspaces', 'gold-breakout', 'scripts', 'gold-breakout.mq5')), 'the EA was saved in the chat workspace');
   await text('Queued (1)').waitFor({ state: 'detached' });
   await expectCount(page.locator('pre'), 2);
-  const last = models.calls.at(-1);
-  expect(last.model === 'claude-sonnet-5-5', `chat used ${last.model}`);
-  expect(last.headers['anthropic-beta'] === 'server-side-fallback-2026-07-01' && last.fallbacks === 'default', 'fallback not requested');
+  const chats = models.calls.filter((c) => c.kind === 'ollama' && /THE TRADER'S SYSTEM PROMPT/.test(c.system));
+  expect(chats.length && chats.every((c) => c.model === 'qwen2.5-coder:7b'), 'chat did not use the local model');
+  expect(chats.some((c) => c.stream && /reply with exactly: OK/.test(c.messages[1]?.content || '')), 'replies stream, after the system-prompt handshake');
+  await text('System prompt loaded').first().waitFor();
   await snap('chat-reply');
 });
 
@@ -191,14 +158,10 @@ await step('Chat: code over 25 lines collapses and expands with a button', async
   await block.getByRole('button', { name: 'Show all 60 lines' }).waitFor();
 });
 
-await step('Chat: local model answers when picked', async () => {
-  const before = models.calls.length;
-  await pick(page.getByRole('combobox').filter({ hasText: 'Auto (your default model)' }), 'Local model (Ollama)');
-  await page.getByPlaceholder('Reply to QuantBot...').fill('Same EA, but explain the risk settings');
-  await page.getByPlaceholder('Reply to QuantBot...').press('Enter');
-  await text('(local) Here is the EA.').waitFor();
-  expect(models.calls.slice(before).some((c) => c.kind === 'ollama' && c.model === 'qwen2.5-coder:7b'), 'Ollama not called');
-  await pick(page.getByRole('combobox').filter({ hasText: 'Local model (Ollama)' }), 'Auto (your default model)');
+await step('Chat: the model menu names each installed Ollama model', async () => {
+  const combo = page.getByRole('combobox').filter({ hasText: /Qwen2\.5 Coder 7B/ });
+  await combo.waitFor();
+  expect((await combo.textContent()).includes('coding'), 'model shown with what it is for');
 });
 
 await step('Chat: rename, move to Pine, filter by project, export .md', async () => {
@@ -794,7 +757,7 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await snap('copy-overview');
   await card.click();
   await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
-  // Each script has a folder for Claude (code, CLAUDE.md, logs, trades) and a Claude-only chat
+  // Each script has a folder (code, CLAUDE.md, logs, trades) and its own chat on the local model
   await page.locator('[data-script="Silver Scalper"]').getByRole('button', { name: 'Edit Silver Scalper' }).click();
   const sd = page.getByRole('dialog');
   await sd.getByTestId('script-folder').getByLabel('Folder').filter({ hasText: /silver-scalper$/ }).waitFor();
@@ -802,13 +765,9 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   expect(fs.existsSync(path.join(folder, 'CLAUDE.md')) && fs.existsSync(path.join(folder, 'activity.log')), `no script folder at ${folder}`);
   expect(/Lucid squad now trades Silver Scalper/.test(fs.readFileSync(path.join(folder, 'activity.log'), 'utf8')), 'activity.log missing the setup');
   await snap('copy-script-dialog');
-  await sd.getByRole('button', { name: 'Open its Claude chat' }).click();
+  await sd.getByRole('button', { name: 'Open its chat' }).click();
   await page.getByPlaceholder('Reply to QuantBot...').waitFor();
-  const picker = page.getByRole('combobox').filter({ hasText: /^Claude/ });
-  await picker.click();
-  const names = await page.getByRole('option').allTextContents();
-  expect(names.length === 3 && names.every((n) => n.startsWith('Claude')), `script chat offers ${names.join(', ')}`);
-  await page.keyboard.press('Escape');
+  await page.getByRole('combobox').filter({ hasText: /Qwen2\.5 Coder 7B/ }).waitFor();
 });
 
 await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, news and trading-hour blocks', async () => {
