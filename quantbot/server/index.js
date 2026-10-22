@@ -545,7 +545,28 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   });
   await lane.listen(port ? server.address().port + 1 : 0);
 
+  // Windows: start the MT5 auto-login daemon by itself when MT5 accounts have saved logins (installs the MetaTrader5
+  // package first if needed), so every terminal logs in after an update or reboot without a manual step
+  let mt5Daemon = null;
+  const startMt5Daemon = async () => {
+    if (process.platform !== 'win32' || process.env.QUANTBOT_NO_AUTOSTART || process.env.CI || mt5Daemon) return;
+    const withLogin = (await entityDb.run('TradingAccount', 'filter', {})).filter((a) => a.platform === 'MT5' && a.password_enc);
+    if (!withLogin.length) return;
+    const { spawn, spawnSync } = await import('node:child_process');
+    const py = spawnSync('python', ['-c', 'import MetaTrader5'], { windowsHide: true });
+    if (py.error) { app?.log?.('mt5 daemon: Python is not installed, so MT5 accounts are not logged in automatically'); return; }
+    if (py.status !== 0) spawnSync('python', ['-m', 'pip', 'install', '--user', 'MetaTrader5'], { windowsHide: true, timeout: 5 * 60000 });
+    mt5Daemon = spawn('python', [path.join(root, 'mt5', 'mt5_manager.py'), '--url', `http://127.0.0.1:${server.address().port}`, '--token', daemon.token()], { windowsHide: true, stdio: 'ignore' });
+    mt5Daemon.on('exit', (code) => { app?.log?.(`mt5 daemon exited (${code}); restarting in a minute`); mt5Daemon = null; setTimeout(() => startMt5Daemon().catch(() => {}), 60000).unref?.(); });
+    app?.log?.(`mt5 daemon started for ${withLogin.length} account(s)`);
+  };
+  setTimeout(() => startMt5Daemon().catch((e) => app?.log?.(`mt5 daemon: ${e.message}`)), 5000).unref?.();
+  const daemonCheck = setInterval(() => startMt5Daemon().catch(() => {}), 5 * 60000); // accounts added later
+  daemonCheck.unref?.();
+
   const close = async () => {
+    clearInterval(daemonCheck);
+    try { mt5Daemon?.removeAllListeners('exit'); mt5Daemon?.kill(); } catch { /* gone */ }
     news.stop();
     clearInterval(payoutTimer);
     clearInterval(lockTimer);
