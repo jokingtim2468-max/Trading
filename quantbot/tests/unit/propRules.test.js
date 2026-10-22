@@ -9,7 +9,7 @@ const trades = (pnls) => pnls.map((pnl, i) => ({ exitTime: T0 + Math.floor(i / 2
 
 test('the picker only offers firms and models that have the size', () => {
   const at10k = firmsForSize(presets, 10000);
-  assert.deepEqual(Object.keys(at10k).sort(), ['Alpha Capital', 'FTMO', 'The5ers'], 'Lucid has no $10K account');
+  assert.deepEqual(Object.keys(at10k).sort(), ['Alpha Capital', 'FTMO', 'FTMO US (OANDA)', 'The5ers'], 'Lucid has no $10K account');
   assert.ok(firmsForSize(presets, 150000)['Lucid Trading'].includes('LucidPro'), 'Lucid offers a 150K Pro');
   assert.ok(!firmsForSize(presets, 150000).FTMO, 'FTMO has no 150K');
   const at25k = firmsForSize(presets, 25000);

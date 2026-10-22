@@ -7,7 +7,7 @@ import { planFirm, STAGE_LABELS } from './lib/copyRules.js';
 
 // The EA's FirmProfile enum: LUCID_FLEX, LUCID_PRO, FTMO_EVAL, FTMO_FUNDED, THE5ERS, ALPHA (every account type maps to one)
 const profileOf = (p) => (p.firm === 'Lucid Trading' ? (/Pro/.test(p.model) ? 1 : 0)
-  : p.firm === 'FTMO' ? (p.stage === 'funded' ? 3 : 2) : p.firm === 'The5ers' ? 4 : p.firm === 'Alpha Capital' ? 5 : 0);
+  : String(p.firm).startsWith('FTMO') ? (p.stage === 'funded' ? 3 : 2) : p.firm === 'The5ers' ? 4 : p.firm === 'Alpha Capital' ? 5 : 0);
 const bad = (m) => Object.assign(new Error(m), { status: 400 });
 const r2 = (v) => Math.round(v * 100) / 100;
 
