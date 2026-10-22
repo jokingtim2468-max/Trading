@@ -262,7 +262,7 @@ await step('Strategy Tester: $10K default, firm rules by size (unavailable firms
   const chips = page.getByTestId('firm-chips');
   // $10K by default: only FTMO offers that size
   await chips.locator('[data-firm="FTMO"]').waitFor();
-  expect(/border-dashed/.test(await chips.locator('[data-firm="Lucid Trading"]').getAttribute('class')), 'Lucid has no $10K account: listed dimmed');
+  expect(/border-dashed/.test(await chips.locator('[data-firm-other="Lucid Trading"]').getAttribute('class')), 'Lucid has no $10K account: listed dimmed');
   await pick(page.getByLabel('Account size'), '$25K');
   await chips.locator('[data-firm="Lucid Trading"]').waitFor();
   await chips.locator('[data-firm="Lucid Trading"]').click();
@@ -425,7 +425,8 @@ await step('Converter opens a chat to fine-tune; the AI reads the tests and mark
     await chatPage.getByPlaceholder('Reply to QuantBot...').fill('Check my tests and the gold volatility');
     await chatPage.keyboard.press('Enter');
     await chatPage.getByText(/I read 4 tests of E2E Bot \(best net -?\d+\.\d\d\)\. XAUUSD M15 median ATR\(14\) that week: \d/).waitFor({ timeout: 60000 });
-    const chat = models.calls.slice(before);
+    // The chat's first message also sends the system prompt (the OK handshake); the tool round itself is 2 calls
+    const chat = models.calls.slice(before).filter((c) => !/reply with exactly: OK/.test(String(c.messages?.at(-1)?.content || '')));
     expect(chat.length === 2, `${chat.length} model calls for one tool round`);
     expect(chat[0].tools.includes('get_bars') && chat[0].tools.includes('get_trades'), `tools offered: ${chat[0].tools}`);
     expect(chat[0].system.includes('LINKED BOT: "E2E Bot"') && /get_test_run/.test(chat[0].system), 'system prompt lacks the linked bot or the tool guide');
@@ -950,7 +951,7 @@ await step('Everything is still there after restarting QuantBot', async () => {
   await page.goto(base());
   await page.locator('aside').getByText('Gold Breakout v2').waitFor();
   await page.goto(`${base()}/settings`);
-  await text('Linked ···· 1234').waitFor();
+  await text('Using qwen2.5-coder:7b').waitFor();
   await page.getByRole('radio', { name: /Full animations/ }).waitFor();
 });
 

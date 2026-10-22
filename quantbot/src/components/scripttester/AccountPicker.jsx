@@ -69,7 +69,7 @@ export default function AccountPicker({ presets, value, onChange, allowAll = fal
               ))}
             </AnimatePresence>
             {others.map((f) => (
-              <button key={f} type="button" onClick={() => jumpTo(f)} data-firm={f} title={`${f} doesn't offer ${k(value.size)}: picks its nearest size`}
+              <button key={f} type="button" onClick={() => jumpTo(f)} data-firm-other={f} title={`${f} doesn't offer ${k(value.size)}: picks its nearest size`}
                 className="h-10 px-3 rounded-lg border border-dashed border-border text-sm whitespace-nowrap text-muted-foreground/60 hover:bg-accent">{f}</button>
             ))}
           </div>
