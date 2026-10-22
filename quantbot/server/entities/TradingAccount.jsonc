@@ -112,6 +112,10 @@
     "day_key": {
       "type": "string"
     },
+    "tradovate_on": {
+      "type": "boolean",
+      "description": "Send this Tradovate account's trades through the Tradovate API (login saved encrypted)"
+    },
     "risk_share": {
       "type": "number",
       "description": "Size each trade so its stop risks this share of the smaller of the daily loss limit and the max loss (0.25 = a quarter); used when risk_usd is empty"

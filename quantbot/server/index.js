@@ -22,6 +22,8 @@ import { pcZone } from './lib/blackout.js';
 import { createDaemonApi, sanitizeResult, parseBulk } from './mt5daemon.js';
 import { createTrainer } from './train.js';
 import { createTerminal } from './terminal.js';
+import { createTradovate } from './tradovate.js';
+import { createKeys } from './store.js';
 import { createFastLane } from './fastlane.js';
 import { createFleet } from './fleet.js';
 import { loadPresets } from './lib/fleetRules.js';
@@ -62,7 +64,7 @@ function trusted(req) {
 
 const FOLDER_ENTITIES = new Set(['Script', 'CopyGroup', 'TradingAccount', 'AccountTrade', 'CopyEvent']);
 
-async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents }, url) {
+async function handleApi(req, res, { backend, market, app, signals, port, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents, tradovate, tvKeys }, url) {
   if (!trusted(req)) return send(res, 403, { error: 'Forbidden' });
   const json = () => String(req.headers['content-type'] || '').startsWith('application/json');
 
@@ -342,6 +344,21 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
   const job = url.pathname.match(/^\/api\/market\/jobs\/(\d+)$/);
   if (req.method === 'GET' && job) return send(res, 200, market.job(job[1]));
+  // Tradovate: save an account's login (kept encrypted) and test it
+  if (req.method === 'POST' && (url.pathname === '/api/tradovate/login' || url.pathname === '/api/tradovate/test')) {
+    if (!String(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'JSON required' });
+    const b = JSON.parse((await readBody(req, 20000)).toString('utf8') || '{}');
+    const account = backend.handle('entity', 'TradingAccount', 'get', String(b.account_id || ''));
+    if (url.pathname.endsWith('/login')) {
+      if (!b.name || !b.password) return send(res, 400, { error: 'Enter the Tradovate username and password' });
+      tvKeys.set(`tradovate:${account.id}`, JSON.stringify({ name: String(b.name), password: String(b.password), cid: b.cid || '', sec: b.sec || '', appId: b.appId || '' }));
+      return send(res, 200, { saved: true });
+    }
+    try { return send(res, 200, await tradovate.test(account)); } catch (e) { return send(res, 400, { error: e.message }); }
+  }
+  if (req.method === 'GET' && url.pathname === '/api/tradovate/status') {
+    return send(res, 200, { accounts: Object.fromEntries(backend.handle('entity', 'TradingAccount', 'filter', {}).filter((a) => a.platform === 'Tradovate').map((a) => [a.id, tradovate.status(a.id)])) });
+  }
   // Today's model high / low for a symbol (asks the local model once a day, then answers from memory) and the
   // recent days' levels, for scripts outside the app (tools/daily_levels.py writes them into a Pine indicator)
   if (req.method === 'GET' && url.pathname === '/api/levels') {
@@ -402,7 +419,13 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   const news = createNews({ dataDir, log: app?.log, ...(newsFetch ? { fetch: newsFetch } : {}) });
   news.start();
   let lane = null;
-  const copier = createCopier({ db: entityDb, log: app?.log, news: () => news.events(), onMt5: (order, t0) => lane?.push(order, t0) });
+  // Tradovate logins, encrypted in the same key store as API keys (one entry per account)
+  const tvKeys = createKeys(dataDir, cipher.encrypt, cipher.decrypt);
+  const tradovate = createTradovate({ creds: (id) => { try { return JSON.parse(tvKeys.get(`tradovate:${id}`) || 'null'); } catch { return null; } }, log: app?.log });
+  const copier = createCopier({ db: entityDb, log: app?.log, news: () => news.events(), onMt5: (order, t0) => lane?.push(order, t0), tradovate });
+  const tvConnect = () => tradovate.connectAll(entityDb.run('TradingAccount', 'filter', {})).catch(() => {});
+  setTimeout(tvConnect, 4000).unref?.();
+  setInterval(tvConnect, 30 * 60000).unref?.();
   const signals = createSignals({ dataDir, db: entityDb, log: app?.log, copier });
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
@@ -504,7 +527,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     }
     if (url.pathname.startsWith('/api/')) {
       try {
-        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents }, url);
+        await handleApi(req, res, { backend, market, app, signals, port: boundPort, folders, news, payouts, daemon, trainer, terminal, lane, fleet, agents, tradovate, tvKeys }, url);
       } catch (e) {
         // The desktop app writes the full error to logs\quantbot.log in its install folder (Settings > Logs)
         app?.log?.(`${req.method} ${url.pathname}: ${e.stack || e}`);

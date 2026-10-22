@@ -551,3 +551,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Scaling planner (/scaling, sidebar "Scaling planner")
 - Inputs: average day %, daily swing %, account size (FTMO US fees), accounts at once (capped by $400K), months.
 - Four stat tiles (pass rate, months to funded, median net, 10%/90% net) and a month table (funded capital, payouts, fees, net; net green/red).
+
+## Tradovate trading from the app chart
+- Copy trading > a Tradovate account: "Send this account's trades to Tradovate" + username / password / API CID / API secret, Save login (encrypted), Test.
+- Chart and script orders reach the account through Tradovate's API: market + OSO bracket (stop + target), closes liquidate. Front-month contract found automatically (NQ -> NQZ6). Stop/target moves not sent yet.
+- On app start (and every 30 min) every Tradovate account with trading on logs in automatically; /api/tradovate/status shows the result.

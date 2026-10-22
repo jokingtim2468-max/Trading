@@ -30,7 +30,7 @@ async function defaultForward(url, body) {
 
 // news: () => calendar events (server/news.js) for the groups' news blackouts
 // onMt5(order, t0): hands a new MT5 order to the fast lane straight away (-> microseconds since t0, or null)
-export function createCopier({ db, log = () => {}, forward = defaultForward, news = () => [], onMt5 = null }) {
+export function createCopier({ db, log = () => {}, forward = defaultForward, news = () => [], onMt5 = null, tradovate = null }) {
   const run = (...a) => db.run(...a);
   let written = 0;
 
@@ -70,9 +70,24 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
     }
   }
 
+  // A Tradovate account trades through its API straight away
+  async function sendTradovate(account, action, trade, refs) {
+    const r = { ...refs, account_id: account.id, trade_id: trade.id };
+    try {
+      const out = await tradovate.order(account, action, trade);
+      if (out.skipped) { await note('order', `${who(account)}: ${out.skipped}`, r, { action }, 'warn'); return; }
+      await run('AccountTrade', 'update', trade.id, { forwarded: `Tradovate ${action} sent (order ${out.order_id})` });
+      await note('order', `${who(account)}: ${action} ${action === 'open' ? `${trade.side === 'long' ? 'buy' : 'sell'} ${trade.qty} ` : ''}${out.contract} sent to Tradovate (order ${out.order_id})`, r, { action, ...out });
+    } catch (e) {
+      await run('AccountTrade', 'update', trade.id, { forwarded: `Tradovate ${action} failed: ${e.message}` });
+      await note('order', `${who(account)}: Tradovate ${action} failed: ${e.message}`, r, { action }, 'error');
+    }
+  }
+
   // An order for the account's MT5 terminal (the QuantBot Copier EA polls for it and places it)
   // lane: { t0, pushed: [] } of the signal being copied (the time from the app's first check to each order leaving)
   async function queueMt5(account, action, trade, refs, lane = null) {
+    if (account.platform === 'Tradovate' && account.tradovate_on && tradovate) return sendTradovate(account, action, trade, refs);
     if (account.platform !== 'MT5' || !account.mt5_on) return;
     const order = await run('Mt5Order', 'create', {
       account_id: account.id, trade_id: trade.id, action, symbol: trade.symbol, side: trade.side, lots: trade.qty,

@@ -52,7 +52,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
         ...(isMt5 ? { server: form.server.trim(), environment: '' } : { server: '', environment: form.environment || 'demo' }),
         display_name: form.display_name.trim() || randomName(), avatar_seed: form.avatar_seed,
         plan: form.plan, start_balance: start, target: num(form.target), max_loss: num(form.max_loss), trailing: !!form.trailing,
-        risk_usd: num(form.risk_usd), risk_share: num(form.risk_share), forward_url: (form.forward_url || '').trim(),
+        risk_usd: num(form.risk_usd), risk_share: num(form.risk_share), tradovate_on: !!form.tradovate_on, forward_url: (form.forward_url || '').trim(),
         stage: plan.stages ? form.stage || Object.keys(plan.stages)[0] : '', daily_loss: num(form.daily_loss), day_zone: form.day_zone || plan.dayZone || '',
         auto_withdraw: !!form.auto_withdraw && form.stage === 'funded', split: num(form.split), payout_days: num(form.payout_days),
         mt5_on: isMt5 && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
@@ -141,7 +141,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
                   : picked && detected && detected.platform !== picked && familyOf(detected.platform) !== familyOf(picked) ? `Set by hand (it looks like ${platformOfTitle(detected.platform)}).` : 'Set by hand.'}
             </p>
           </Field>
-          {platform && (isMt5 ? <Mt5Fields form={form} set={set} servers={servers} /> : <TradovateFields form={form} set={set} />)}
+          {platform && (isMt5 ? <Mt5Fields form={form} set={set} servers={servers} /> : <TradovateFields form={form} set={set} account={account} />)}
           {platform && !isMt5 && (
             <Field label="Prop firm (optional)">
               <Input value={form.firm || detected?.firm || ''} onChange={(e) => set('firm', e.target.value)} placeholder="e.g. Lucid Trading" />
