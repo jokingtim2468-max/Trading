@@ -6,9 +6,10 @@ const tone = (left) => (left == null ? '#787b86' : left < 0.25 ? '#f23645' : lef
 // A bar: how much of a limit is left (full = untouched)
 function Bar({ label, left, of, testid }) {
   const share = of ? Math.max(0, Math.min(1, left / of)) : null;
+  const text = left > of ? `${$(left)} room · limit ${$(of)}` : `${$(left)} left of ${$(of)}`;
   return (
     <div className="space-y-0.5" data-testid={testid}>
-      <div className="flex justify-between gap-3"><span className="text-[#9598a1]">{label}</span><span className="tabular-nums" style={{ color: tone(share) }}>{$(left)} left of {$(of)}</span></div>
+      <div className="flex justify-between gap-3"><span className="text-[#9598a1]">{label}</span><span className="tabular-nums" style={{ color: tone(share) }}>{text}</span></div>
       <div className="h-1 rounded bg-[#2a2e39] overflow-hidden"><div className="h-full rounded transition-[width] duration-500" style={{ width: `${(share ?? 0) * 100}%`, background: tone(share) }} /></div>
     </div>
   );
@@ -21,7 +22,7 @@ export default function LimitsHud({ rows }) {
   const list = rows.filter((r) => r.daily_limit || r.max_loss || r.target).sort((a, b) => (a.room ?? Infinity) - (b.room ?? Infinity)).slice(0, 3);
   if (!list.length) return null;
   return (
-    <div className="absolute right-[72px] top-2 z-10 w-[250px] rounded-lg bg-[#1e222d]/90 backdrop-blur border border-[#363a45] text-[11px] text-[#d1d4dc] shadow-[0_6px_18px_rgba(0,0,0,.4)]" data-testid="limits-hud">
+    <div className="absolute left-3 top-[84px] z-10 w-[250px] rounded-lg bg-[#1e222d]/90 backdrop-blur border border-[#363a45] text-[11px] text-[#d1d4dc] shadow-[0_6px_18px_rgba(0,0,0,.4)]" data-testid="limits-hud">
       <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex justify-between px-2.5 py-1.5 font-semibold"><span>Account limits</span><span className="text-[#787b86]">{open ? '−' : '+'}</span></button>
       {open && list.map((r) => {
         const target = r.target && r.start ? r.start + r.target : null;

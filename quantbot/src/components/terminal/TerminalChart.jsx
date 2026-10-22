@@ -436,7 +436,7 @@ export default function TerminalChart({
               )}
             </div>
             <div onPointerDown={(e) => startPos(e, d, 'width')} data-testid="position-width" title="Drag to make the box wider or narrower"
-              className="pointer-events-auto absolute w-2.5 h-6 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-white/80 border border-[#363a45] cursor-ew-resize" style={{ left: left + width, top: clamp(g.entry) }} />
+              className="pointer-events-auto absolute w-2.5 h-6 -translate-x-1/2 -translate-y-1/2 rounded-sm bg-white/80 border border-[#363a45] cursor-ew-resize" style={{ left: left + width, top: clamp((g.entry + g.tp) / 2) }} />
             {level(g.tp, 'tp', '#089981', d.tp, `+${usd(reward)}`)}
             {level(g.sl, 'sl', '#f23645', d.sl, `-${usd(risk)}`)}
           </div>
