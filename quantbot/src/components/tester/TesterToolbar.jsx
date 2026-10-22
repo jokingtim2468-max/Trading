@@ -1,10 +1,11 @@
 import { Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MODELS, GROUPS } from '@/lib/models';
+import { GROUPS, useLocalModels } from '@/lib/models';
 import { WINDOWS } from '@/lib/backtest/windows';
 
 export default function TesterToolbar({ cfg, set, onRun, onStop, running, disabled }) {
+  const models = useLocalModels();
   return (
     <div className="flex flex-wrap items-center gap-3">
       <div className="flex rounded-lg border border-border p-0.5">
@@ -20,7 +21,7 @@ export default function TesterToolbar({ cfg, set, onRun, onStop, running, disabl
       <Select value={cfg.model} onValueChange={(v) => set('model', v)}>
         <SelectTrigger className="h-9 w-52"><SelectValue /></SelectTrigger>
         <SelectContent>
-          {MODELS.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
+          {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
         </SelectContent>
       </Select>
       <Select value={cfg.windowId} onValueChange={(v) => set('windowId', v)}>

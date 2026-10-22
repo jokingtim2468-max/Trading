@@ -531,3 +531,6 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Web access + training examples
 - Chat tools web_search / web_fetch: Ollama's web search when an Ollama key is saved (Settings → local model, optional), else DuckDuckGo with Bing as backup.
 - Training adds example scripts (shipped strategies + the trader's bots with PF > 1.3, DD < 10%, 30+ trades) at ~5% of the data; trained models are added to Ollama with Unsloth's Modelfile (chat template kept).
+
+## Model menus list each Ollama model by name
+- Chat, Strategy Tester and Agent Team menus show every installed Ollama model as "<Family> <size> · <strength>" (e.g. "Qwen2.5 Coder 7B · coding"); the Settings model is first and marked (default); "-gold" models read "trained on your data".

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Play, Square } from 'lucide-react';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
-import { MODELS, defaultModel } from '@/lib/models';
+import { defaultModel, describeOllama, useLocalModels } from '@/lib/models';
 import { Button } from '@/components/ui/button';
 import { parseCommand } from '@/lib/agents/parse';
 import { detectLanguage } from '@/lib/chatScript';
@@ -60,6 +60,7 @@ async function runAgent(n, { model, translator, steps, markets, signal, onLog })
 // Settings > Agent team: a running Ollama model and 1-4 agents, each in its own folder, writing and backtesting
 // scripts until it's satisfied or reaches the step limit
 export default function AgentTeamCard() {
+  const named = useLocalModels();
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [translator, setTranslator] = useState('builtin');
@@ -113,7 +114,7 @@ export default function AgentTeamCard() {
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Running model</span>
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2" data-testid="agent-model">
             {!models.length && <option value="">No Ollama models found</option>}
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            {models.map((m) => <option key={m} value={m}>{describeOllama(m)} ({m})</option>)}
           </select>
         </label>
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Agents</span>
@@ -131,7 +132,7 @@ export default function AgentTeamCard() {
         </label>
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Backtest translator</span>
           <select value={translator} onChange={(e) => setTranslator(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2">
-            {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            {named.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </label>
       </div>

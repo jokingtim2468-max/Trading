@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { ArrowUp } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MODELS } from '@/lib/models';
+import { useLocalModels } from '@/lib/models';
 
 const STYLES = ['Concise', 'Code only'];
 const triggerCls = 'h-8 w-auto gap-2 border-border bg-transparent text-xs text-muted-foreground';
 
 // claudeOnly: a copy trading script's chat, which only Claude writes
 export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange, claudeOnly = false }) {
-  const models = claudeOnly ? MODELS.filter((m) => m.provider === 'anthropic') : MODELS;
+  const models = useLocalModels();
   const [text, setText] = useState('');
 
   const submit = () => {

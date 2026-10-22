@@ -30,7 +30,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
   const replying = new Map(); // session_id -> { started, error, done }
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   // Local only: every chat, conversion and test runs on the local model (Ollama) set up in Settings
-  function pickModel() {
+  function pickModel(model) {
+    if (String(model || '').startsWith('ollama:')) return model;
     if (user.me().ollama_model) return 'local';
     return fail('Set up your local model in Settings (Models → "Set up a model for my PC") to use QuantBot.');
   }
@@ -47,6 +48,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
 
   async function ask(model, system, messages, maxTokens, tools, onLive) {
     const id = pickModel(model);
+    // ollama:<name>: that installed model instead of the one set in Settings
+    if (id.startsWith('ollama:')) return callModel('local', { ...credentials('local'), model: id.slice(7) }, id, system, messages, maxTokens, tools, onLive);
     const provider = providerOf(id) || fail('Unknown model');
     return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools, onLive);
   }
