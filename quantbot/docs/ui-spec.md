@@ -569,3 +569,9 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - No middle-dot meta strings in chart chrome: label/value pairs with hairline separators; replay hints as keycaps.
 - Empty positions: "Flat on <group>, with $X of today's room left on <tightest account>" + how to trade.
 - Limits panel is click-through except its fold button.
+
+## Chat commands (run in the app, never sent to the model)
+- Typing "/" opens a list above the composer (arrow keys / Tab / Enter): /context, /tools, /model, /prompt, /workspace, /new, /loopfix, /help.
+- Replies are QuantBot cards in the chat ("QuantBot · /cmd · not sent to the model"). /context: tokens used vs the 32k window as a stacked bar (system prompt, handshake, conversation, tools) + free space. /tools: a switch per tool.
+- New model tools: calculate, position_size, prop_rules, workspace_files / workspace_read / workspace_write (locked to the chat's folder).
+- After the OK handshake, later turns send a short stand-in instead of a second copy of the system prompt (~6k tokens saved).

@@ -144,7 +144,7 @@ describe('AI functions', () => {
       const chat = o.seen[1];
       assert.equal(chat.model, 'qwen2.5-coder:7b', 'a Claude pick still runs on the local model');
       assert.equal(chat.messages[0].role, 'system');
-      assert.match(chat.messages[1].content, /reply with exactly: OK/, 'the handshake opens the conversation');
+      assert.match(chat.messages[1].content, /(reply with exactly|Confirm you have read it with): OK/, 'the handshake opens the conversation');
       assert.equal(chat.messages[2].content, 'OK');
       assert.equal(lastUser(chat), 'Build a gold scalper');
       assert.equal(message.role, 'assistant');

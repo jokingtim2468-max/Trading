@@ -84,3 +84,23 @@ test('scaling planner: an edge passes more often and nets more than no edge', as
   assert.ok(good.passRate > none.passRate && good.medianNet > none.medianNet);
   assert.ok(good.months.at(-1).funded > 0 && good.months.length === 12);
 });
+
+test('chat tools for small models: exact maths, position size, prop rules, workspace files kept inside the folder', async () => {
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { createChatTools } = await import('../../server/lib/chatTools.js');
+  const t = createChatTools({ db: { run: () => [] }, market: null });
+  const j = async (n, i, c) => JSON.parse(await t.run(n, i, c));
+  assert.equal((await j('calculate', { expression: '(10000*0.0125)/(4.5*100)' })).result, 0.27777778);
+  assert.match((await j('calculate', { expression: 'process.exit()' })).error, /Only numbers/);
+  const ps = await j('position_size', { symbol: 'XAUUSD', risk_usd: 125, stop_distance: 5 });
+  assert.equal(ps.size, 0.25); assert.equal(ps.unit, 'lots');
+  assert.equal((await j('position_size', { symbol: 'NQ', risk_usd: 500, stop_distance: 10 })).size, 2);
+  const pr = await j('prop_rules', { firm: 'FTMO US', size: 10000, model: 'Evaluation' });
+  assert.equal(pr.firm, 'FTMO US (OANDA)'); assert.equal(pr.accounts[0].daily_loss, 500);
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  await j('workspace_write', { path: 'notes/plan.md', content: 'hi' }, { workspace: ws });
+  assert.deepEqual((await j('workspace_files', {}, { workspace: ws })).files, ['notes/plan.md']);
+  assert.equal((await j('workspace_read', { path: 'notes/plan.md' }, { workspace: ws })).content, 'hi');
+  assert.match((await j('workspace_read', { path: '../../etc/passwd' }, { workspace: ws })).error, /inside the workspace/);
+  assert.match((await j('workspace_write', { path: 'run.bat', content: 'x' }, { workspace: ws })).error, /file type/);
+});

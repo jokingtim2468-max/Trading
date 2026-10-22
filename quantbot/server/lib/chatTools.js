@@ -3,6 +3,9 @@
 import { INSTRUMENTS, TIMEFRAMES, MAX_RANGE_DAYS, firstDate } from '../market/instruments.js';
 import { marketStats } from '../../src/lib/backtest/marketStats.js';
 import { evaluate, levelFromXp, tierOf, groupScriptIds, ACCOUNT_STEP, SCRIPT_STEP } from './copyRules.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadPresets } from './fleetRules.js';
 
 const MAX_RESULT = 60000; // characters per tool result, so a big answer can't crowd out the conversation
 const MAX_BARS = 1500;
@@ -10,6 +13,36 @@ const r2 = (v) => (v == null || !Number.isFinite(v) ? v : Math.round(v * 100) / 
 const day = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : null);
 
 export const TOOL_DEFS = [
+  {
+    name: 'calculate',
+    description: 'Exact arithmetic (small models get maths wrong): + - * / ^ % and parentheses, e.g. "(10000*0.0125)/(4.5*100)".',
+    parameters: { type: 'object', properties: { expression: { type: 'string' } }, required: ['expression'] },
+  },
+  {
+    name: 'position_size',
+    description: 'Lots / contracts for a trade from the dollars at risk and the stop distance. Gold (XAUUSD) MT5: $100 per $1 per lot; US100 CFD $1 per point; NQ $20, MNQ $2, MGC $10 per point per contract.',
+    parameters: { type: 'object', properties: { symbol: { type: 'string' }, risk_usd: { type: 'number' }, stop_distance: { type: 'number', description: 'entry to stop, in price units' } }, required: ['symbol', 'risk_usd', 'stop_distance'] },
+  },
+  {
+    name: 'prop_rules',
+    description: "A prop firm account's exact rules from QuantBot's presets: profit target, daily loss, max loss and type, minimum days, consistency, fee. Leave out size/model to list what the firm offers.",
+    parameters: { type: 'object', properties: { firm: { type: 'string', description: 'FTMO, FTMO US (OANDA), The5ers, Alpha Capital, Lucid Trading' }, model: { type: 'string' }, size: { type: 'number' } }, required: ['firm'] },
+  },
+  {
+    name: 'workspace_files',
+    description: "List this chat's workspace folder (scripts/ and notes).",
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'workspace_read',
+    description: 'Read a file in this chat\'s workspace, e.g. scripts/gold-breakout.mq5.',
+    parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+  },
+  {
+    name: 'workspace_write',
+    description: "Save a notes / data file in this chat's workspace (scripts are saved automatically from your code blocks). Not for .exe/.bat/.ps1.",
+    parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+  },
   {
     name: 'web_search',
     description: 'Search the web (docs, MQL5 / Pine reference, news, prop firm rules). Returns titles, links and snippets.',
@@ -399,11 +432,59 @@ export function createChatTools({ db, market, webKey = () => '' }) {
   };
 
   // -> text for the model (errors are returned too, so the model can correct itself)
-  async function run(name, input) {
+  // Files only inside the chat's own workspace
+  const inside = (ws, rel) => {
+    if (!ws) throw new Error('This chat has no workspace yet: it is created after the first reply');
+    const full = path.resolve(ws, String(rel || '.'));
+    if (full !== path.resolve(ws) && !full.startsWith(path.resolve(ws) + path.sep)) throw new Error('Only files inside the workspace');
+    return full;
+  };
+  const POINT_VALUE = { XAUUSD: 100, GOLD: 100, US100: 1, NAS100: 1, NQ: 20, MNQ: 2, MGC: 10, GC: 100, ES: 50, MES: 5 };
+  Object.assign(tools, {
+    calculate: ({ expression }) => {
+      const e = String(expression || '').replace(/\^/g, '**');
+      if (!/^[\d\s+\-*/().%e]+$/i.test(e)) throw new Error('Only numbers and + - * / ^ % ( )');
+      const v = Function(`"use strict"; return (${e});`)();
+      if (!Number.isFinite(v)) throw new Error('Not a finite number');
+      return { expression, result: Math.round(v * 1e8) / 1e8 };
+    },
+    position_size: ({ symbol, risk_usd, stop_distance }) => {
+      const sym = String(symbol || '').toUpperCase().replace(/\d+!?$/, '');
+      const pv = POINT_VALUE[sym];
+      if (!pv) throw new Error(`Unknown symbol ${symbol}: one of ${Object.keys(POINT_VALUE).join(', ')}`);
+      const raw = Number(risk_usd) / (Number(stop_distance) * pv);
+      if (!(raw > 0)) throw new Error('risk_usd and stop_distance must be positive');
+      const futures = ['NQ', 'MNQ', 'MGC', 'GC', 'ES', 'MES'].includes(sym);
+      const size = futures ? Math.floor(raw) : Math.floor(raw * 100) / 100;
+      return { symbol: sym, dollars_per_point_per_unit: pv, size, unit: futures ? 'contracts' : 'lots', risk_at_that_size: Math.round(size * Number(stop_distance) * pv * 100) / 100, note: size <= 0 ? 'Below the minimum size: widen the risk or tighten the stop' : '' };
+    },
+    prop_rules: ({ firm, model, size }) => {
+      const p = loadPresets();
+      const f = Object.keys(p.firms).find((x) => x.toLowerCase() === String(firm || '').toLowerCase()) || Object.keys(p.firms).find((x) => x.toLowerCase().includes(String(firm || '').toLowerCase()));
+      if (!f) throw new Error(`Unknown firm: one of ${Object.keys(p.firms).join(', ')}`);
+      const list = p.presets.filter((x) => x.firm === f && (!size || x.size === Number(size)) && (!model || x.model.toLowerCase().includes(String(model).toLowerCase())));
+      return { firm: f, source: p.firms[f].rules_source, checked: p.firms[f].rules_checked, note: p.firms[f].note || '', accounts: list.slice(0, 20).map((x) => ({ model: x.model, size: x.size, stage: x.stage, profit_target: x.profit_target, daily_loss: x.broker_daily_limit, max_loss: x.max_drawdown, drawdown_type: x.drawdown_type, min_trading_days: x.min_trading_days, consistency: x.consistency_eval || x.consistency_funded, fee: x.fee, risk_per_trade: x.risk_usd })) };
+    },
+    workspace_files: (_, ctx) => {
+      const ws = inside(ctx?.workspace, '.');
+      const walk = (d, pre = '') => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name), `${pre}${e.name}/`) : [`${pre}${e.name}`]));
+      return { workspace: ws, files: walk(ws).slice(0, 300) };
+    },
+    workspace_read: ({ path: rel }, ctx) => ({ path: rel, content: fs.readFileSync(inside(ctx?.workspace, rel), 'utf8').slice(0, 50000) }),
+    workspace_write: ({ path: rel, content }, ctx) => {
+      if (/\.(exe|bat|cmd|ps1|vbs|dll|sh)$/i.test(String(rel))) throw new Error('Not that file type');
+      const full = inside(ctx?.workspace, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, String(content ?? '').slice(0, 200000));
+      return { saved: rel };
+    },
+  });
+
+  async function run(name, input, ctx = {}) {
     let out;
     try {
       if (!tools[name]) throw new Error(`Unknown tool ${name}`);
-      out = await tools[name](input || {});
+      out = await tools[name](input || {}, ctx);
     } catch (e) {
       out = { error: e.message };
     }

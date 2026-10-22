@@ -150,7 +150,7 @@ export async function startFakeModels({ delayMs = 800 } = {}) {
           message = { role: 'assistant', content: `I read ${runs.length} tests of E2E Bot (best net ${Math.max(...runs.map((r) => r.net)).toFixed(2)}). XAUUSD M15 median ATR(14) that week: ${stats.atr14.median}.\n\n\`\`\`mql5\n${EA}\n\`\`\`` };
         } else {
           // The chat sends the system prompt again as the hidden first message: answer the trader's real last message
-          const real = users.filter((m) => !/reply with exactly: OK/.test(m.content));
+          const real = users.filter((m) => !/(reply with exactly|Confirm you have read it with): OK/.test(m.content));
           message = { role: 'assistant', content: reply(system, real[real.length - 1]?.content || '') };
         }
         return setTimeout(() => {

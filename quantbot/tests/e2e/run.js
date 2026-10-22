@@ -134,7 +134,7 @@ await step('Chat: the local model writes an EA after confirming the system promp
   await expectCount(page.locator('pre'), 2);
   const chats = models.calls.filter((c) => c.kind === 'ollama' && /THE TRADER'S SYSTEM PROMPT/.test(c.system));
   expect(chats.length && chats.every((c) => c.model === 'qwen2.5-coder:7b'), 'chat did not use the local model');
-  expect(chats.some((c) => c.stream && /reply with exactly: OK/.test(c.messages[1]?.content || '')), 'replies stream, after the system-prompt handshake');
+  expect(chats.some((c) => c.stream && /(reply with exactly|Confirm you have read it with): OK/.test(c.messages[1]?.content || '')), 'replies stream, after the system-prompt handshake');
   await text('System prompt loaded').first().waitFor();
   await snap('chat-reply');
 });

@@ -54,7 +54,49 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools, onLive);
   }
 
+  // The tools the trader left on (Settings is /tools in the chat), run with this chat's workspace
+  const toolsOff = () => new Set(user.me().chat_tools_off || []);
+  const toolsFor = (session) => {
+    const off = toolsOff();
+    return { defs: chatTools.defs.filter((t) => !off.has(t.name)), run: (name, input) => chatTools.run(name, input, { workspace: session.workspace || '' }) };
+  };
+  const tokens = (text) => Math.ceil(String(text || '').length / 3.6); // rough: ~3.6 characters per token for English + code
+
   const fns = {
+    // /tools: every tool with on / off; { name, on } toggles one
+    chatToolList({ name, on } = {}) {
+      if (name) {
+        const off = toolsOff();
+        if (on) off.delete(name); else off.add(name);
+        user.update({ chat_tools_off: [...off] });
+      }
+      const off = toolsOff();
+      return { tools: chatTools.defs.map((t) => ({ name: t.name, description: t.description, on: !off.has(t.name) })) };
+    },
+    // /workspace: the chat's folder and its files
+    async chatWorkspace({ session_id }) {
+      const session = db.run('ChatSession', 'get', session_id);
+      if (!session.workspace) return { workspace: null, files: [] };
+      return JSON.parse(await chatTools.run('workspace_files', {}, { workspace: session.workspace }));
+    },
+    // /context: what the model gets on the next message, in tokens, against the local model's window
+    chatContext({ session_id }) {
+      const session = db.run('ChatSession', 'get', session_id);
+      const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;
+      const hidden = all.filter((m) => m.hidden), visible = all.filter((m) => !m.hidden);
+      const recent = visible.slice(-20);
+      const system = chatSystem(session.group, 'Concise', user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
+      const defs = toolsFor(session).defs;
+      const parts = [
+        { part: 'System prompt (rules, playbook, your workspace)', tokens: tokens(system) },
+        { part: 'System prompt handshake (short stand-in after the OK)', tokens: hidden.length ? tokens('Your system prompt is the system message above. Follow it in every reply. Confirm you have read it with: OK OK') : 0 },
+        { part: `Conversation (last ${recent.length} of ${visible.length} messages)`, tokens: tokens(chatHistory(recent).map((m) => m.content).join('')) },
+        { part: `Tools (${defs.length} on)`, tokens: tokens(JSON.stringify(defs)) },
+      ];
+      const used = parts.reduce((a, x) => a + x.tokens, 0);
+      return { parts, used, window: 32768, model: user.me().ollama_model || null, prompt_status: session.prompt_status || null, workspace: session.workspace || null, dropped: Math.max(0, visible.length - recent.length) };
+    },
+
     apiKeys({ action, provider, api_key }) {
       if (action === 'status') return keys.status();
       if (action === 'save') {
@@ -142,14 +184,17 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       if (!session.script_id && !session.prompt_status) { onLive?.('Sending your system prompt to the model…'); await fns.chatHandshake({ session_id, style }); session = db.run('ChatSession', 'get', session_id); }
       const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;
       // The system-prompt handshake always opens the conversation, then the last 20 visible messages
-      const recent = [...all.filter((m) => m.hidden), ...all.filter((m) => !m.hidden).slice(-20)];
+      // The handshake opens every conversation, but the full prompt is already the system message: later turns send
+      // a short stand-in instead of a second copy (saves ~6k tokens of the model's window)
+      const HANDSHAKE_SHORT = 'Your system prompt is the system message above. Follow it in every reply. Confirm you have read it with: OK';
+      const recent = [...all.filter((m) => m.hidden).map((m) => (m.role === 'user' ? { ...m, content: HANDSHAKE_SHORT } : m)), ...all.filter((m) => !m.hidden).slice(-20)];
       // A copy trading script's chat: Claude only, with the script's folder context (CLAUDE.md) and code
       let script = null;
       if (session.script_id) { try { script = db.run('Script', 'get', session.script_id); } catch { /* script deleted */ } }
       const useModel = model;
       const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
       const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
-      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, chatTools, onLive));
+      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, toolsFor(session), onLive));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       // A normal chat's first reply: the model names the chat, and that name becomes its workspace folder

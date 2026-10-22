@@ -12,6 +12,7 @@ import HomeGreeting from '@/components/quant/HomeGreeting';
 import MessageList from '@/components/quant/MessageList';
 import Composer from '@/components/quant/Composer';
 import MessageQueue from '@/components/quant/MessageQueue';
+import { parseCommand } from '@/lib/chatCommands';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
 
 export default function QuantChat() {
@@ -113,8 +114,45 @@ export default function QuantChat() {
   }, [activeId]);  
   const pollNow = useRef(() => {});
 
+  // /commands: QuantBot answers them itself with a card in the chat; the model never sees them
+  const [notes, setNotes] = useState([]);
+  const note = (command, kind, data, chat = activeId) => setNotes((n) => [...n, { id: `${Date.now()}-${Math.random()}`, at: Date.now(), chat, command, kind, data }]);
+  const fn = async (name, body) => (await client.functions.invoke(name, body)).data;
+  const toggleTool = async (n, name, on) => {
+    const r = await fn('chatToolList', { name, on });
+    setNotes((all) => all.map((x) => (x.id === n.id ? { ...x, data: r } : x)));
+  };
+  const runCommand = async ({ name, rest }) => {
+    try {
+      if (name === 'loopfix') return runLoopfix(`/loopfix ${rest}`);
+      if (name === 'new') return newChat();
+      if (name === 'help') return note('help', 'help', null);
+      if (name === 'tools') {
+        const [tool, state] = rest.split(/\s+/);
+        return note('tools', 'tools', await fn('chatToolList', tool && /^(on|off)$/i.test(state || '') ? { name: tool, on: /^on$/i.test(state) } : {}));
+      }
+      if (name === 'model') {
+        if (!rest) return note('model', 'text', { text: `This chat uses ${String(chatModel).replace(/^ollama:/, '')}. Type /model <name> to switch (installed models are in the menu below).` });
+        changeModel(`ollama:${rest}`);
+        return note('model', 'text', { text: `Switched to ${rest}. If it isn't installed, Ollama will say so on the next message (run: ollama pull ${rest}).` });
+      }
+      if (!activeId) return toast({ title: `/${name}`, description: 'Open or start a chat first.' });
+      if (name === 'context') return note('context', 'context', await fn('chatContext', { session_id: activeId }));
+      if (name === 'workspace') {
+        const w = await fn('chatWorkspace', { session_id: activeId });
+        return note('workspace', 'text', { text: w.workspace ? `${w.workspace}\n\n${w.files.length ? w.files.join('\n') : '(empty)'}` : 'No folder yet: it is created after the first reply.' });
+      }
+      if (name === 'prompt') {
+        const h = await api.handshake(activeId, style);
+        return note('prompt', 'text', { text: h.status === 'ok' ? 'The model confirmed the system prompt (it replied OK).' : `The model did not confirm the system prompt. It replied: ${h.reply}` });
+      }
+    } catch (e) { toast({ title: `/${name} failed`, description: e.response?.data?.error || e.message, variant: 'destructive' }); }
+    return null;
+  };
+
   const send = async (text) => {
-    if (/^\/loopfix\b/i.test(text.trim())) { await runLoopfix(text.trim()); return; }
+    const cmd = parseCommand(text);
+    if (cmd) { await runCommand(cmd); return; }
     let id = activeId;
     try {
       if (!id) {
@@ -133,6 +171,7 @@ export default function QuantChat() {
     }
   };
   const submit = (text) => {
+    if (parseCommand(text)) { send(text); return; }
     if (thinking && activeId) setQueue((q) => [...q, { id: `${Date.now()}-${Math.random()}`, text, chat: activeId }]);
     else send(text);
   };
@@ -163,7 +202,8 @@ export default function QuantChat() {
   const moveChat = async (id, group) => { await api.setSessionGroup(id, group); refreshSessions(); };
 
   const firstName = (user?.full_name || 'Trader').split(' ')[0];
-  const hasChat = activeId && (messages.length > 0 || thinking);
+  const chatNotes = notes.filter((n) => n.chat === activeId);
+  const hasChat = (activeId && (messages.length > 0 || thinking)) || chatNotes.length > 0;
 
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
@@ -179,7 +219,7 @@ export default function QuantChat() {
           onExport={() => api.exportMarkdown(session.title, messages)} onDelete={removeChat}
           onMenu={() => setSidebarOpen(true)}
         />
-        {hasChat ? <MessageList messages={messages} thinking={thinking} live={live} /> : <HomeGreeting name={firstName} />}
+        {hasChat ? <MessageList messages={messages} thinking={thinking} live={live} notes={chatNotes} onToggleTool={toggleTool} /> : <HomeGreeting name={firstName} />}
         {needsKey && <NoKeyBanner provider={missing} onSaved={setKeyStatus} />}
         <MessageQueue queue={queue.filter((q) => q.chat === activeId)} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
         <LoopFixPanel />
