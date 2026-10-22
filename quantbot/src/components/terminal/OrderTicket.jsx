@@ -54,7 +54,7 @@ export default function OrderTicket({ symbol, last, ticket, setTicket, preview, 
   const sizeText = ticket.sizing === 'risk' ? (sizes.length ? `${sizes.join(' / ')} lots` : '–') : ticket.qty;
   const label = `${ticket.side === 'buy' ? 'Buy' : 'Sell'}${kind === 'market' ? '' : ` ${kind}`} ${sizeText} ${symbol}${kind === 'market' ? '' : ` at ${f2(at)}`}`;
   return (
-    <div className="w-[300px] shrink-0 border-l border-[#2a2e39] flex flex-col" data-testid="order-ticket">
+    <div className="w-[300px] shrink-0 border-l border-[#2a2e39] flex flex-col qb-grain" data-testid="order-ticket">
       <div className="px-3.5 pt-3.5 pb-3 border-b border-[#2a2e39]">
         <div className="flex items-baseline justify-between">
           <span className="text-white font-semibold">{symbol}</span>

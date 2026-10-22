@@ -610,7 +610,8 @@ export default function Terminal() {
           <button type="button" onClick={() => setReplay({ ...replay, playing: !replay.playing })} aria-label={replay.playing ? 'Pause' : 'Play'} className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-play">{replay.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}</button>
           <button type="button" onClick={step} aria-label="Next candle" className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-[#2a2e39]" data-testid="replay-step"><StepForward className="w-4 h-4" /></button>
           {[1, 10, 60, 300].map((s) => <button key={s} type="button" onClick={() => setReplay({ ...replay, speed: s })} className={`h-7 px-2 rounded-md text-xs ${replay.speed === s ? 'bg-[#2a2e39] text-white' : 'text-[#787b86] hover:text-white'}`}>{s}×</button>)}
-          <span className="text-[#787b86] tabular-nums">{replay.clock != null ? new Date(replay.clock).toISOString().slice(0, 19).replace('T', ' ') : ''} · → next candle · space play</span>
+          <span className="text-[#d1d4dc] qb-num">{replay.clock != null ? new Date(replay.clock).toISOString().slice(0, 19).replace('T', ' ') : ''}</span>
+          <span className="text-[#787b86] flex items-center gap-1"><kbd className="px-1 rounded border border-[#363a45] text-[10px] text-[#9598a1]">→</kbd> next candle <kbd className="px-1 rounded border border-[#363a45] text-[10px] text-[#9598a1]">Space</kbd> play</span>
           <span className="ml-auto tabular-nums">Practice P&L <b className={practiceSum.pnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(practiceSum.pnl)}</b></span>
           <button type="button" onClick={() => practiceOrder('close')} disabled={!practice.open.length} data-testid="replay-close-all"
             title="Close every open practice trade at the current price"
@@ -635,8 +636,9 @@ export default function Terminal() {
           <span className={`px-2 rounded-full text-[11px] font-semibold uppercase ${sim.status === 'failed' ? 'bg-[#f23645]/20 text-[#f23645]' : sim.status === 'passed' ? 'bg-[#089981]/20 text-[#089981]' : 'bg-[#2962ff]/20 text-[#5b8def]'}`} data-testid="sim-status">{sim.status === 'passed' ? 'Passed 🎯' : sim.status}</span>
           <span>Balance <b>${sim.balance.toLocaleString()}</b></span>
           <span>Equity <b className={sim.equity >= sim.start ? 'text-[#089981]' : 'text-[#f23645]'}>${sim.equity.toLocaleString()}</b></span>
-          <span title="Max-loss floor (equity must stay above it)">Floor ${sim.floor.toLocaleString()} · room <b className={sim.roomToFloor < simPreset.max_drawdown * 0.25 ? 'text-[#ff9800]' : ''}>${sim.roomToFloor.toLocaleString()}</b></span>
-          <span>Today <b className={sim.dayPnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(sim.dayPnl)}</b>{sim.dailyLeft != null ? ` · daily loss left $${sim.dailyLeft.toLocaleString()}` : ''}</span>
+          <span title="Max-loss floor (equity must stay above it)">Floor ${sim.floor.toLocaleString()}, room <b className={sim.roomToFloor < simPreset.max_drawdown * 0.25 ? 'text-[#ff9800]' : ''}>${sim.roomToFloor.toLocaleString()}</b></span>
+          <span>Today <b className={sim.dayPnl >= 0 ? 'text-[#089981]' : 'text-[#f23645]'}>{usdSigned(sim.dayPnl)}</b></span>
+          {sim.dailyLeft != null && <span>Daily loss left <b>${sim.dailyLeft.toLocaleString()}</b></span>}
           {sim.toTarget != null && <span>To target <b>${sim.toTarget.toLocaleString()}</b></span>}
           {sim.reason && <span className="text-[#9598a1] truncate">{sim.reason}</span>}
         </div>
@@ -655,17 +657,21 @@ export default function Terminal() {
           {/* Chart */}
           <div className="relative flex-1 min-h-0">
             <div className="absolute left-3 top-2 z-10 flex items-center gap-3 pointer-events-none">
-              <span className="font-semibold text-white">{symbol} · {tf}</span>
+              <span className="font-semibold text-white">{symbol} <span className="text-[#9598a1] font-normal">{tf}</span></span>
               {shown && <span className="text-[#787b86]">O <b className="font-normal text-[#d1d4dc]">{f2(shown.open)}</b> H <b className="font-normal text-[#d1d4dc]">{f2(shown.high)}</b> L <b className="font-normal text-[#d1d4dc]">{f2(shown.low)}</b> C <b className="font-normal text-[#d1d4dc]">{f2(shown.close)}</b></span>}
               {levels.length > 0 && (
                 <span className="px-2 py-0.5 rounded-full text-xs bg-[#e8c468]/15 text-[#e8c468]" title={pred?.why || pred?.error || ''} data-testid="levels-chip">
-                  {pred?.high ? `Model high / low · ${pred.confidence ?? '–'}% confidence` : replay ? 'Simple guess high / low for that day' : `Simple guess high / low${pred?.error ? ' (local model not answering)' : ''}`}
+                  {pred?.high ? <>Model high / low <span className="qb-num opacity-80 ml-1">{pred.confidence ?? '–'}%</span></> : replay ? 'Simple guess high / low for that day' : `Simple guess high / low${pred?.error ? ': local model not answering' : ''}`}
                 </span>
               )}
               {record?.days > 0 && (
                 <span className={`px-2 py-0.5 rounded-full text-xs ${record.modelErr < record.guessErr ? 'bg-[#089981]/15 text-[#089981]' : 'bg-[#f23645]/15 text-[#f23645]'}`} data-testid="track-chip"
                   title={`Over ${record.days} finished days: the model's levels missed the real high / low by ${record.modelErr.toFixed(2)}% on average; the simple guess (open +/- half the 20-day range) by ${record.guessErr.toFixed(2)}%. Price reached the predicted high on ${record.highHit.toFixed(0)}% of days and the low on ${record.lowHit.toFixed(0)}%.`}>
-                  Model record {record.days}d: miss {record.modelErr.toFixed(2)}% vs guess {record.guessErr.toFixed(2)}% · high hit {record.highHit.toFixed(0)}% · low hit {record.lowHit.toFixed(0)}%
+                  <span className="flex items-center gap-2">
+                    <span>Model, {record.days} days</span>
+                    <span className="pl-2 border-l border-current/25">miss <span className="qb-num">{record.modelErr.toFixed(2)}%</span> vs guess <span className="qb-num">{record.guessErr.toFixed(2)}%</span></span>
+                    <span className="pl-2 border-l border-current/25">hit high <span className="qb-num">{record.highHit.toFixed(0)}%</span>, low <span className="qb-num">{record.lowHit.toFixed(0)}%</span></span>
+                  </span>
                 </span>
               )}
             </div>
@@ -738,6 +744,7 @@ export default function Terminal() {
           </div>
 
           <BottomPanel positions={positions} pending={book.pending} alerts={book.alerts} practice={practiceSum} replay={!!replay} group={group}
+            room={(() => { const r = guardRows.filter((x) => Number.isFinite(x.room)).sort((x, y) => x.room - y.room)[0]; return r ? { left: r.room, name: r.name } : null; })()}
             onClose={(t) => place('close', { price: last, trade_id: t.trade_id })} onCloseAll={() => place('close', { price: last })}
             onCancel={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(loadTrading)}
             onRemoveAlert={(a) => post('/api/terminal/alert', { remove: a.id }).then(loadTrading)}
@@ -837,18 +844,18 @@ function OneClick({ last, qty, setQty, disabled, onTrade }) {
   const bump = (d) => { const step = (d > 0 ? n < 1 : n <= 1) ? 0.01 : 1; setQty(String(Math.max(0.01, Math.round((n + d * step) * 100) / 100))); };
   const btn = 'h-[38px] w-[78px] flex flex-col items-center justify-center leading-none transition-[filter] hover:brightness-110 active:brightness-90 disabled:opacity-40';
   return (
-    <div className="absolute left-3 top-9 z-10 flex items-stretch rounded-[8px] overflow-hidden shadow-[0_6px_18px_rgba(0,0,0,.45)] border border-[#363a45] bg-[#1e222d]" data-testid="oneclick">
+    <div className="absolute left-3 top-9 z-10 flex items-stretch rounded-[8px] overflow-hidden qb-glass" data-testid="oneclick">
       <button type="button" disabled={disabled} onClick={() => onTrade('sell')} className={`${btn} bg-[#f23645] text-white`} data-testid="oneclick-sell">
-        <span className="text-[13px] font-semibold tabular-nums">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">SELL</span>
+        <span className="text-[13px] font-semibold qb-num">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">SELL</span>
       </button>
       <div className="flex items-center">
         <button type="button" onClick={() => bump(-1)} aria-label="Smaller size" className="w-5 h-full text-[#787b86] hover:text-white" data-testid="oneclick-qty-down">−</button>
         <input value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" aria-label="One-click size"
-          className="w-12 h-full bg-transparent text-center text-[13px] text-[#d1d4dc] tabular-nums outline-none" data-testid="oneclick-qty" />
+          className="w-12 h-full bg-transparent text-center text-[13px] text-[#d1d4dc] qb-num outline-none" data-testid="oneclick-qty" />
         <button type="button" onClick={() => bump(1)} aria-label="Bigger size" className="w-5 h-full text-[#787b86] hover:text-white" data-testid="oneclick-qty-up">+</button>
       </div>
       <button type="button" disabled={disabled} onClick={() => onTrade('buy')} className={`${btn} bg-[#2962ff] text-white`} data-testid="oneclick-buy">
-        <span className="text-[13px] font-semibold tabular-nums">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">BUY</span>
+        <span className="text-[13px] font-semibold qb-num">{f2(last)}</span><span className="text-[10px] mt-1 opacity-90">BUY</span>
       </button>
     </div>
   );

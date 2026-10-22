@@ -27,7 +27,7 @@ export default function TerminalChart({
   useEffect(() => {
     const c = createChart(box.current, {
       autoSize: true,
-      layout: { attributionLogo: false, fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11 },
+      layout: { attributionLogo: false, fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 11 },
       crosshair: { mode: CrosshairMode.Normal },
       timeScale: { timeVisible: true, secondsVisible: false, rightOffset: 8 },
       localization: { locale: 'en-US' }, // the browser's own tag can be invalid (e.g. en-US@posix) and crash the chart
@@ -302,7 +302,7 @@ export default function TerminalChart({
     onPriceAt?.(series.current?.coordinateToPrice(e.clientY - r.top) ?? null);
   };
 
-  const pill = 'pointer-events-auto absolute right-3 -translate-y-1/2 flex items-center gap-1.5 h-6 pl-2 pr-1 rounded-md text-[11px] font-medium tabular-nums shadow-[0_4px_14px_rgba(0,0,0,.45)] select-none';
+  const pill = 'pointer-events-auto absolute right-3 -translate-y-1/2 flex items-center gap-1.5 h-6 pl-2 pr-1 rounded-md text-[11px] font-medium qb-num shadow-[0_4px_14px_rgba(0,0,0,.45)] select-none';
   const mini = 'px-1.5 h-5 rounded text-[11px] hover:bg-white/10';
   const byId = Object.fromEntries([...drawings, ...(draft ? [draft] : [])].map((d) => [d.id, d]));
 
@@ -407,7 +407,7 @@ export default function TerminalChart({
         const long = d.tp >= d.entry;
         const reward = Math.abs(d.tp - d.entry), risk = Math.abs(d.entry - d.sl);
         const usd = (pts) => `$${(pts * lots * pointValue).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-        const tag = 'absolute -translate-y-1/2 px-1.5 py-0.5 rounded text-[11px] font-medium tabular-nums text-white whitespace-nowrap shadow';
+        const tag = 'absolute -translate-y-1/2 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-white whitespace-nowrap';
         // Labels and handles stay inside the chart even when a level is scrolled or dragged off it, so they can be grabbed
         const H = box.current?.clientHeight || 0;
         const clamp = (y) => Math.max(12, Math.min(H - 12, y));
@@ -424,12 +424,13 @@ export default function TerminalChart({
         );
         return (
           <div key={g.id} className="absolute inset-0 z-[7] pointer-events-none overflow-hidden" style={{ right: ys.scale }} data-testid="position-tool">
-            <div className={`${tag} pointer-events-auto flex items-center gap-1.5 bg-[#1e222d] border border-[#363a45]`} style={{ left, top: clamp(g.entry) }}>
+            <div className={`${tag} pointer-events-auto flex items-center gap-2 qb-glass-menu`} style={{ left, top: clamp(g.entry) }}>
               <button type="button" className="font-semibold" style={{ color: long ? '#089981' : '#f23645' }} data-testid="position-flip" title="Flip long / short"
                 onClick={() => updateDrawing({ ...d, sl: 2 * d.entry - d.sl, tp: 2 * d.entry - d.tp })}>{long ? 'Long' : 'Short'}</button>
               <input value={d.lots} onChange={(e) => updateDrawing({ ...d, lots: e.target.value })} inputMode="decimal" aria-label="Position lots"
-                className="w-12 bg-transparent border-b border-[#363a45] text-center outline-none" data-testid="position-lots" />
-              <span className="text-[#9598a1]">lots @ {d.entry.toFixed(2)} · R:R {risk ? (reward / risk).toFixed(2) : '–'}</span>
+                className="w-12 bg-transparent border-b border-[#363a45] text-center outline-none qb-num" data-testid="position-lots" />
+              <span className="text-[#9598a1]">lots at <span className="qb-num text-[#d1d4dc]">{d.entry.toFixed(2)}</span></span>
+              <span className="text-[#9598a1] pl-2 border-l border-white/10">R:R <span className="qb-num text-[#d1d4dc]">{risk ? (reward / risk).toFixed(2) : '–'}</span></span>
               {onPlacePosition && (
                 <button type="button" onClick={() => onPlacePosition(d)} data-testid="position-place" title="Send this trade now at market, with the stop and target the same distance away as in the box"
                   className="ml-1 px-2 h-5 rounded text-white font-semibold" style={{ background: long ? '#2962ff' : '#f23645' }}>{long ? 'Buy' : 'Sell'} {d.lots}</button>
@@ -453,10 +454,10 @@ export default function TerminalChart({
               onClick={() => setPlus((o) => ({ ...o, open: !o?.open }))}
               className="absolute right-0 -translate-y-1/2 w-5 h-5 rounded bg-[#2a2e39] border border-[#434651] text-[#d1d4dc] text-sm leading-none hover:bg-[#2962ff] hover:text-white">+</button>
             {plus.open && (
-              <div className="absolute right-6 -translate-y-1/2 flex flex-col gap-1 p-1.5 rounded-lg bg-[#1e222d] border border-[#363a45] shadow-[0_10px_30px_rgba(0,0,0,.5)] text-[12px] whitespace-nowrap animate-in fade-in-0 zoom-in-95 duration-pop calm:animate-none" data-testid="quick-order-menu">
+              <div className="absolute right-6 -translate-y-1/2 flex flex-col gap-1 p-1.5 rounded-lg qb-glass-menu text-[12px] whitespace-nowrap animate-in fade-in-0 zoom-in-95 duration-pop calm:animate-none" data-testid="quick-order-menu">
                 {items.map(([ev, label, c]) => (
                   <button key={ev} type="button" onClick={() => { onQuickOrder(ev, p); setPlus(null); }} data-testid={`quick-${ev}`}
-                    className="flex items-center justify-between gap-3 px-2 h-7 rounded hover:bg-[#2a2e39]"><span style={{ color: c }}>{label}</span><span className="tabular-nums text-[#d1d4dc]">{p.toFixed(2)}</span></button>
+                    className="flex items-center justify-between gap-3 px-2 h-7 rounded hover:bg-[#2a2e39]"><span style={{ color: c }}>{label}</span><span className="qb-num text-[#d1d4dc]">{p.toFixed(2)}</span></button>
                 ))}
               </div>
             )}
@@ -547,7 +548,7 @@ export default function TerminalChart({
 function TrailBox({ top, current, onDone }) {
   const [v, setV] = useState(current ? String(current) : '5');
   return (
-    <div className="pointer-events-auto absolute right-3 z-20 flex items-center gap-1.5 p-1.5 rounded-lg bg-[#1e222d] border border-[#363a45] shadow-[0_10px_30px_rgba(0,0,0,.5)] text-[11px] animate-in fade-in-0 zoom-in-95 duration-pop ease-pop calm:animate-none"
+    <div className="pointer-events-auto absolute right-3 z-20 flex items-center gap-1.5 p-1.5 rounded-lg qb-glass-menu text-[11px] animate-in fade-in-0 zoom-in-95 duration-pop ease-pop calm:animate-none"
       style={{ top }} data-testid="trail-box">
       <span className="text-[#9598a1]">Trail</span>
       <input autoFocus value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onDone(Number(v) || 0)} inputMode="decimal"

@@ -561,3 +561,11 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - QuantBot spark (8 rays, alternating long/short, primary color) turns once per 6 s, its core breathes (0.82x-1.08x over 1.6 s) and the rays pulse in a wave (0.2 s apart).
 - Label "Thinking…" / "Writing…" (or the status line, e.g. "Using market stats…") with a light sweep across the text (2.2 s), plus seconds elapsed.
 - Chevron opens "show thinking": the model's live text in a muted, left-bordered block. Reduced motion: no spin, no sweep.
+
+## Chart polish (anti-template pass)
+- Numbers: JetBrains Mono (self-hosted, OFL) for prices, P&L, sizes, axis (`.qb-num`, tabular, -0.02em); words stay Inter.
+- Elevation: floating chrome over the chart (one-click, limits panel) = `.qb-glass` (rgba(24,28,39,.66), blur 14px, 1px white/8% edge, inset top highlight, 0 8px 24px shadow); menus and labels over busy candles = `.qb-glass-menu` (.8 fill, blur 20px, heavier shadow). Solid #1e222d fallback without backdrop-filter.
+- Ticket panel: faint grain (`.qb-grain`, ~3.5% noise).
+- No middle-dot meta strings in chart chrome: label/value pairs with hairline separators; replay hints as keycaps.
+- Empty positions: "Flat on <group>, with $X of today's room left on <tightest account>" + how to trade.
+- Limits panel is click-through except its fold button.

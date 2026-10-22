@@ -191,7 +191,7 @@ await p.screenshot({ path: `${OUT}/a7-replay.png` });
 await tid('sim-account-toggle').click();
 await tid('sim-account-picker').locator('[data-firm="FTMO"]').click(); await p.waitForTimeout(400);
 const sa = await tid('sim-account').innerText();
-ok(/Floor \$9,000/.test(sa) && /daily loss left \$500/.test(sa) && /To target \$1,000/.test(sa), `sim account: ${sa.replace(/\n/g, ' | ')}`);
+ok(/Floor \$9,000/.test(sa) && /daily loss left \$500/i.test(sa) && /To target \$1,000/.test(sa), `sim account: ${sa.replace(/\n/g, ' | ')}`);
 await tid('ticket-place').click();
 for (let i = 0; i < 6; i++) await tid('replay-step').click();
 await p.waitForTimeout(400);

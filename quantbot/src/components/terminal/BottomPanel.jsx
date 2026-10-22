@@ -7,7 +7,7 @@ const NAME = { buy_limit: 'Buy limit', buy_stop: 'Buy stop', sell_limit: 'Sell l
 const COLS = 'grid grid-cols-[1.3fr_.9fr_.7fr_.6fr_.9fr_.9fr_.9fr_.6fr] items-center px-3.5';
 
 // Under the chart: open positions, pending orders and price alerts (in replay: the practice trades)
-export default function BottomPanel({ positions, pending, alerts, practice, replay, group, onClose, onCancel, onRemoveAlert, onCloseAll, editor }) {
+export default function BottomPanel({ positions, pending, alerts, practice, replay, group, onClose, onCancel, onRemoveAlert, onCloseAll, editor, room = null }) {
   const [tab, setTab] = useState('positions');
   const tabs = [...(replay ? [['practice', `Practice ${practice.open.length}`]] : [['positions', `Positions ${positions.length}`], ['orders', `Orders ${pending.length}`], ['alerts', `Alerts ${alerts.length}`]]), ['editor', 'Pine Editor']];
   const cur = tabs.some(([id]) => id === tab) ? tab : tabs[0][0];
@@ -27,7 +27,11 @@ export default function BottomPanel({ positions, pending, alerts, practice, repl
         {(cur === 'positions' || cur === 'practice') && (
           <>
             <div className={`${COLS} py-1.5 text-xs text-[#787b86]`}><span>{cur === 'practice' ? 'Trade' : 'Account'}</span><span>Symbol</span><span>Side</span><span>Size</span><span>Entry</span><span>Stop</span><span>Target</span><span /></div>
-            {cur === 'positions' && !positions.length && <div className="px-3.5 py-3 text-[#5d606b]">No open positions{group ? ` on ${group.name}` : ''}.</div>}
+            {cur === 'positions' && !positions.length && (
+              <div className="px-3.5 py-3 text-[#787b86]">
+                Flat{group ? ` on ${group.name}` : ''}{room ? <>, with <span className="qb-num text-[#d1d4dc]">${Math.round(room.left).toLocaleString('en-US')}</span> of today&apos;s room left on {room.name}</> : ''}. Trade with Buy / Sell on the chart, the ticket on the right, or the + next to the price axis.
+              </div>
+            )}
             {cur === 'practice' && !practice.open.length && <div className="px-3.5 py-3 text-[#5d606b]">Place a practice trade with the ticket, then step the replay forward.</div>}
             {(cur === 'practice' ? practice.open : positions).map((t) => (
               <div key={t.id || t.key} className={`${COLS} py-1.5 border-t border-[#1e222d]`}>
