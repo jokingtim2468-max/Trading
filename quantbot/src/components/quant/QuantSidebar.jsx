@@ -4,6 +4,14 @@ import GroupPills from './GroupPills';
 import ProfileFooter from './ProfileFooter';
 import SessionItem from './SessionItem';
 
+// Pages grouped by job, one compact row each: build strategies, trade, run accounts, review results
+const NAV = [
+  ['Build', [['/strategy-lab', 'Strategy Lab', 'Lab', FlaskConical], ['/test-history', 'Test history', 'Tests', History], ['/train', 'Train', 'Train', Cpu]]],
+  ['Trade', [['/terminal', 'Terminal', 'Terminal', CandlestickChart], ['/signals', 'Signals', 'Signals', Radio]]],
+  ['Accounts', [['/accounts', 'Copy trading', 'Copy', Wallet], ['/overview', 'Overview', 'Stats', LayoutGrid], ['/scaling', 'Scaling planner', 'Scaling', TrendingUp]]],
+  ['Results', [['/pnl', 'PnL calendar', 'PnL', CalendarDays], ['/journal', 'Journal', 'Journal', BookOpen]]],
+];
+
 // On phones the sidebar slides in from the left and fades; on desktop it is always shown
 export default function QuantSidebar({ user, sessions, activeId, activeGroup, onSelect, onNew, onGroup, onRename, onMove, onDelete, open, onClose }) {
   return (
@@ -21,46 +29,21 @@ export default function QuantSidebar({ user, sessions, activeId, activeGroup, on
             <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center"><Plus className="w-4 h-4" /></span>
             New chat
           </button>
-          <Link to="/strategy-lab" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><FlaskConical className="w-4 h-4 text-primary" /></span>
-            Strategy Lab
-          </Link>
-          <Link to="/test-history" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><History className="w-4 h-4 text-primary" /></span>
-            Test history
-          </Link>
-          <Link to="/pnl" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><CalendarDays className="w-4 h-4 text-primary" /></span>
-            PnL calendar
-          </Link>
-          <Link to="/accounts" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Wallet className="w-4 h-4 text-primary" /></span>
-            Copy trading
-          </Link>
-          <Link to="/scaling" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><TrendingUp className="w-4 h-4 text-primary" /></span>
-            Scaling planner
-          </Link>
-          <Link to="/signals" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Radio className="w-4 h-4 text-primary" /></span>
-            Signals
-          </Link>
-          <Link to="/terminal" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><CandlestickChart className="w-4 h-4 text-primary" /></span>
-            Terminal
-          </Link>
-          <Link to="/journal" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><BookOpen className="w-4 h-4 text-primary" /></span>
-            Journal
-          </Link>
-          <Link to="/overview" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><LayoutGrid className="w-4 h-4 text-primary" /></span>
-            Overview
-          </Link>
-          <Link to="/train" className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent text-sm font-medium">
-            <span className="w-6 h-6 rounded-full bg-sidebar-accent flex items-center justify-center"><Cpu className="w-4 h-4 text-primary" /></span>
-            Train
-          </Link>
+          <nav className="mt-1 space-y-1.5" aria-label="Pages">
+            {NAV.map(([group, links]) => (
+              <div key={group} className="flex items-center gap-1">
+                <span className="w-14 shrink-0 px-2 text-[10px] text-muted-foreground">{group}</span>
+                <div className="flex flex-wrap gap-0.5">
+                  {links.map(([to, name, short, Icon]) => (
+                    <Link key={to} to={to} aria-label={name} title={name}
+                      className="flex items-center gap-1 h-6 px-1 rounded-md text-xs hover:bg-sidebar-accent active:scale-[0.97] transition">
+                      <Icon className="w-3.5 h-3.5 text-primary" />{short}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
         </div>
         <GroupPills active={activeGroup} onSelect={onGroup} />
         <div className="px-4 pt-3 pb-1 text-xs text-muted-foreground">Recents</div>

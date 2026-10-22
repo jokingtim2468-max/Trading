@@ -575,3 +575,11 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Replies are QuantBot cards in the chat ("QuantBot · /cmd · not sent to the model"). /context: tokens used vs the 32k window as a stacked bar (system prompt, handshake, conversation, tools) + free space. /tools: a switch per tool.
 - New model tools: calculate, position_size, prop_rules, workspace_files / workspace_read / workspace_write (locked to the chat's folder).
 - After the OK handshake, later turns send a short stand-in instead of a second copy of the system prompt (~6k tokens saved).
+
+## Sidebar pages (compact)
+- Pages sit in four one-line rows under New chat, each a 10px muted group label then small chips (14px icon + short name, 24px tall, `text-xs`, full name in tooltip and aria-label):
+  - **Build**: Lab (Strategy Lab), Tests (Test history), Train
+  - **Trade**: Terminal, Signals
+  - **Accounts**: Copy (Copy trading), Stats (Overview), Scaling (Scaling planner)
+  - **Results**: PnL (PnL calendar), Journal
+- Chips press to 97% scale; hover uses the sidebar accent.
