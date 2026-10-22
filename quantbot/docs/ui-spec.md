@@ -556,3 +556,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Copy trading > a Tradovate account: "Send this account's trades to Tradovate" + username / password / API CID / API secret, Save login (encrypted), Test.
 - Chart and script orders reach the account through Tradovate's API: market + OSO bracket (stop + target), closes liquidate. Front-month contract found automatically (NQ -> NQZ6). Stop/target moves not sent yet.
 - On app start (and every 30 min) every Tradovate account with trading on logs in automatically; /api/tradovate/status shows the result.
+
+## Chat thinking indicator
+- QuantBot spark (8 rays, alternating long/short, primary color) turns once per 6 s, its core breathes (0.82x-1.08x over 1.6 s) and the rays pulse in a wave (0.2 s apart).
+- Label "Thinking…" / "Writing…" (or the status line, e.g. "Using market stats…") with a light sweep across the text (2.2 s), plus seconds elapsed.
+- Chevron opens "show thinking": the model's live text in a muted, left-bordered block. Reduced motion: no spin, no sweep.

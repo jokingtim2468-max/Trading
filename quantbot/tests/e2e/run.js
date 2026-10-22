@@ -262,7 +262,7 @@ await step('Strategy Tester: $10K default, firm rules by size (unavailable firms
   const chips = page.getByTestId('firm-chips');
   // $10K by default: only FTMO offers that size
   await chips.locator('[data-firm="FTMO"]').waitFor();
-  expect(!(await chips.locator('[data-firm="Lucid Trading"]').count()), 'Lucid has no $10K account');
+  expect(/border-dashed/.test(await chips.locator('[data-firm="Lucid Trading"]').getAttribute('class')), 'Lucid has no $10K account: listed dimmed');
   await pick(page.getByLabel('Account size'), '$25K');
   await chips.locator('[data-firm="Lucid Trading"]').waitFor();
   await chips.locator('[data-firm="Lucid Trading"]').click();

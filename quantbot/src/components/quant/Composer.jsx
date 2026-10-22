@@ -35,7 +35,7 @@ export default function Composer({ onSend, disabled, style, onStyleChange, model
                 {STYLES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={model} onValueChange={onModelChange}>
+            <Select value={models.some((m) => m.id === model) ? model : models[0]?.id} onValueChange={onModelChange}>
               <SelectTrigger className={triggerCls}><SelectValue /></SelectTrigger>
               <SelectContent>
                 {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}

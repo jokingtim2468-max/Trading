@@ -131,7 +131,7 @@ export default function AgentTeamCard() {
           <input value={steps} onChange={(e) => setSteps(e.target.value)} disabled={running} inputMode="numeric" className="w-full h-9 rounded-md border border-border bg-background px-2" />
         </label>
         <label className="space-y-1"><span className="text-xs text-muted-foreground">Backtest translator</span>
-          <select value={translator} onChange={(e) => setTranslator(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2">
+          <select value={named.some((m) => m.id === translator) ? translator : named[0]?.id} onChange={(e) => setTranslator(e.target.value)} disabled={running} className="w-full h-9 rounded-md border border-border bg-background px-2">
             {named.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
         </label>

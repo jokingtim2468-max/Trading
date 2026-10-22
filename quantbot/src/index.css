@@ -190,3 +190,20 @@ html.desktop-frame .sticky.top-0:not(thead) { top: var(--titlebar); }
 @keyframes app-open { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 html.app-opening #root { animation: app-open 300ms cubic-bezier(0.25, 0.1, 0.25, 1) both; }
 html.app-opening.motion-reduced #root { animation: none; }
+
+/* Thinking indicator: a breathing, slowly turning starburst and a light sweep across the label */
+@keyframes qb-spin { to { transform: rotate(360deg); } }
+@keyframes qb-breathe { 0%, 100% { transform: scale(0.82); } 50% { transform: scale(1.08); } }
+@keyframes qb-ray { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes qb-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.qb-spark { animation: qb-spin 6s linear infinite; transform-origin: 50% 50%; }
+.qb-spark-core { animation: qb-breathe 1.6s ease-in-out infinite; transform-origin: 50% 50%; }
+.qb-spark-ray { animation: qb-ray 1.6s ease-in-out infinite; }
+.qb-shimmer {
+  background: linear-gradient(90deg, hsl(var(--muted-foreground)) 0%, hsl(var(--muted-foreground)) 40%, hsl(var(--foreground)) 50%, hsl(var(--muted-foreground)) 60%, hsl(var(--muted-foreground)) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: qb-shimmer 2.2s linear infinite;
+}
+.motion-reduced .qb-spark, .motion-reduced .qb-spark-core, .motion-reduced .qb-spark-ray, .motion-reduced .qb-shimmer { animation: none; }
+.motion-reduced .qb-shimmer { color: hsl(var(--muted-foreground)); background: none; }

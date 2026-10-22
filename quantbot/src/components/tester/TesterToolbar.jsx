@@ -18,7 +18,7 @@ export default function TesterToolbar({ cfg, set, onRun, onStop, running, disabl
           </button>
         ))}
       </div>
-      <Select value={cfg.model} onValueChange={(v) => set('model', v)}>
+      <Select value={models.some((m) => m.id === cfg.model) ? cfg.model : models[0]?.id} onValueChange={(v) => set('model', v)}>
         <SelectTrigger className="h-9 w-52"><SelectValue /></SelectTrigger>
         <SelectContent>
           {models.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>)}
