@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { client } from '@/api/client';
 import * as api from '@/lib/quantApi';
@@ -12,18 +12,18 @@ import HomeGreeting from '@/components/quant/HomeGreeting';
 import MessageList from '@/components/quant/MessageList';
 import Composer from '@/components/quant/Composer';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
-import MessageQueue from '@/components/quant/MessageQueue';
 
 export default function QuantChat() {
   const { toast } = useToast();
   const [user, setUser] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [activeGroup, setActiveGroup] = useState(null);
-  const [activeId, setActiveId] = useState(null);
+  // The open chat survives switching pages (and its reply keeps going on the server)
+  const [activeId, setActiveIdState] = useState(() => { try { return sessionStorage.getItem('quant_chat') || null; } catch { return null; } });
+  const setActiveId = (id) => { setActiveIdState(id); try { if (id) sessionStorage.setItem('quant_chat', id); else sessionStorage.removeItem('quant_chat'); } catch { /* private window */ } };
   const [messages, setMessages] = useState([]);
   const [thinking, setThinking] = useState(false);
   const [style, setStyle] = useState('Concise');
-  const [queue, setQueue] = useState([]);
   const [model, setModel] = useState(() => knownModel(localStorage.getItem('quant_model'), 'builtin'));
   const [keyStatus, setKeyStatus] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,7 +47,6 @@ export default function QuantChat() {
   const changeModel = (m) => { setModel(m); localStorage.setItem('quant_model', m); };
 
   const openSession = async (id) => {
-    setQueue([]);
     setActiveId(id);
     setSidebarOpen(false);
     setMessages(await api.loadMessages(id));
@@ -59,9 +58,9 @@ export default function QuantChat() {
     if (!id) return;
     setParams({}, { replace: true });
     openSession(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);  
 
-  const newChat = () => { setQueue([]); setActiveId(null); setMessages([]); setSidebarOpen(false); };
+  const newChat = () => { setActiveId(null); setMessages([]); setSidebarOpen(false); };
 
   // /loopfix [script name] — put a local model on a 10-minute timer to backtest and improve a script until it
   // stops getting better; /loopfix stop ends it. Runs here in the app (the backtest engine is the browser's).
@@ -82,46 +81,53 @@ export default function QuantChat() {
     } catch (e) { toast({ title: 'Loop-fix', description: e.message, variant: 'destructive' }); }
   };
 
+  // Poll the server while it is replying to the open chat; the reply lands even if the page was left meanwhile
+  const shownPrompt = useRef({});
+  useEffect(() => {
+    if (!activeId) return undefined;
+    let live = true, timer = null;
+    api.loadMessages(activeId).then((m) => live && setMessages(m)).catch(() => {});
+    const poll = async () => {
+      try {
+        const st = await api.replyStatus(activeId);
+        if (!live) return;
+        setThinking(st.replying);
+        if (st.prompt_status && !shownPrompt.current[activeId]) {
+          shownPrompt.current[activeId] = true;
+          if (st.prompt_status === 'ok') toast({ title: 'System prompt loaded', description: 'The local model replied OK.' });
+          else toast({ title: "The model didn't confirm the system prompt", description: `It replied: ${st.prompt_reply}`, variant: 'destructive' });
+        }
+        if (st.error) toast({ title: 'No reply', description: st.error, variant: 'destructive' });
+        setMessages(await api.loadMessages(activeId));
+        if (st.replying) timer = setTimeout(poll, 1500); else refreshSessions();
+      } catch { if (live) timer = setTimeout(poll, 3000); }
+    };
+    pollNow.current = () => { clearTimeout(timer); poll(); };
+    poll();
+    return () => { live = false; clearTimeout(timer); };
+  }, [activeId]);  
+  const pollNow = useRef(() => {});
+
   const send = async (text) => {
     if (/^\/loopfix\b/i.test(text.trim())) { await runLoopfix(text.trim()); return; }
-    setThinking(true);
     let id = activeId;
-    if (!id) {
-      const s = await api.createSession(text.slice(0, 60), activeGroup);
-      id = s.id;
-      setActiveId(id);
-      refreshSessions();
-      try {
-        const h = await api.handshake(id, style);
-        toast(h.status === 'ok'
-          ? { title: 'System prompt loaded', description: 'The local model replied OK.' }
-          : { title: "The model didn't confirm the system prompt", description: `It replied: ${h.reply}`, variant: 'destructive' });
-      } catch (e) { toast({ title: 'System prompt not sent', description: e.response?.data?.error || e.message, variant: 'destructive' }); }
-    }
-    const userMsg = await api.addUserMessage(id, text);
-    setMessages((m) => [...m, userMsg]);
     try {
-      const reply = await api.askQuantAI(id, style, chatModel);
-      setMessages((m) => [...m, reply]);
+      if (!id) {
+        const s = await api.createSession(text.slice(0, 60), activeGroup);
+        id = s.id;
+        setActiveId(id);
+        refreshSessions();
+      }
+      const userMsg = await api.addUserMessage(id, text);
+      setMessages((m) => [...m, userMsg]);
+      setThinking(true);
+      await api.startReply(id, style, chatModel);
+      pollNow.current();
     } catch (e) {
       toast({ title: 'Message failed', description: e.response?.data?.error || e.message, variant: 'destructive' });
     }
-    setThinking(false);
-    refreshSessions();
   };
-
-  // Messages sent while QuantBot is replying wait in the queue and go out one at a time
-  const submit = (text) => {
-    if (thinking) setQueue((q) => [...q, { id: `${Date.now()}-${Math.random()}`, text }]);
-    else send(text);
-  };
-
-  useEffect(() => {
-    if (thinking || !queue.length) return;
-    const [next, ...rest] = queue;
-    setQueue(rest);
-    send(next.text);
-  }, [thinking, queue]);
+  const submit = (text) => send(text);
 
   const changeGroup = async (group) => {
     await api.setSessionGroup(activeId, group);
@@ -161,7 +167,6 @@ export default function QuantChat() {
         />
         {hasChat ? <MessageList messages={messages} thinking={thinking} /> : <HomeGreeting name={firstName} />}
         {needsKey && <NoKeyBanner provider={missing} onSaved={setKeyStatus} />}
-        <MessageQueue queue={queue} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
         <LoopFixPanel />
         <Composer
           onSend={submit} disabled={needsKey}

@@ -27,6 +27,7 @@ const HANDSHAKE_ASK = 'Everything above is your system prompt for this whole cha
 
 export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null }) {
   const chatTools = createChatTools({ db, market });
+  const replying = new Map(); // session_id -> { started, error, done }
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   // Local only: every chat, conversion and test runs on the local model (Ollama) set up in Settings
   function pickModel() {
@@ -100,6 +101,36 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: ok ? 'OK' : reply, hidden: true });
       db.run('ChatSession', 'update', session_id, { prompt_status: ok ? 'ok' : 'failed', prompt_reply: reply.slice(0, 300) });
       return { status: ok ? 'ok' : 'failed', reply: reply.slice(0, 300) };
+    },
+
+    // Background replies: the server answers whatever the trader has sent, so leaving the chat page (or several quick
+    // messages) never loses a reply. The page polls chatStatus and reloads the messages.
+    chatSend({ session_id, style, model }) {
+      db.run('ChatSession', 'get', session_id);
+      if (replying.has(session_id)) return { replying: true };
+      replying.set(session_id, { started: Date.now(), error: '' });
+      (async () => {
+        try {
+          // Messages sent while the model was busy get another round, answered together
+          const users = () => db.run('ChatMessage', 'filter', { session_id, role: 'user' }, { limit: 1000 }).items.filter((m) => !m.hidden).length;
+          for (let guard = 0, answered = -1; guard < 10; guard++) {
+            const n = users();
+            if (n === answered) break;
+            await fns.quantChat({ session_id, style, model });
+            answered = n;
+          }
+          replying.delete(session_id);
+        } catch (e) {
+          replying.set(session_id, { error: e.message, done: true });
+        }
+      })();
+      return { replying: true };
+    },
+    chatStatus({ session_id }) {
+      const r = replying.get(session_id);
+      if (r?.done) replying.delete(session_id);
+      const s = db.run('ChatSession', 'get', session_id);
+      return { replying: !!r && !r.done, error: r?.error || '', prompt_status: s.prompt_status || null, prompt_reply: s.prompt_reply || '' };
     },
 
     async quantChat({ session_id, style, model }) {

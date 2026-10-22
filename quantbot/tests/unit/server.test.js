@@ -170,6 +170,30 @@ describe('AI functions', () => {
     await assert.rejects(be.handle('function', 'localModel', { action: 'test', url: 'http://127.0.0.1:1' }), /Ollama isn't running/);
   });
 
+  test('replies run in the background: the page can leave, quick messages get answered, errors are reported', async () => {
+    const be = backendIn(tmp());
+    const o = await fakeOllama(be, (b) => (/reply with exactly: OK/.test(lastUser(b)) ? 'OK' : `answer to: ${lastUser(b)}`));
+    try {
+      const s = be.handle('entity', 'ChatSession', 'create', { title: 'x' });
+      be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'one' });
+      assert.deepEqual(be.handle('function', 'chatSend', { session_id: s.id, model: 'local' }), { replying: true });
+      be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'two' });
+      assert.deepEqual(be.handle('function', 'chatSend', { session_id: s.id, model: 'local' }), { replying: true }, 'a second send joins the running reply');
+      for (let k = 0; k < 100 && be.handle('function', 'chatStatus', { session_id: s.id }).replying; k++) await new Promise((r) => setTimeout(r, 20));
+      const st = be.handle('function', 'chatStatus', { session_id: s.id });
+      assert.equal(st.replying, false); assert.equal(st.prompt_status, 'ok');
+      const msgs = be.handle('entity', 'ChatMessage', 'filter', { session_id: s.id }, { sort: 'created_date', limit: 50 }).items.filter((m) => !m.hidden);
+      assert.equal(msgs.at(-1).role, 'assistant');
+      assert.match(msgs.at(-1).content, /two/, 'the newest message is answered (quick messages together)');
+    } finally { await o.close(); }
+    const s2 = be.handle('entity', 'ChatSession', 'create', { title: 'y' });
+    be.handle('entity', 'ChatMessage', 'create', { session_id: s2.id, role: 'user', content: 'hi' });
+    be.handle('function', 'chatSend', { session_id: s2.id, model: 'local' });
+    let st2;
+    for (let k = 0; k < 200; k++) { st2 = be.handle('function', 'chatStatus', { session_id: s2.id }); if (!st2.replying) break; await new Promise((r) => setTimeout(r, 25)); }
+    assert.match(st2.error, /Local model|Ollama|fetch|ECONNREFUSED/i, `error reported: ${st2.error}`);
+  });
+
   test("a script's chat runs on the local model, reads the script's folder and saves the new code", async () => {
     const dir = tmp();
     const be = backendIn(dir);

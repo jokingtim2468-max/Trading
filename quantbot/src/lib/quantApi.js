@@ -29,6 +29,11 @@ export async function handshake(sessionId, style) {
   return (await client.functions.invoke('chatHandshake', { session_id: sessionId, style })).data;
 }
 
+// Start the server answering the chat in the background -> { replying }
+export const startReply = async (sessionId, style, model) => (await client.functions.invoke('chatSend', { session_id: sessionId, style, model })).data;
+// -> { replying, error, prompt_status, prompt_reply }
+export const replyStatus = async (sessionId) => (await client.functions.invoke('chatStatus', { session_id: sessionId })).data;
+
 export async function askQuantAI(sessionId, style, model) {
   const res = await client.functions.invoke('quantChat', { session_id: sessionId, style, model });
   return res.data.message;
