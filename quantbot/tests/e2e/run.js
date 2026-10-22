@@ -122,6 +122,7 @@ await step('Chat: the local model writes an EA after confirming the system promp
   const box = page.getByPlaceholder('Reply to QuantBot...');
   await box.fill('Write a gold breakout EA');
   await box.press('Enter');
+  await page.getByTestId('chat-live').waitFor();
   await box.fill('Add a trailing stop');
   await box.press('Enter');
   await text(/Queued \(1\)/).waitFor();
