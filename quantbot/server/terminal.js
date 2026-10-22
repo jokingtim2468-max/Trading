@@ -118,7 +118,8 @@ export function createTerminal({ dataDir, db, signals, ask, log = () => {} }) {
     const closed = on ? await run('AccountTrade', 'filter', { group_id: groupId, status: 'closed' }) : [];
     return members.map((a) => {
       const r = accountRoom(a);
-      const row = { id: a.id, name: a.display_name || a.label, balance: r2(r.balance), day_pnl: r2(r.dayPnl), room: fin(r.room), rule: r.rule, to_floor: fin(r.toFloor), to_daily: fin(r.toDaily) };
+      const row = { id: a.id, name: a.display_name || a.label, balance: r2(r.balance), day_pnl: r2(r.dayPnl), room: fin(r.room), rule: r.rule, to_floor: fin(r.toFloor), to_daily: fin(r.toDaily),
+        start: Number(a.start_balance) || null, daily_limit: Number(a.daily_loss) || null, max_loss: Number(a.max_loss) || null, target: Number(a.target) || null, firm: a.firm || '', model: a.model || '' };
       if (on) row.protect = protectionFor(rules, a, closed.filter((x) => x.account_id === a.id));
       if (a.daily_floor || a.daily_cap || a.kill_losses) {
         const why = safetyBlock(a, closedOnDay(db.run('AccountTrade', 'filter', { account_id: a.id, status: 'closed' }), a));

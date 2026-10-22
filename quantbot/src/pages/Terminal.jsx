@@ -16,6 +16,7 @@ import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFil
 import { toBroker, brokerOffsetHours } from '../../server/market/brokerTime.js';
 import LogoMark from '@/components/quant/LogoMark';
 import TerminalChart from '@/components/terminal/TerminalChart';
+import LimitsHud from '@/components/terminal/LimitsHud';
 import IndicatorsPanel from '@/components/terminal/IndicatorsPanel';
 import ScriptEditor from '@/components/terminal/ScriptEditor';
 import { runIndicator } from '@/lib/indicators/pine';
@@ -323,7 +324,9 @@ export default function Terminal() {
     const t = setTimeout(() => {
       post('/api/terminal/guard', { group_id: groupId, ticket: entryAt ? ticketBody() : null }).then((r) => setGuardRows(r.accounts || [])).catch(() => {});
     }, 250);
-    return () => clearTimeout(t);
+    // Refreshed every 5 s too, so the limits panel on the chart follows open P&L
+    const every = setInterval(() => post('/api/terminal/guard', { group_id: groupId, ticket: entryAt ? ticketBody() : null }).then((r) => setGuardRows(r.accounts || [])).catch(() => {}), 5000);
+    return () => { clearTimeout(t); clearInterval(every); };
   }, [groupId, ticket, entryAt != null ? Math.round(entryAt * 4) : null, positions.length, !!replay, JSON.stringify(group?.protect || null)]);
   const limitLine = useMemo(() => {
     if (replay || last == null) return null;
@@ -655,6 +658,7 @@ export default function Terminal() {
                 </span>
               )}
             </div>
+            {!replay && <LimitsHud rows={guardRows} />}
             <OneClick last={last} qty={prefs.oneClickQty} setQty={(oneClickQty) => setPrefs({ oneClickQty })} disabled={replay ? last == null : !groupId || last == null}
               onTrade={(side) => place(side, { oneClick: true })} />
             {!bars && <div className="absolute inset-0 flex items-center justify-center text-[#787b86] z-10">{market.error || `Loading ${symbol}${market.progress ? ` (${market.progress})` : ''}…`}</div>}

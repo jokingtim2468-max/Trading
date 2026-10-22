@@ -538,3 +538,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Chart "+" order button; daily levels to Pine
 - Hovering the chart shows a small "+" by the price axis at the crosshair price; click it for a menu: above price → Sell limit / Buy stop, below → Buy limit / Sell stop (blue = buy, red = sell). Hidden in replay.
 - tools/daily_levels.py (or daily_levels.bat): asks QuantBot's /api/levels (local model, once a day per symbol) and writes a TradingView indicator with each day's predicted high (red) / low (green) + confidence, copied to the clipboard.
+
+## Chart: account limits panel (top right)
+- "Account limits" card: up to 3 accounts of the selected group, tightest first. Each: balance, today's P&L, daily loss left / limit bar, max loss left / limit bar, $ to the profit target.
+- Bar color by share left: green > 50%, orange 25-50%, red < 25%. Refreshes every 5 s; click the header to fold.
+- Accounts: "Or risk a share of the limits" (e.g. 0.25) sizes each trade's stop to that share of the smaller limit.
