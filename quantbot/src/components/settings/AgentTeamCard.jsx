@@ -16,7 +16,7 @@ const langOf = (p) => (/\.mq5$/i.test(p) ? 'MT5' : /\.pine$/i.test(p) ? 'Pine' :
 
 // One agent's loop: ask the model, run its one command, send the result back, until DONE, the step limit or Stop
 async function runAgent(n, { model, translator, steps, markets, signal, onLog }) {
-  const kickoff = `Start. You are agent ${n}. BACKTEST runs on ${markets.map((m) => m.ds.symbol).join(', ')} ${markets[0]?.tf} from ${markets[0]?.from} to ${markets[0]?.to}. Send your first command.`;
+  const kickoff = `Start. You are agent ${n}. Your workspace is the folder data/agents/${model}/agent-${n}/ in QuantBot's data folder: every path in your commands is relative to it (scripts/, results/, data/, AGENTS.md), and you can't leave it. BACKTEST <path> runs your script on ${markets.map((m) => m.ds.symbol).join(', ')} ${markets[0]?.tf} from ${markets[0]?.from} to ${markets[0]?.to} and writes the report to results/. Send your first command.`;
   const msgs = [{ role: 'user', content: kickoff }];
   const fsOp = (op, path, content) => post('fs', { model, agent: n, op, path, content });
   for (let step = 1; step <= steps; step++) {

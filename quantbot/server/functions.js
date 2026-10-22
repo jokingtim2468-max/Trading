@@ -94,7 +94,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     async chatHandshake({ session_id, style }) {
       const session = db.run('ChatSession', 'get', session_id);
       if (session.prompt_status === 'ok') return { status: 'ok', reply: session.prompt_reply || 'OK' };
-      const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10) });
+      const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
       const ask0 = `${system}\n\n${HANDSHAKE_ASK}`;
       let reply;
       try { reply = String(await ask(null, 'Follow the instructions in the first message exactly.', [{ role: 'user', content: ask0 }], 50)).trim(); } catch (e) { reply = `(no answer: ${e.message})`; }
@@ -148,7 +148,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       if (session.script_id) { try { script = db.run('Script', 'get', session.script_id); } catch { /* script deleted */ } }
       const useModel = model;
       const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
-      const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10) });
+      const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
       const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, chatTools, onLive));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);

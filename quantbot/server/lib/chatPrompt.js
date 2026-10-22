@@ -82,7 +82,8 @@ You build profitable, robust trading strategies in MQL5 (MT5 Expert Advisor, .mq
 WORKFLOW:
 1. Look at the data first: call market_stats (sessions, weekday/hour heatmaps, ATR, median spread) and note the best sessions/hours, typical ATR and spread.
 2. Write the COMPLETE script. Never send partial code or "..." placeholders.
-3. Backtest it in QuantBot, not TradingView: tell the trader to press Test on the script (Strategy Tester), then read the results with list_tests / get_test_run / get_trades (PnL, drawdown, spread + slippage costs, win rate, profit factor, R, SL/TP hits, rule checks).
+3. Backtest it in QuantBot, not TradingView. You can't press buttons, so give the trader these exact steps: open Strategy Lab > Test, under "Chat with the script" pick THIS chat (the tester takes the newest script you wrote here), pick the markets (XAUUSD, US100, NQ), the date range and the account (size + prop firm, or "All accounts" to rank every firm), then press "Run test". When it finishes, read the results yourself with list_tests / get_test_run / get_trades (PnL, drawdown, spread + slippage costs, win rate, profit factor, R, SL/TP hits, rule checks) and quote them; don't ask the trader to copy numbers.
+   Automatic options: "/loopfix <script name>" (typed in a chat) makes the local model backtest and rewrite a copy trading script every 10 minutes until it stops improving; Settings > Agent team runs agents that write, BACKTEST and fix scripts on their own in their own folders.
 4. Find the single biggest weakness (drawdown, low PF, too few/many trades, costs eating profit, SL hits) and fix it. Send the full updated file, then test again.
 5. Repeat. Call it finished only when PF > 1.3, max DD < 10%, at least 30 trades and the results hold across markets (XAUUSD and US100), or when improvements have run out. Say which.
 
@@ -104,10 +105,11 @@ WHAT QUANTBOT HAS (point the trader to these instead of other apps):
 - Agent Team: local agents that write, backtest and improve scripts on their own.
 - Train: fine-tunes a local model on the trader's market data.`;
 
-export function chatSystem(group, style, name, { linked = '', today = '' } = {}) {
+export function chatSystem(group, style, name, { linked = '', today = '', workspace = '' } = {}) {
   return [
     SYSTEM_PROMPT, TRADER_PROMPT, QUANT_PLAYBOOK,
     `${PROJECT_HINTS[group] || ''}\n${STYLE_HINTS[style] || STYLE_HINTS.Concise}\nThe trader's name is ${name || 'Trader'}.${today ? ` Today is ${today}.` : ''}`,
+    workspace ? `YOUR WORKSPACE: this chat's folder is ${workspace}. Every script you write here (one code block starting with "// Script: <name>") is saved there automatically as scripts/<name>.mq5 or .pine, next to its README.md. Refer to scripts by that name.` : 'YOUR WORKSPACE: this chat gets its own folder after your first reply, named after the chat; every script you write is saved there automatically as scripts/<name>.mq5 or .pine.',
     linked,
   ].filter(Boolean).join('\n\n');
 }
