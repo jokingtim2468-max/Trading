@@ -543,3 +543,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - "Account limits" card: up to 3 accounts of the selected group, tightest first. Each: balance, today's P&L, daily loss left / limit bar, max loss left / limit bar, $ to the profit target.
 - Bar color by share left: green > 50%, orange 25-50%, red < 25%. Refreshes every 5 s; click the header to fold.
 - Accounts: "Or risk a share of the limits" (e.g. 0.25) sizes each trade's stop to that share of the smaller limit.
+
+## Chart: model track record
+- Past days' model high / low drawn on their day in gold (#e8c468): solid + "✓" when price reached the level, dashed + "✗" when it didn't.
+- Chip next to the levels chip: "Model record Nd: miss X% vs guess Y% · high hit · low hit"; green when the model beats the simple guess, red when it doesn't.

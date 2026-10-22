@@ -65,3 +65,14 @@ test('risk share: a quarter of the smaller limit sizes the trade', async () => {
   assert.equal(q.risk, 125); assert.equal(q.qty, 0.25, '$125 / ($5 stop x $100 per $1) = 0.25 lots');
   assert.equal(copyQty({ ...a, risk_usd: 50 }, { price: 2000, sl: 1995 }, 100).risk, 50, 'a fixed $ risk wins');
 });
+
+test('model track record: past predictions against the real day and the simple guess', async () => {
+  const { trackRecord } = await import('../../src/lib/terminalLive.js');
+  const n = 30, D = 86400000, t0 = Date.UTC(2026, 0, 1);
+  const daily = { time: Array.from({ length: n }, (_, i) => t0 + i * D), open: Array(n).fill(100), high: Array(n).fill(102), low: Array(n).fill(98) };
+  const day = (i) => new Date(t0 + i * D).toISOString().slice(0, 10);
+  const r = trackRecord([{ symbol: 'X', day: day(25), high: 102, low: 98 }, { symbol: 'X', day: day(26), high: 103, low: 97 }, { symbol: 'X', day: day(29), high: 1, low: 1 }, { symbol: 'Y', day: day(25), high: 1, low: 1 }], daily, 'X');
+  assert.equal(r.days, 2, "today and other symbols don't count");
+  assert.equal(r.rows[0].model, 0); assert.equal(r.highHit, 50); assert.equal(r.lowHit, 50);
+  assert.equal(r.guessErr, 0, 'guess = open +/- half the 4% average range = the real 102 / 98');
+});

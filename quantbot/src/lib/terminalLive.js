@@ -124,3 +124,25 @@ export function sessionBoxes(fromMs, toMs) {
   }
   return out;
 }
+
+// The model's track record: each past prediction against that day's real high / low, and against the simple guess
+// (open +/- half the 20-day average range). predictions: [{ symbol, day, high, low }]; daily: { time, open, high, low }
+// -> { days, modelErr, guessErr (average miss, % of price), highHit, lowHit (% of days price reached the level), rows }
+export function trackRecord(predictions, daily, symbol) {
+  if (!daily?.time?.length) return null;
+  const idx = new Map(Array.from(daily.time, (t, i) => [new Date(t).toISOString().slice(0, 10), i]));
+  const rows = [];
+  for (const p of predictions || []) {
+    if (p.symbol !== symbol) continue;
+    const i = idx.get(p.day);
+    if (i == null || i === daily.time.length - 1 || i < 21) continue; // today isn't finished; the guess needs 20 days
+    const o = daily.open[i], H = daily.high[i], L = daily.low[i];
+    let avg = 0; for (let k = i - 20; k < i; k++) avg += (daily.high[k] - daily.low[k]) / daily.open[k];
+    const half = (avg / 20) * o / 2;
+    const err = (h, l) => ((Math.abs(h - H) + Math.abs(l - L)) / 2 / o) * 100;
+    rows.push({ day: p.day, time: daily.time[i], high: p.high, low: p.low, actualHigh: H, actualLow: L, hitHigh: H >= p.high, hitLow: L <= p.low, model: err(p.high, p.low), guess: err(o + half, o - half) });
+  }
+  if (!rows.length) return { days: 0, rows };
+  const mean = (k) => rows.reduce((a, r) => a + r[k], 0) / rows.length;
+  return { days: rows.length, modelErr: mean('model'), guessErr: mean('guess'), highHit: (100 * rows.filter((r) => r.hitHigh).length) / rows.length, lowHit: (100 * rows.filter((r) => r.hitLow).length) / rows.length, rows };
+}

@@ -9,7 +9,7 @@ import { client } from '@/api/client';
 import { loadBars } from '@/lib/backtest/data';
 import { POP } from '@/lib/clickOrigin';
 import { groupTrades, moneyAt, usdSigned } from '@/lib/tradeMath';
-import { mergeCandles, replayBars, stepPractice, closePractice, sessionBoxes } from '@/lib/terminalLive';
+import { mergeCandles, replayBars, stepPractice, closePractice, sessionBoxes, trackRecord } from '@/lib/terminalLive';
 import { presetOf, simAccount, withDailyLimit } from '@/lib/backtest/propRules';
 import AccountPicker from '@/components/scripttester/AccountPicker';
 import { readPrefs, writePrefs, readDrawings, writeDrawings, chime, say, playFile } from '@/lib/terminalPrefs';
@@ -245,6 +245,11 @@ export default function Terminal() {
     const daily = Array.from(d.time).map((t, i) => ({ time: t, open: d.open[i], high: d.high[i], low: d.low[i], close: d.close[i] }));
     post('/api/terminal/predict', { symbol, daily }).then((p) => setPred(p)).catch((e) => setPred({ error: e.message }));
   }, [market.daily, symbol, !!replay]);
+  // The model's track record on past days (markers on the chart + a chip), from its saved predictions
+  const [history, setHistory] = useState([]);
+  useEffect(() => { fetch('/api/terminal/predictions').then((r) => r.json()).then((x) => setHistory(x.predictions || [])).catch(() => {}); }, [pred]);
+  const record = useMemo(() => (replay ? null : trackRecord(history, market.daily, symbol)), [history, market.daily, symbol, !!replay]);
+  const pastLevels = useMemo(() => (record?.rows || []).map((r) => ({ ...r, from: r.time, to: r.time + DAY })), [record]);
   const levels = useMemo(() => {
     if (replay) return guessLevels(market.daily, market.daily ? Array.from(market.daily.time).filter((t) => t <= (bars?.time.at(-1) ?? 0)).length : 0);
     if (pred?.high) {
@@ -657,6 +662,12 @@ export default function Terminal() {
                   {pred?.high ? `Model high / low · ${pred.confidence ?? '–'}% confidence` : replay ? 'Simple guess high / low for that day' : `Simple guess high / low${pred?.error ? ' (local model not answering)' : ''}`}
                 </span>
               )}
+              {record?.days > 0 && (
+                <span className={`px-2 py-0.5 rounded-full text-xs ${record.modelErr < record.guessErr ? 'bg-[#089981]/15 text-[#089981]' : 'bg-[#f23645]/15 text-[#f23645]'}`} data-testid="track-chip"
+                  title={`Over ${record.days} finished days: the model's levels missed the real high / low by ${record.modelErr.toFixed(2)}% on average; the simple guess (open +/- half the 20-day range) by ${record.guessErr.toFixed(2)}%. Price reached the predicted high on ${record.highHit.toFixed(0)}% of days and the low on ${record.lowHit.toFixed(0)}%.`}>
+                  Model record {record.days}d: miss {record.modelErr.toFixed(2)}% vs guess {record.guessErr.toFixed(2)}% · high hit {record.highHit.toFixed(0)}% · low hit {record.lowHit.toFixed(0)}%
+                </span>
+              )}
             </div>
             {!replay && <LimitsHud rows={guardRows} />}
             <OneClick last={last} qty={prefs.oneClickQty} setQty={(oneClickQty) => setPrefs({ oneClickQty })} disabled={replay ? last == null : !groupId || last == null}
@@ -683,7 +694,7 @@ export default function Terminal() {
                     onTrail={(t, dist) => (replay ? setPractice((p) => ({ ...p, open: p.open.map((x) => (x.trade_id === t.trade_id ? { ...x, trail: dist || null } : x)) })) : place('trail', { trade_id: t.trade_id, distance: dist, price: last }))}
                     onMovePending={(p, at) => post('/api/terminal/order', { event: 'move_pending', id: p.id, at, price: last, group_id: p.group_id }).then(() => { toast({ kind: 'pending', title: `${NAME[p.event]} moved`, lines: [`${p.symbol} at ${f2(at)}`] }); loadTrading(); }).catch((e) => toast({ kind: 'error', title: 'Order not moved', lines: [e.message] }))}
                     onCancelPending={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(() => { toast({ kind: 'close', title: `${NAME[p.event]} cancelled`, lines: [`${p.symbol} at ${f2(p.at)}`] }); loadTrading(); })}
-                    drawings={drawings} onDrawingsChange={setDrawings} sessions={sessions} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
+                    drawings={drawings} onDrawingsChange={setDrawings} sessions={sessions} pastLevels={pastLevels} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
                     onReady={(api) => { shot.current = api; }}
                     onToolDone={() => setTool('cross')} pointValue={pv} onPriceAt={setClickPrice} onCrosshair={setHover}
                     onQuickOrder={replay ? null : pendingAt} />

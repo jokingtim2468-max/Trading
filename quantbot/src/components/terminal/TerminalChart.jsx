@@ -14,7 +14,7 @@ const DRAW_TOOLS = ['trend', 'rect', 'fib', 'position'];
 export default function TerminalChart({
   bars, settings, levels = [], lines = [], tool, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition, indicators = [], onQuickOrder,
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition, indicators = [], onQuickOrder, pastLevels = [],
 }) {
   const drawingsRef = useRef(drawings);
   drawingsRef.current = drawings;
@@ -188,17 +188,18 @@ export default function TerminalChart({
           return { id: d.id, a: pt(d.a), b: pt(d.b) };
         });
         const nx = news.map((n) => ({ ...n, x: timeToX(n.time) }));
+        const past = pastLevels.map((x) => ({ ...x, x1: timeToX(x.from), x2: timeToX(x.to), yh: at(x.high), yl: at(x.low) })).filter((x) => x.x1 != null && x.x2 != null && x.yh != null && x.yl != null);
         const ses = sessions.map((x) => ({ ...x, x1: timeToX(x.from), x2: timeToX(x.to) })).filter((x) => x.x1 != null && x.x2 != null && x.x2 > 0 && x.x1 < (box.current?.clientWidth || 0));
         const scale = chart.current.priceScale('right').width();
         const w = box.current?.clientWidth || 0;
-        const next = { map, pend, draw, news: nx, ses, scale, w };
+        const next = { map, pend, draw, news: nx, ses, past, scale, w };
         setYs((old) => (JSON.stringify(old) === JSON.stringify(next) ? old : next));
       }
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [trades, pending, drag, drawings, draft, news, barSec, sessions, posDrag]);
+  }, [trades, pending, drag, drawings, draft, news, barSec, sessions, posDrag, pastLevels]);
 
   const priceAtY = (clientY) => {
     const r = box.current.getBoundingClientRect();
@@ -310,6 +311,15 @@ export default function TerminalChart({
       <div ref={box} onContextMenu={onContext} className={`absolute inset-0 ${tool === 'hline' ? 'cursor-crosshair' : ''}`} data-testid="terminal-chart" />
       {/* Drawings and news */}
       <svg className="absolute inset-0 z-[5] pointer-events-none overflow-hidden" style={{ width: Math.max(0, ys.w - ys.scale), height: '100%' }} data-testid="drawings">
+        {/* The model's past predicted high / low: solid when price reached it that day, dashed when it didn't */}
+        {(ys.past || []).map((x) => (
+          <g key={`p${x.day}`} data-testid="past-level">
+            <line x1={x.x1} x2={x.x2} y1={x.yh} y2={x.yh} stroke="#e8c468" strokeOpacity=".8" strokeDasharray={x.hitHigh ? '' : '4 3'} />
+            <line x1={x.x1} x2={x.x2} y1={x.yl} y2={x.yl} stroke="#e8c468" strokeOpacity=".8" strokeDasharray={x.hitLow ? '' : '4 3'} />
+            <text x={x.x1 + 3} y={x.yh - 3} fill="#e8c468" fillOpacity=".8" fontSize="9">{x.hitHigh ? '✓' : '✗'} model high</text>
+            <text x={x.x1 + 3} y={x.yl + 10} fill="#e8c468" fillOpacity=".8" fontSize="9">{x.hitLow ? '✓' : '✗'} model low</text>
+          </g>
+        ))}
         {ys.ses.map((x) => (
           <g key={`${x.name}${x.from}`} data-testid="session-box">
             <rect x={x.x1} y={0} width={Math.max(1, x.x2 - x.x1)} height="100%" fill={x.color} fillOpacity=".06" />
