@@ -107,9 +107,16 @@ export const sizeFor = (raw, platform) => (platform === 'MT5' ? Math.floor(raw *
 
 // An account's size for a signal: by dollar risk (the signal's risk_usd, else the account's) when there's a stop,
 // else the signal's qty times the account's
+// Risk from the firm's limits: risk_share (e.g. 0.25) of the smaller of the daily loss limit and the max loss
+export function ruleRisk(a) {
+  const share = Number(a.risk_share) || 0;
+  const limits = [Number(a.daily_loss) || 0, Number(a.max_loss) || 0].filter((x) => x > 0);
+  return share > 0 && limits.length ? Math.round(share * Math.min(...limits) * 100) / 100 : 0;
+}
+
 export function copyQty(a, sig, pv) {
   const stop = sig.sl != null && sig.price != null ? Math.abs(sig.price - sig.sl) : 0;
-  const risk = Number(sig.risk_usd) > 0 ? Number(sig.risk_usd) : Number(a.risk_usd) || 0;
+  const risk = Number(sig.risk_usd) > 0 ? Number(sig.risk_usd) : Number(a.risk_usd) > 0 ? Number(a.risk_usd) : ruleRisk(a);
   const byRisk = risk > 0 && stop > 0;
   return { stop, risk, byRisk, qty: sizeFor(byRisk ? risk / (stop * pv) : (Number(sig.qty) || 1) * (Number(a.copy_qty) || 1), a.platform) };
 }

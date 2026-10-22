@@ -56,3 +56,12 @@ test('training gets example scripts: the shipped strategies plus the trader\'s s
   assert.ok(ex.some((e) => /MQL5 Expert Advisor/.test(e.prompt) && /OnTick/.test(e.answer)), 'shipped MQL5 EAs');
   assert.ok(ex.some((e) => /"Good Bot".*PF 1\.6, max drawdown 6\.2% over 80 trades/.test(e.prompt)), "the trader's good script");
 });
+
+test('risk share: a quarter of the smaller limit sizes the trade', async () => {
+  const { ruleRisk, copyQty } = await import('../../server/lib/copyRules.js');
+  const a = { platform: 'MT5', daily_loss: 500, max_loss: 1000, risk_share: 0.25 };
+  assert.equal(ruleRisk(a), 125);
+  const q = copyQty(a, { price: 2000, sl: 1995, qty: 1 }, 100);
+  assert.equal(q.risk, 125); assert.equal(q.qty, 0.25, '$125 / ($5 stop x $100 per $1) = 0.25 lots');
+  assert.equal(copyQty({ ...a, risk_usd: 50 }, { price: 2000, sl: 1995 }, 100).risk, 50, 'a fixed $ risk wins');
+});

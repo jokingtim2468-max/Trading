@@ -52,7 +52,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
         ...(isMt5 ? { server: form.server.trim(), environment: '' } : { server: '', environment: form.environment || 'demo' }),
         display_name: form.display_name.trim() || randomName(), avatar_seed: form.avatar_seed,
         plan: form.plan, start_balance: start, target: num(form.target), max_loss: num(form.max_loss), trailing: !!form.trailing,
-        risk_usd: num(form.risk_usd), forward_url: (form.forward_url || '').trim(),
+        risk_usd: num(form.risk_usd), risk_share: num(form.risk_share), forward_url: (form.forward_url || '').trim(),
         stage: plan.stages ? form.stage || Object.keys(plan.stages)[0] : '', daily_loss: num(form.daily_loss), day_zone: form.day_zone || plan.dayZone || '',
         auto_withdraw: !!form.auto_withdraw && form.stage === 'funded', split: num(form.split), payout_days: num(form.payout_days),
         mt5_on: isMt5 && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
@@ -81,7 +81,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
         await TradingAccount.update(account.id, data);
         await savePassword(account.id);
         const reset = data.balance != null ? `${startOver ? 'started over' : 'reset by new rules'} at $${start.toLocaleString()} (was $${Number(account.balance ?? start).toLocaleString()}, ${account.status || 'active'})` : '';
-        const changed = ['plan', 'stage', 'risk_usd', 'forward_url', 'target', 'max_loss', 'auto_withdraw', 'mt5_on', 'symbol_map'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
+        const changed = ['plan', 'stage', 'risk_usd', 'risk_share', 'forward_url', 'target', 'max_loss', 'auto_withdraw', 'mt5_on', 'symbol_map'].filter((k) => (account[k] ?? null) !== (data[k] ?? null));
         if (reset || changed.length) await logSetup(`${data.display_name}: ${[reset, changed.length ? `changed ${changed.join(', ')} (${rules})` : ''].filter(Boolean).join('; ')}`, { account_id: account.id, group_id: account.group_id || '' }, { rules: data });
       } else {
         const made = await TradingAccount.create({ ...data, group_id: '' });
@@ -167,6 +167,9 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
               {isMt5 && <Mt5CopierFields account={account} form={form} set={set} />}
               <Field label="Risk per trade ($)" hint="Each copied trade is sized so its stop loses about this much. Empty: the script's quantity x this account's Qty.">
                 <Input type="number" min={0} value={form.risk_usd ?? ''} onChange={(e) => set('risk_usd', e.target.value)} aria-label="Risk per trade" placeholder="e.g. 300" />
+              </Field>
+              <Field label="Or risk a share of the limits" hint="Used when Risk per trade is empty: the stop risks this share of the smaller of the daily loss limit and the max loss. 0.25 = a quarter (FTMO $10K: $500 daily limit = $125 a trade).">
+                <Input type="number" min={0} max={1} step={0.05} value={form.risk_share ?? ''} onChange={(e) => set('risk_share', e.target.value)} aria-label="Risk share of the limits" placeholder="0.25" data-testid="risk-share" />
               </Field>
               <Field label="Order URL (optional)" hint="Trades are copied on paper at the alert price. Add a TradersPost (or similar) webhook to place them on the real account too.">
                 <Input value={form.forward_url || ''} onChange={(e) => set('forward_url', e.target.value)} aria-label="Order URL" placeholder="https://webhooks.traderspost.io/…" />

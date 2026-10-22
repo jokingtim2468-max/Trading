@@ -112,6 +112,10 @@
     "day_key": {
       "type": "string"
     },
+    "risk_share": {
+      "type": "number",
+      "description": "Size each trade so its stop risks this share of the smaller of the daily loss limit and the max loss (0.25 = a quarter); used when risk_usd is empty"
+    },
     "risk_usd": {
       "type": "number",
       "description": "Size each trade so its stop risks this many dollars; empty uses the script's quantity x copy_qty"
