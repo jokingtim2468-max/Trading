@@ -523,3 +523,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - While replying, the chat shows the model's live output (thinking first, then the answer) in a left-bordered mono block; "Using <tool>…" during tool calls.
 - Messages typed during a reply show in the queue above the composer and go out one by one; the queue survives page switches.
 - Train page: "Your Ollama models" row (installed Ollama models mapped to their Unsloth weights); the chat model is preselected when it fits the GPU. After training, the GGUF is added to Ollama as <name>-gold.
+
+## Title bar: model status light (top right, before the window buttons)
+- Dot + model name; checked every 15 s; click opens Settings.
+- Bright green with glow = loaded in memory; soft green = installed, loads on first message; amber = not installed; red = Ollama not running; grey = no model set.

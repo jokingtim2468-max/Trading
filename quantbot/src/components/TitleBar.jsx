@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Minus, Square, Copy, X } from 'lucide-react';
 import LogoMark from '@/components/quant/LogoMark';
+import ModelStatus from '@/components/ModelStatus';
 
 const PAGES = {
   '/': 'Chat', '/settings': 'Settings', '/strategy-lab': 'Strategy Lab', '/strategy-tester': 'Strategy Lab · Test', '/strategy-converter': 'Strategy Lab · Convert', '/market-lab': 'Strategy Lab · Market',
@@ -40,6 +41,7 @@ export default function TitleBar() {
         <span className="text-xs text-muted-foreground truncate">{PAGES[pathname] || ''}</span>
       </div>
       <div className="ml-auto flex h-full" onDoubleClick={(e) => e.stopPropagation()}>
+        <ModelStatus />
         <WinButton label="Minimize" onClick={() => desktop.minimize()}><Minus className="w-4 h-4" /></WinButton>
         <WinButton label={maximized ? 'Restore' : 'Maximize'} onClick={() => desktop.toggleMaximize()}>
           {maximized ? <Copy className="w-3.5 h-3.5 -scale-x-100" /> : <Square className="w-3.5 h-3.5" />}

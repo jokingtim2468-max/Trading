@@ -253,6 +253,20 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
 
   // Train page: Unsloth fine-tuning in Docker
+  // The title bar's model light: is the local model set, installed, and loaded in Ollama right now?
+  if (req.method === 'GET' && url.pathname === '/api/model/status') {
+    const me = backend.handle('user', 'me');
+    const model = me.ollama_model || null;
+    if (!model) return send(res, 200, { state: 'unset', model: null });
+    const base = String(me.ollama_url || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+    try {
+      const tags = await (await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(2500) })).json();
+      const same = (n) => n === model || n === `${model}:latest`;
+      if (!(tags.models || []).some((m) => same(m.name))) return send(res, 200, { state: 'missing', model });
+      const ps = await (await fetch(`${base}/api/ps`, { signal: AbortSignal.timeout(2500) })).json().catch(() => ({}));
+      return send(res, 200, { state: (ps.models || []).some((m) => same(m.name)) ? 'loaded' : 'ready', model });
+    } catch { return send(res, 200, { state: 'off', model }); }
+  }
   if (req.method === 'GET' && url.pathname === '/api/train/status') return send(res, 200, { ...(await trainer.status()), models: trainer.models, defaults: trainer.defaults, image_name: trainer.image, exports: trainer.exportsList });
   if (req.method === 'GET' && url.pathname === '/api/train/hf') return send(res, 200, await trainer.hf.account());
   if (req.method === 'POST' && url.pathname === '/api/train/hf') {
