@@ -40,8 +40,8 @@ export function toTurns(history) {
 
 // apiKey is the key for Claude / Gemini; for the local provider it is { url, model } from Settings.
 // tools (optional): { defs, run } that the model may call before it answers (server/lib/chatTools.js)
-export function callModel(provider, apiKey, model, system, messages, maxTokens, tools = null) {
-  if (provider === 'local') return callOllama(apiKey.url, apiKey.model, system, messages, maxTokens, tools);
+export function callModel(provider, apiKey, model, system, messages, maxTokens, tools = null, onLive = null) {
+  if (provider === 'local') return callOllama(apiKey.url, apiKey.model, system, messages, maxTokens, tools, onLive);
   if (provider === 'google') return callGemini(apiKey, model, system, messages, tools);
   return callClaude(apiKey, model, system, messages, maxTokens, tools);
 }

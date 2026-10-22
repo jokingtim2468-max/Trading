@@ -5,7 +5,7 @@ export default function MessageQueue({ queue, onRemove }) {
   return (
     <div className="px-4 md:px-6 pb-2">
       <div className="max-w-3xl mx-auto space-y-1.5">
-        <p className="text-xs text-muted-foreground">Queued ({queue.length}): sent one by one after QuantBot replies</p>
+        <p className="text-xs text-muted-foreground">Queued ({queue.length}): each one is sent after QuantBot finishes its reply</p>
         {queue.map((q, k) => (
           <div key={q.id} className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 text-sm">
             <Clock className="w-3.5 h-3.5 text-primary shrink-0" />

@@ -331,15 +331,26 @@ def evaluate(job, cfg, model=None, tok=None):
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     rows = load_rows(job, "test")
-    preds, bs = [], 16
-    for i in range(0, len(rows), bs):
+    # Big batches while the GPU has room (much faster), halved on an out-of-memory error
+    free_gb = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_reserved()) / 2**30
+    preds, bs, i = [], max(8, min(128, int(free_gb * 16))), 0
+    while i < len(rows):
         chunk = rows[i:i + bs]
         enc = tok([template(r["prompt"]) for r in chunk], return_tensors="pt", padding=True).to("cuda")
-        with torch.no_grad():
-            out = model.generate(**enc, max_new_tokens=32, do_sample=False, pad_token_id=tok.pad_token_id)
+        try:
+            with torch.no_grad():
+                out = model.generate(**enc, max_new_tokens=32, do_sample=False, pad_token_id=tok.pad_token_id, use_cache=True)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            if bs <= 4:
+                raise
+            bs //= 2
+            emit("log", message=f"Test batch lowered to {bs} to fit the GPU")
+            continue
         for k in range(len(chunk)):
             preds.append(parse_answer(tok.decode(out[k][enc["input_ids"].shape[1]:], skip_special_tokens=True)))
         emit("progress", phase="evaluate", step=min(i + bs, len(rows)), total=len(rows))
+        i += len(chunk)
     res = score(rows, preds)
     with open(os.path.join(job, "predictions.jsonl"), "w") as f:
         for r, p in zip(rows, preds):

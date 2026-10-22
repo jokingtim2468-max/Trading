@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { INSTRUMENTS } from './market/instruments.js';
 import { fileURLToPath } from 'node:url';
+import { listOllamaModels, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
 
 export const IMAGE = 'unsloth/unsloth:core';
 const HF_VOLUME = 'quantbot-hf-cache';
@@ -24,6 +25,38 @@ export const MODELS = [
   { id: 'llama3.2-1b-4bit', hf: 'unsloth/Llama-3.2-1B-Instruct-bnb-4bit', name: 'Llama 3.2 1B (4-bit)', params: 1.2, four_bit: true, vram: 2.5, tag: 'Quickest', note: 'Tiny Llama: fastest runs' },
   { id: 'gemma3-1b-4bit', hf: 'unsloth/gemma-3-1b-it-unsloth-bnb-4bit', name: 'Gemma 3 1B (4-bit)', params: 1.0, four_bit: true, vram: 2.5, tag: 'Quickest', note: "Google's 1B text model" },
 ];
+
+// Ollama models -> the same model's trainable weights on Hugging Face (Ollama's own files are GGUF, which can't be
+// trained). After training, the result is imported back into Ollama as <name>-gold.
+const OLLAMA_HF = [
+  [/^qwen2\.5-coder:(latest|7b)/, 'unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit', 7.6, 7],
+  [/^qwen2\.5-coder:3b/, 'unsloth/Qwen2.5-Coder-3B-Instruct-bnb-4bit', 3.1, 4.5],
+  [/^qwen2\.5-coder:1\.5b/, 'unsloth/Qwen2.5-Coder-1.5B-Instruct-bnb-4bit', 1.5, 3],
+  [/^qwen2\.5:(latest|7b)/, 'unsloth/Qwen2.5-7B-Instruct-bnb-4bit', 7.6, 7],
+  [/^qwen2\.5:3b/, 'unsloth/Qwen2.5-3B-Instruct-bnb-4bit', 3.1, 4.5],
+  [/^qwen2\.5:1\.5b/, 'unsloth/Qwen2.5-1.5B-Instruct-bnb-4bit', 1.5, 3],
+  [/^qwen3:(latest|8b)/, 'unsloth/Qwen3-8B-unsloth-bnb-4bit', 8.2, 8],
+  [/^qwen3:4b/, 'unsloth/Qwen3-4B-unsloth-bnb-4bit', 4.0, 7.5],
+  [/^qwen3:1\.7b/, 'unsloth/Qwen3-1.7B-unsloth-bnb-4bit', 1.7, 3],
+  [/^llama3\.1:(latest|8b)/, 'unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit', 8.0, 8],
+  [/^llama3\.2:(latest|3b)/, 'unsloth/Llama-3.2-3B-Instruct-bnb-4bit', 3.2, 5],
+  [/^llama3\.2:1b/, 'unsloth/Llama-3.2-1B-Instruct-bnb-4bit', 1.2, 2.5],
+  [/^gemma3:4b/, 'unsloth/gemma-3-4b-it-unsloth-bnb-4bit', 4.3, 6.5],
+  [/^gemma3:1b/, 'unsloth/gemma-3-1b-it-unsloth-bnb-4bit', 1.0, 2.5],
+  [/^phi4-mini/, 'unsloth/Phi-4-mini-instruct-unsloth-bnb-4bit', 3.8, 6],
+  [/^mistral:(latest|7b)/, 'unsloth/mistral-7b-instruct-v0.3-bnb-4bit', 7.2, 7],
+];
+export function ollamaTrainable(name) {
+  const hit = OLLAMA_HF.find(([re]) => re.test(String(name)));
+  if (!hit) return null;
+  const [, hf, params, vram] = hit;
+  return { id: `ollama:${name}`, hf, name: `${name} (Ollama)`, params, four_bit: true, vram, tag: 'Your Ollama model', note: `Trains ${hf}, the same model Ollama runs, then adds the result to Ollama as ${ollamaOut(name)}`, ollama: name };
+}
+export const ollamaOut = (name) => `${String(name).split(':')[0]}-gold`;
+// Models picked from Ollama, so a run can look them up by id like the built-in ones
+const EXTRA = new Map();
+const findModel = (id) => MODELS.find((m) => m.id === id) || EXTRA.get(id) || null;
+
 // GPU memory for LoRA training on short prompts: 4-bit weights ~0.75 GB per billion parameters, 16-bit ~2.1 GB, plus overhead
 export const vramFor = (paramsB, fourBit) => Math.round(((fourBit ? 0.75 : 2.1) * paramsB + (fourBit ? 1.6 : 0.8)) * 10) / 10;
 // Model file formats: which ones training can start from (Transformers weights) and which are run-only
@@ -84,7 +117,7 @@ function run(cmd, args, timeoutMs = 15000) {
 // LoRA rank 16 with alpha 32 and 2e-4 (Unsloth's defaults), 2 epochs over ~4,700 days. The script then trims the
 // sequence length to the longest real example and halves the batch by itself if the GPU still runs out of memory.
 export function autoSettings(modelOrId, gpuGb) {
-  const m = typeof modelOrId === 'object' && modelOrId ? modelOrId : MODELS.find((x) => x.id === modelOrId) || MODELS[0];
+  const m = typeof modelOrId === 'object' && modelOrId ? modelOrId : findModel(modelOrId) || MODELS[0];
   const spare = gpuGb ? gpuGb - m.vram : 2;
   const batch = spare >= 3 ? 8 : spare >= 1.5 ? 4 : spare >= 0.5 ? 2 : 1;
   const why = gpuGb
@@ -96,7 +129,7 @@ export function autoSettings(modelOrId, gpuGb) {
 export function validateConfig(input) {
   const c = { ...DEFAULTS, ...(input || {}) };
   const bad = (msg) => { throw Object.assign(new Error(msg), { status: 400 }); };
-  if (c.model_source === 'recommended') { if (!MODELS.some((m) => m.id === c.model)) bad('Unknown model'); }
+  if (c.model_source === 'recommended') { if (!findModel(c.model)) bad('Unknown model'); }
   else if (c.model_source === 'hf') { if (!/^[\w.-]+\/[\w.-]+$/.test(String(c.hf_model || '').trim())) bad('Enter a Hugging Face model as owner/name, e.g. unsloth/Qwen3.5-2B'); c.hf_model = c.hf_model.trim(); }
   else if (c.model_source === 'local') { if (!String(c.local_model || '').trim()) bad('Enter the folder of the model on this PC'); }
   else bad('Unknown model source');
@@ -141,7 +174,7 @@ function localFiles(folder) {
   return out;
 }
 
-export function createTrainer({ dataDir, market, cipher = null, log = () => {} }) {
+export function createTrainer({ dataDir, market, cipher = null, log = () => {}, ollama = () => ({}) }) {
   const root = path.join(dataDir, 'train');
   fs.mkdirSync(root, { recursive: true });
   const live = new Map(); // id -> { proc, state }
@@ -272,10 +305,16 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     const img = v.code === 0 ? await run(...dockerCmd(['image', 'inspect', IMAGE, '--format', '{{.Size}}'])) : { code: 1 };
     // The biggest recommended model that fits with 1 GB of headroom (no GPU reading: the smallest)
     // Under 12 GB: the curated "Best fit" when it fits (proven on 8 GB cards); bigger cards: the largest that fits
+    // The trader's Ollama models that can be trained; the one they chat with is recommended when it fits
+    const o = ollama() || {};
+    const names = await listOllamaModels(o.url || DEFAULT_OLLAMA_URL).catch(() => []);
+    const mine = names.map(ollamaTrainable).filter(Boolean);
+    for (const m of mine) EXTRA.set(m.id, m);
+    const chatModel = mine.find((m) => m.ollama === o.model && (!gpu || m.vram <= gpu - 0.5));
     const fits = gpu ? MODELS.filter((m) => m.vram <= gpu - 1) : [];
     const best = fits.find((m) => m.tag === 'Best fit');
-    const rec = best && gpu < 12 ? best
-      : fits.length ? fits.reduce((a, b) => (b.params > a.params ? b : a)) : MODELS.reduce((a, b) => (b.vram < a.vram ? b : a));
+    const rec = chatModel || (best && gpu < 12 ? best
+      : fits.length ? fits.reduce((a, b) => (b.params > a.params ? b : a)) : MODELS.reduce((a, b) => (b.vram < a.vram ? b : a)));
     const { settings, why } = autoSettings(rec, gpu);
     // GGUF F16 / Q8_0 merge the full 16-bit model and crash small cards: offer Q4_K_M (what Ollama runs) under 12 GB
     const exports = gpu && gpu >= 12 ? ['adapter', 'gguf_q8_0'] : ['adapter', 'gguf_q4_k_m'];
@@ -290,7 +329,8 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
       unsloth: { installed: img.code === 0, size_gb: img.code === 0 ? Math.round(Number(img.out) / 1e8) / 10 : null, pulling: pulling ? { ...pulling } : null },
       recommended: { id: rec.id, name: rec.name, hf: rec.hf, vram: rec.vram, tag: rec.tag, note: rec.note },
       settings, why, exports, ready: blockers.length === 0, blockers, notes, gpu_gb: gpu,
-      models: MODELS.map((m) => ({ id: m.id, name: m.name, vram: m.vram, tag: m.tag, note: m.note, fits: gpu ? m.vram <= gpu - 0.5 : false })),
+      models: [...mine, ...MODELS].map((m) => ({ id: m.id, name: m.name, vram: m.vram, tag: m.tag, note: m.note, ollama: m.ollama || null, fits: gpu ? m.vram <= gpu - 0.5 : false })),
+      chat_model: o.model || null,
     };
   }
 
@@ -298,7 +338,7 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
   async function autoStart(body = {}) {
     const a = await autoConfig();
     if (!a.ready) throw Object.assign(new Error(a.blockers.join('; ')), { status: 400 });
-    const m = MODELS.find((x) => x.id === (body.model || a.recommended.id));
+    const m = findModel(body.model || a.recommended.id);
     if (!m) throw Object.assign(new Error('Unknown model'), { status: 400 });
     if (a.gpu_gb && m.vram > a.gpu_gb - 0.5) throw Object.assign(new Error(`${m.name} needs about ${m.vram} GB: too big for this ${a.gpu_gb} GB GPU. Pick a smaller one.`), { status: 400 });
     const { settings } = autoSettings(m, a.gpu_gb);
@@ -345,6 +385,20 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     if (pulling?.state !== 'done') throw new Error(`Couldn't download Unsloth's image: ${pulling?.line || 'unknown error'}`);
   }
 
+  // The run's GGUF export becomes an Ollama model (<name>-gold) the chat can use
+  async function toOllama(id, name) {
+    const gdir = path.join(dir(id), 'export', 'gguf');
+    let file = null;
+    try { file = fs.readdirSync(gdir, { recursive: true }).map(String).find((f) => /\.gguf$/i.test(f)); } catch { /* no GGUF */ }
+    if (!file) { log(`train ${id}: no GGUF export to add to Ollama`); return null; }
+    const out = ollamaOut(name);
+    const mf = path.join(dir(id), 'Modelfile');
+    fs.writeFileSync(mf, `FROM ${path.join(gdir, file)}\n`);
+    const r = await run('ollama', ['create', out, '-f', mf], 15 * 60000);
+    log(`train ${id}: ollama create ${out} ${r.code === 0 ? 'done' : `failed (${r.out || r.code})`}`);
+    return r.code === 0 ? out : null;
+  }
+
   async function start(input) {
     if ([...live.values()].some((x) => x.state.status === 'running')) throw Object.assign(new Error('A training run is already going: stop it or wait for it to finish'), { status: 409 });
     let cfg = validateConfig(input);
@@ -352,8 +406,9 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
     // Which weights to load, in 4-bit or 16-bit, and how much GPU memory that takes
     let model;
     if (cfg.model_source === 'recommended') {
-      const r = MODELS.find((m) => m.id === cfg.model);
+      const r = findModel(cfg.model);
       model = { hf_id: r.hf, name: r.name, four_bit: r.four_bit, vram: r.vram };
+      if (r.ollama) cfg.ollama_name = r.ollama;
     } else {
       const info = cfg.model_source === 'hf' ? await hfModel(cfg.hf_model, gpu) : localModel(cfg.local_model, gpu);
       if (!info.trainable) throw Object.assign(new Error(info.why_not), { status: 400 });
@@ -422,6 +477,10 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {} }
           throw new Error(err?.message || `Docker exited with code ${code}${tail ? `: ${tail}` : ''} (full log: output.log in ${dir(id)})`);
         }
         Object.assign(st, { status: 'done', phase: 'done' });
+        if (cfg.ollama_name) {
+          const added = await toOllama(id, cfg.ollama_name);
+          if (added) st.ollama_model = added;
+        }
       } catch (e) {
         Object.assign(st, { status: entry.stopped ? 'stopped' : 'error', phase: entry.stopped ? 'stopped' : 'error', error: entry.stopped ? null : e.message });
         if (!entry.stopped) log(`train ${id}: ${e.message}`);

@@ -43,19 +43,24 @@ function TrainCard({ onStarted }) {
       </div>
       {!a ? <p className="text-sm text-muted-foreground">{error || 'Checking this PC…'}</p> : (
         <>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2" data-testid="auto-train-models">
-            {a.models.map((m) => {
-              const tooBig = a.gpu && !m.fits;
-              return (
-                <button key={m.id} type="button" disabled={tooBig || busy} onClick={() => setPick(m.id)} data-model={m.id} aria-pressed={pick === m.id}
-                  title={`${m.note}${tooBig ? ' — too big for this GPU' : ''}`}
-                  className={`rounded-xl border p-3 text-left disabled:opacity-40 ${pick === m.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'}`}>
-                  <div className="font-medium text-sm">{m.name}</div>
-                  <div className="text-xs text-muted-foreground">~{m.vram} GB{m.id === a.recommended.id ? ' · best for this PC' : ''}</div>
-                </button>
-              );
-            })}
-          </div>
+          {[['Your Ollama models', a.models.filter((m) => m.ollama)], ['Other models', a.models.filter((m) => !m.ollama)]].filter(([, list]) => list.length).map(([title, list]) => (
+            <div key={title} className="space-y-1.5">
+              <div className="text-xs text-muted-foreground">{title}{title === 'Your Ollama models' ? ': trained on your data, then added back to Ollama as <name>-gold for the chat' : ''}</div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2" data-testid={title === 'Your Ollama models' ? 'train-ollama-models' : 'auto-train-models'}>
+                {list.map((m) => {
+                  const tooBig = a.gpu && !m.fits;
+                  return (
+                    <button key={m.id} type="button" disabled={tooBig || busy} onClick={() => setPick(m.id)} data-model={m.id} aria-pressed={pick === m.id}
+                      title={`${m.note}${tooBig ? ' — too big for this GPU' : ''}`}
+                      className={`rounded-xl border p-3 text-left disabled:opacity-40 ${pick === m.id ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'}`}>
+                      <div className="font-medium text-sm">{m.ollama || m.name}{m.ollama && m.ollama === a.chat_model ? ' · chat model' : ''}</div>
+                      <div className="text-xs text-muted-foreground">~{m.vram} GB{m.id === a.recommended.id ? ' · best for this PC' : ''}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
           {!a.ready && <ul className="text-xs text-chart-4 list-disc pl-5">{a.blockers.map((x) => <li key={x}>{x}</li>)}</ul>}
           <div className="flex flex-wrap items-center gap-3">
             <Button size="lg" onClick={go} disabled={!a.ready || busy || !pick} data-testid="auto-train-start"><Play className="w-4 h-4 mr-1.5" />{busy ? 'Starting…' : 'Train'}</Button>
@@ -152,6 +157,7 @@ function RunCard({ run, models, onChange }) {
           )}
         </div>
       )}
+      {run.ollama_model && <p className="text-xs text-emerald-400" data-testid="train-ollama-result">Added to Ollama as <b>{run.ollama_model}</b>: pick it in Settings → Models to chat with it.</p>}
       {run.error && <p className="text-xs text-destructive">{run.error}</p>}
       <Recipe id={run.id} status={run.status} />
       {run.messages.length > 0 && (

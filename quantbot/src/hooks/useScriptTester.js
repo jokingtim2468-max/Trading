@@ -152,12 +152,20 @@ export default function useScriptTester() {
       let accounts = null;
       if (account.all?.length) {
         const bySize = new Map([[balance, sim.trades]]);
-        for (const size of [...new Set(account.all.map((x) => x.size))].sort((a, b) => a - b)) {
-          if (bySize.has(size)) continue;
-          live(`${ds.symbol}: testing the $${(size / 1000).toLocaleString()}K accounts...`);
-          bySize.set(size, (await simulate(prepared, size)).trades);
-          stopped();
-        }
+        // Each size runs in its own background worker, several at once (one per spare CPU core)
+        const todo = [...new Set(account.all.map((x) => x.size))].sort((a, b) => a - b).filter((size) => !bySize.has(size));
+        const lanes = Math.max(1, Math.min(todo.length, (navigator.hardwareConcurrency || 4) - 1, 8));
+        let next = 0, finished = 0;
+        live(`${ds.symbol}: testing ${todo.length} account sizes, ${lanes} at a time...`);
+        await Promise.all(Array.from({ length: lanes }, async () => {
+          while (next < todo.length) {
+            const size = todo[next++];
+            bySize.set(size, (await runInWorker({ bars, startIndex: start, simCode: prepared.sim_code, balance: size, contractSize, point: ds.point || 0.01 }, { maxMs: 120000, signal })).trades);
+            finished++;
+            live(`${ds.symbol}: account sizes tested ${finished} of ${todo.length}`);
+            stopped();
+          }
+        }));
         accounts = rankAccounts(account.all.map((x) => { const { timeline: _timeline, ...r } = evaluateProp(bySize.get(x.size), x); return { ...r, stage: x.stage }; }));
         const best = accounts[0];
         add('info', `All accounts: best is ${best.firm} ${best.model} $${best.size.toLocaleString()} — ${best.status}${best.date ? ` on ${best.date}` : ''} (${accounts.filter((a) => a.status === 'passed').length} of ${accounts.length} passed)`);

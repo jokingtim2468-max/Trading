@@ -518,3 +518,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - When a chat is created, the full system prompt is sent as its first (hidden) message ending "reply with exactly: OK".
   A toast says "System prompt loaded" when the model answers OK, or shows its actual reply when it doesn't.
 - The hidden handshake always opens the conversation sent to the model.
+
+## Chat: live text + queue; Train: Ollama models
+- While replying, the chat shows the model's live output (thinking first, then the answer) in a left-bordered mono block; "Using <tool>…" during tool calls.
+- Messages typed during a reply show in the queue above the composer and go out one by one; the queue survives page switches.
+- Train page: "Your Ollama models" row (installed Ollama models mapped to their Unsloth weights); the chat model is preselected when it fits the GPU. After training, the GGUF is added to Ollama as <name>-gold.

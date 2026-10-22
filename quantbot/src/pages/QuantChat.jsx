@@ -11,6 +11,7 @@ import ChatHeader from '@/components/quant/ChatHeader';
 import HomeGreeting from '@/components/quant/HomeGreeting';
 import MessageList from '@/components/quant/MessageList';
 import Composer from '@/components/quant/Composer';
+import MessageQueue from '@/components/quant/MessageQueue';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
 
 export default function QuantChat() {
@@ -23,6 +24,10 @@ export default function QuantChat() {
   const setActiveId = (id) => { setActiveIdState(id); try { if (id) sessionStorage.setItem('quant_chat', id); else sessionStorage.removeItem('quant_chat'); } catch { /* private window */ } };
   const [messages, setMessages] = useState([]);
   const [thinking, setThinking] = useState(false);
+  const [live, setLive] = useState('');
+  // Messages typed while QuantBot replies wait here (kept when you switch pages) and go out one by one
+  const [queue, setQueueState] = useState(() => { try { return JSON.parse(sessionStorage.getItem('quant_queue')) || []; } catch { return []; } });
+  const setQueue = (fn) => setQueueState((q) => { const next = typeof fn === 'function' ? fn(q) : fn; try { sessionStorage.setItem('quant_queue', JSON.stringify(next)); } catch { /* private window */ } return next; });
   const [style, setStyle] = useState('Concise');
   const [model, setModel] = useState(() => knownModel(localStorage.getItem('quant_model'), 'builtin'));
   const [keyStatus, setKeyStatus] = useState(null);
@@ -92,6 +97,7 @@ export default function QuantChat() {
         const st = await api.replyStatus(activeId);
         if (!live) return;
         setThinking(st.replying);
+        setLive(st.replying ? st.live || '' : '');
         if (st.prompt_status && !shownPrompt.current[activeId]) {
           shownPrompt.current[activeId] = true;
           if (st.prompt_status === 'ok') toast({ title: 'System prompt loaded', description: 'The local model replied OK.' });
@@ -99,7 +105,7 @@ export default function QuantChat() {
         }
         if (st.error) toast({ title: 'No reply', description: st.error, variant: 'destructive' });
         setMessages(await api.loadMessages(activeId));
-        if (st.replying) timer = setTimeout(poll, 1500); else refreshSessions();
+        if (st.replying) timer = setTimeout(poll, 700); else refreshSessions();
       } catch { if (live) timer = setTimeout(poll, 3000); }
     };
     pollNow.current = () => { clearTimeout(timer); poll(); };
@@ -127,7 +133,16 @@ export default function QuantChat() {
       toast({ title: 'Message failed', description: e.response?.data?.error || e.message, variant: 'destructive' });
     }
   };
-  const submit = (text) => send(text);
+  const submit = (text) => {
+    if (thinking && activeId) setQueue((q) => [...q, { id: `${Date.now()}-${Math.random()}`, text, chat: activeId }]);
+    else send(text);
+  };
+  useEffect(() => {
+    const next = queue.find((q) => q.chat === activeId);
+    if (thinking || !next) return;
+    setQueue((q) => q.filter((x) => x.id !== next.id));
+    send(next.text);
+  }, [thinking, queue, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeGroup = async (group) => {
     await api.setSessionGroup(activeId, group);
@@ -165,8 +180,9 @@ export default function QuantChat() {
           onExport={() => api.exportMarkdown(session.title, messages)} onDelete={removeChat}
           onMenu={() => setSidebarOpen(true)}
         />
-        {hasChat ? <MessageList messages={messages} thinking={thinking} /> : <HomeGreeting name={firstName} />}
+        {hasChat ? <MessageList messages={messages} thinking={thinking} live={live} /> : <HomeGreeting name={firstName} />}
         {needsKey && <NoKeyBanner provider={missing} onSaved={setKeyStatus} />}
+        <MessageQueue queue={queue.filter((q) => q.chat === activeId)} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
         <LoopFixPanel />
         <Composer
           onSend={submit} disabled={needsKey}

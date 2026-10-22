@@ -45,10 +45,10 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     return keys.get(provider) || fail(`No ${PROVIDER_NAMES[provider]} API key linked. Add one in Settings.`);
   }
 
-  async function ask(model, system, messages, maxTokens, tools) {
+  async function ask(model, system, messages, maxTokens, tools, onLive) {
     const id = pickModel(model);
     const provider = providerOf(id) || fail('Unknown model');
-    return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools);
+    return callModel(provider, credentials(provider), id, system, messages, maxTokens, tools, onLive);
   }
 
   const fns = {
@@ -116,7 +116,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
           for (let guard = 0, answered = -1; guard < 10; guard++) {
             const n = users();
             if (n === answered) break;
-            await fns.quantChat({ session_id, style, model });
+            await fns.quantChat({ session_id, style, model }, (text) => { const r = replying.get(session_id); if (r) r.live = text; });
+            const r = replying.get(session_id); if (r) r.live = '';
             answered = n;
           }
           replying.delete(session_id);
@@ -130,12 +131,12 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       const r = replying.get(session_id);
       if (r?.done) replying.delete(session_id);
       const s = db.run('ChatSession', 'get', session_id);
-      return { replying: !!r && !r.done, error: r?.error || '', prompt_status: s.prompt_status || null, prompt_reply: s.prompt_reply || '' };
+      return { replying: !!r && !r.done, live: r?.live || '', error: r?.error || '', prompt_status: s.prompt_status || null, prompt_reply: s.prompt_reply || '' };
     },
 
-    async quantChat({ session_id, style, model }) {
+    async quantChat({ session_id, style, model }, onLive = null) {
       let session = db.run('ChatSession', 'get', session_id);
-      if (!session.script_id && !session.prompt_status) { await fns.chatHandshake({ session_id, style }); session = db.run('ChatSession', 'get', session_id); }
+      if (!session.script_id && !session.prompt_status) { onLive?.('Sending your system prompt to the model…'); await fns.chatHandshake({ session_id, style }); session = db.run('ChatSession', 'get', session_id); }
       const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;
       // The system-prompt handshake always opens the conversation, then the last 20 visible messages
       const recent = [...all.filter((m) => m.hidden), ...all.filter((m) => !m.hidden).slice(-20)];
@@ -145,7 +146,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       const useModel = model;
       const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
       const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10) });
-      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, chatTools));
+      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, chatTools, onLive));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       // A normal chat's first reply: the model names the chat, and that name becomes its workspace folder

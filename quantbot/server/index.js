@@ -382,7 +382,7 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
-  const trainer = createTrainer({ dataDir, market, cipher, log: app?.log });
+  const trainer = createTrainer({ dataDir, market, cipher, log: app?.log, ollama: () => { try { const me = backend.handle('user', 'me'); return { url: me.ollama_url, model: me.ollama_model }; } catch { return {}; } } });
   const terminal = createTerminal({ dataDir, db: entityDb, signals, ask: backend.ask, log: app?.log });
   // MT5 fast lane: live ticks in, orders out the moment they're checked; ticks drive pending orders, trails, alerts
   lane = createFastLane({
