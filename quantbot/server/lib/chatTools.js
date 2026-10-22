@@ -11,6 +11,16 @@ const day = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : null);
 
 export const TOOL_DEFS = [
   {
+    name: 'web_search',
+    description: 'Search the web (docs, MQL5 / Pine reference, news, prop firm rules). Returns titles, links and snippets.',
+    parameters: { type: 'object', properties: { query: { type: 'string' }, max_results: { type: 'integer', description: '1-10, default 5' } }, required: ['query'] },
+  },
+  {
+    name: 'web_fetch',
+    description: 'Read one web page as plain text (use a link from web_search).',
+    parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
+  {
     name: 'list_markets',
     description: 'The built-in markets (XAUUSD, US100, NQ): contract specs, timeframes, how far back the data goes, broker time and the backtester\'s fill rules.',
     parameters: { type: 'object', properties: {} },
@@ -173,7 +183,54 @@ function weekdayRanges(bars) {
   return Object.fromEntries(days.filter((d) => acc[d]).map((d) => [d, r2(acc[d][0] / acc[d][1])]));
 }
 
-export function createChatTools({ db, market }) {
+// Web access: Ollama's web search API when an Ollama key is saved (ollama.com/settings/keys), otherwise DuckDuckGo
+const textOf = (html) => String(html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ')
+  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim();
+export async function webSearch(query, max = 5, key = '') {
+  const n = Math.max(1, Math.min(10, Number(max) || 5));
+  if (key) {
+    const r = await fetch('https://ollama.com/api/web_search', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ query, max_results: n }), signal: AbortSignal.timeout(20000) });
+    if (r.ok) return { source: 'ollama', results: ((await r.json()).results || []).map((x) => ({ title: x.title, url: x.url, snippet: String(x.content || '').slice(0, 600) })) };
+  }
+  const r = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, { headers: { 'user-agent': 'Mozilla/5.0 QuantBot' }, signal: AbortSignal.timeout(20000) });
+  const html = await r.text();
+  const results = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  for (let m; (m = re.exec(html)) && results.length < n;) {
+    let url = m[1].replace(/&amp;/g, '&');
+    const u = url.match(/[?&]uddg=([^&]+)/); if (u) url = decodeURIComponent(u[1]);
+    if (url.startsWith('//')) url = `https:${url}`;
+    results.push({ title: textOf(m[2]), url, snippet: textOf(m[3]) });
+  }
+  if (results.length) return { source: 'duckduckgo', results };
+  // DuckDuckGo sometimes answers with a bot check: Bing's results page instead
+  const b = await fetch(`https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=en`, { headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }, signal: AbortSignal.timeout(20000) });
+  const page = await b.text();
+  for (const block of page.split('<li class="b_algo"').slice(1)) {
+    if (results.length >= n) break;
+    const a = block.match(/<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/);
+    if (!a) continue;
+    let url = a[1].replace(/&amp;/g, '&');
+    const enc = url.match(/[?&]u=a1([^&]+)/);
+    if (enc) { try { url = Buffer.from(enc[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { /* keep the bing link */ } }
+    results.push({ title: textOf(a[2]), url, snippet: textOf(block.match(/<p[^>]*>([\s\S]*?)<\/p>/)?.[1] || '').slice(0, 600) });
+  }
+  return { source: 'bing', results };
+}
+export async function webFetch(url, key = '') {
+  if (!/^https?:\/\//i.test(String(url))) throw new Error('Give a full http(s) link');
+  const host = new URL(url).hostname;
+  if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(host) || host.endsWith('.local')) throw new Error('Only public web pages');
+  if (key) {
+    const r = await fetch('https://ollama.com/api/web_fetch', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ url }), signal: AbortSignal.timeout(30000) });
+    if (r.ok) { const j = await r.json(); return { title: j.title, text: String(j.content || '').slice(0, 20000) }; }
+  }
+  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 QuantBot' }, signal: AbortSignal.timeout(30000), redirect: 'follow' });
+  const html = await r.text();
+  return { title: textOf(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || ''), text: textOf(html).slice(0, 20000) };
+}
+
+export function createChatTools({ db, market, webKey = () => '' }) {
   const list = (entity, query, opts) => db.run(entity, 'filter', query, opts).items;
   const getRun = (id) => {
     try {
@@ -337,6 +394,8 @@ export function createChatTools({ db, market }) {
         high: hi, low: lo, firstOpen: bars.open[0], lastClose: bars.close[n - 1],
       };
     },
+    web_search: ({ query, max_results }) => webSearch(String(query || ''), max_results, webKey()),
+    web_fetch: ({ url }) => webFetch(String(url || ''), webKey()),
   };
 
   // -> text for the model (errors are returned too, so the model can correct itself)

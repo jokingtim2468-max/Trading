@@ -226,8 +226,21 @@ def train(job, cfg):
     eos = tok.eos_token or ""
     rows = load_rows(job, "train")
     texts = [template(r["prompt"], r["answer"]) + eos for r in rows]
+    # Good example scripts (QuantBot's own and the trader's best-tested): repeated so they are ~5% of the data,
+    # skipping any too long for the GPU's sequence budget
+    sp = os.path.join(job, "scripts.jsonl")
+    if os.path.exists(sp):
+        with open(sp) as f:
+            ex = [json.loads(x) for x in f if x.strip()]
+        limit = cfg["max_seq_length"]
+        ex_texts = [template(x["prompt"], x["answer"]) + eos for x in ex]
+        ex_texts = [t for t in ex_texts if len(tok(t)["input_ids"]) <= limit]
+        if ex_texts:
+            reps = max(1, min(30, round(0.05 * len(texts) / len(ex_texts))))
+            texts += ex_texts * reps
+            emit("log", message=f"Added {len(ex_texts)} example scripts (x{reps}) of {len(ex)} to the training data")
     if cfg.get("auto", True):
-        longest = max(len(tok(t)["input_ids"]) for t in texts[:: max(1, len(texts) // 400)])
+        longest = max(len(tok(t)["input_ids"]) for t in texts[:: max(1, len(texts) // 400)] + texts[len(rows):])
         seq = min(cfg["max_seq_length"], 64 * math.ceil((longest + 32) / 64))
         if seq != cfg["max_seq_length"]:
             emit("log", message=f"Auto: longest example is {longest} tokens, sequence length set to {seq} (saves GPU memory)")

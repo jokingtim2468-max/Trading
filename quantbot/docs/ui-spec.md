@@ -527,3 +527,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Title bar: model status light (top right, before the window buttons)
 - Dot + model name; checked every 15 s; click opens Settings.
 - Bright green with glow = loaded in memory; soft green = installed, loads on first message; amber = not installed; red = Ollama not running; grey = no model set.
+
+## Web access + training examples
+- Chat tools web_search / web_fetch: Ollama's web search when an Ollama key is saved (Settings → local model, optional), else DuckDuckGo with Bing as backup.
+- Training adds example scripts (shipped strategies + the trader's bots with PF > 1.3, DD < 10%, 30+ trades) at ~5% of the data; trained models are added to Ollama with Unsloth's Modelfile (chat template kept).

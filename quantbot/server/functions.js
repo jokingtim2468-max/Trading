@@ -26,7 +26,7 @@ function scriptBrief(script, context) {
 const HANDSHAKE_ASK = 'Everything above is your system prompt for this whole chat. Follow it in every reply. To confirm you have read it, reply with exactly: OK';
 
 export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null }) {
-  const chatTools = createChatTools({ db, market });
+  const chatTools = createChatTools({ db, market, webKey: () => user.me().ollama_api_key || process.env.OLLAMA_API_KEY || '' });
   const replying = new Map(); // session_id -> { started, error, done }
   // There is no built-in model: "builtin" means your default model for whichever key is linked
   // Local only: every chat, conversion and test runs on the local model (Ollama) set up in Settings
@@ -69,11 +69,11 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     },
 
     // Local model settings: test the Ollama address (lists installed models) or save address and model
-    async localModel({ action, url, model }) {
+    async localModel({ action, url, model, api_key }) {
       if (action === 'test') return { models: await listOllamaModels(url) };
       if (action === 'save') {
         const name = String(model || '').trim();
-        return user.update({ ollama_url: ollamaBase(url), ollama_model: name });
+        return user.update({ ollama_url: ollamaBase(url), ollama_model: name, ...(api_key !== undefined ? { ollama_api_key: String(api_key).trim() } : {}) });
       }
       // Look at this PC and recommend the best coding model that fits its GPU / RAM
       if (action === 'recommend') return detectSpecs();

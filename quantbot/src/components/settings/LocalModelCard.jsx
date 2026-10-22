@@ -20,7 +20,7 @@ export default function LocalModelCard() {
   const poll = useRef(null);
 
   useEffect(() => {
-    client.auth.me().then((me) => setForm({ url: me.ollama_url || DEFAULT_URL, model: me.ollama_model || DEFAULT_MODEL, saved: me.ollama_model || '' }));
+    client.auth.me().then((me) => setForm({ url: me.ollama_url || DEFAULT_URL, model: me.ollama_model || DEFAULT_MODEL, saved: me.ollama_model || '', key: me.ollama_api_key || '' }));
     return () => clearInterval(poll.current);
   }, []);
 
@@ -38,7 +38,7 @@ export default function LocalModelCard() {
   });
 
   const save = (modelName) => run('save', async () => {
-    const me = await local({ action: 'save', url: form.url, model: modelName ?? form.model });
+    const me = await local({ action: 'save', url: form.url, model: modelName ?? form.model, api_key: form.key });
     setForm((f) => ({ ...f, model: me.ollama_model || f.model, url: me.ollama_url, saved: me.ollama_model }));
     setMessage({ text: me.ollama_model ? `Saved. "${me.ollama_model}" is your local model — pick "Local model (Ollama)" in the chat or testers.` : 'Local model turned off.', error: false });
   });
@@ -125,6 +125,8 @@ export default function LocalModelCard() {
           <div className="grid sm:grid-cols-2 gap-2">
             <Input aria-label="Ollama address" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder={DEFAULT_URL} />
             <Input aria-label="Local model name" list="ollama-models" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={DEFAULT_MODEL} />
+            <Input aria-label="Ollama web search key" className="sm:col-span-2" type="password" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })}
+              placeholder="Ollama key for web search (optional, free at ollama.com/settings/keys; without it the web goes through DuckDuckGo)" data-testid="ollama-web-key" />
             <datalist id="ollama-models">{(installed || []).map((m) => <option key={m} value={m} />)}</datalist>
           </div>
           <div className="flex gap-2">

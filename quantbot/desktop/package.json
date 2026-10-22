@@ -32,6 +32,7 @@
       { "from": "../src/lib/backtest/marketStats.js", "to": "quantbot/src/lib/backtest/marketStats.js" },
       { "from": "../mt5", "to": "quantbot/mt5" },
       { "from": "../train", "to": "quantbot/train", "filter": ["**/*", "!**/__pycache__/**"] },
+      { "from": "../strategies", "to": "quantbot/strategies", "filter": ["*.pine"] },
       { "from": "../package.json", "to": "quantbot/package.json" }
     ],
     "win": {

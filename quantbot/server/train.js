@@ -12,6 +12,28 @@ import { listOllamaModels, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
 export const IMAGE = 'unsloth/unsloth:core';
 const HF_VOLUME = 'quantbot-hf-cache';
 const SCRIPT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'train', 'unsloth');
+const APP_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Example scripts for training: QuantBot's own strategies (complete, compiling, honest headers) and the trader's
+// scripts whose backtests passed the bar (PF > 1.3, max DD < 10%, 30+ trades). Each becomes "write this" -> the code.
+export function scriptExamples(good = []) {
+  const out = [];
+  const files = [['strategies', /\.pine$/i], ['mt5', /^QB_.*\.mq5$/i], [path.join('mt5', 'onnx'), /\.mq5$/i]];
+  for (const [sub, re] of files) {
+    let names = [];
+    try { names = fs.readdirSync(path.join(APP_DIR, sub)).filter((f) => re.test(f)); } catch { /* not shipped */ }
+    for (const f of names) {
+      const code = fs.readFileSync(path.join(APP_DIR, sub, f), 'utf8');
+      const about = code.split('\n').filter((l) => /^\s*\/\/(?!\s*[=+|-]{4,})/.test(l) && !/@version/.test(l)).slice(0, 6).map((l) => l.replace(/^\s*\/\/\s?/, '').replace(/^\|\s*|\s*\|$/g, '').trim()).filter(Boolean).join(' ');
+      const lang = /\.pine$/i.test(f) ? 'Pine Script' : 'MQL5 Expert Advisor';
+      out.push({ prompt: `Write a complete ${lang} following QuantBot's script rules: ${about || f}`, answer: code });
+    }
+  }
+  for (const g of good) {
+    out.push({ prompt: `Write a complete ${g.target === 'Pine' ? 'Pine Script' : 'MQL5 Expert Advisor'} strategy "${g.name}" for ${g.symbol || 'XAUUSD'}. It backtested at PF ${g.pf}, max drawdown ${g.dd}% over ${g.trades} trades. ${String(g.summary || '').slice(0, 600)}`, answer: g.code });
+  }
+  return out.filter((x) => x.answer && x.answer.length > 200);
+}
 const KEEP_EVENTS = 400;
 
 // Recommended for an 8 GB RTX 4060 (all checked on Hugging Face). vram: GB for LoRA training with short prompts.
@@ -174,7 +196,7 @@ function localFiles(folder) {
   return out;
 }
 
-export function createTrainer({ dataDir, market, cipher = null, log = () => {}, ollama = () => ({}) }) {
+export function createTrainer({ dataDir, market, cipher = null, log = () => {}, ollama = () => ({}), goodScripts = () => [] }) {
   const root = path.join(dataDir, 'train');
   fs.mkdirSync(root, { recursive: true });
   const live = new Map(); // id -> { proc, state }
@@ -392,8 +414,13 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {}, 
     try { file = fs.readdirSync(gdir, { recursive: true }).map(String).find((f) => /\.gguf$/i.test(f)); } catch { /* no GGUF */ }
     if (!file) { log(`train ${id}: no GGUF export to add to Ollama`); return null; }
     const out = ollamaOut(name);
+    // Unsloth writes a Modelfile with the model's chat template next to the GGUF: without the template a trained
+    // model answers garbage in Ollama, so keep it and only point FROM at the file
     const mf = path.join(dir(id), 'Modelfile');
-    fs.writeFileSync(mf, `FROM ${path.join(gdir, file)}\n`);
+    let body = '';
+    try { body = fs.readFileSync(fs.readdirSync(gdir, { recursive: true }).map(String).filter((f) => /(^|[\\/])Modelfile$/.test(f)).map((f) => path.join(gdir, f))[0] || '', 'utf8'); } catch { /* none written */ }
+    body = body ? body.replace(/^FROM .*$/m, `FROM ${path.join(gdir, file)}`) : `FROM ${path.join(gdir, file)}\n`;
+    fs.writeFileSync(mf, body);
     const r = await run('ollama', ['create', out, '-f', mf], 15 * 60000);
     log(`train ${id}: ollama create ${out} ${r.code === 0 ? 'done' : `failed (${r.out || r.code})`}`);
     return r.code === 0 ? out : null;
@@ -437,6 +464,11 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {}, 
         if (entry.stopped) throw new Error('Stopped');
         st.phase = 'starting'; saveState(id, st);
         const files = await dataFile(id, cfg, st);
+        const examples = scriptExamples(goodScripts());
+        fs.writeFileSync(path.join(dir(id), 'scripts.jsonl'), examples.map((x) => JSON.stringify(x)).join('\n'));
+        say(`${examples.length} example scripts added to the training data`);
+        // Room for whole scripts (the run shrinks it back to the longest example it really has)
+        if (examples.length) cfg.max_seq_length = Math.max(cfg.max_seq_length || 0, 4096);
         fs.writeFileSync(path.join(dir(id), 'config.json'), JSON.stringify({ ...cfg, data_file: '/workspace/job/data.csv', ...(typeof files === 'object' ? { data_files: files } : {}) }, null, 1));
         st.phase = 'training'; saveState(id, st);
         if (entry.stopped) throw new Error('Stopped');

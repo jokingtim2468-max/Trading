@@ -396,7 +396,20 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
   // MT5 terminals (QuantBot Copier EA) and auto-withdraw, both writing to the copy trading activity log
   const mt5 = createMt5Bridge({ db: entityDb, note: copier.note });
   const daemon = createDaemonApi({ dataDir, db: entityDb, cipher, log: app?.log });
-  const trainer = createTrainer({ dataDir, market, cipher, log: app?.log, ollama: () => { try { const me = backend.handle('user', 'me'); return { url: me.ollama_url, model: me.ollama_model }; } catch { return {}; } } });
+  const trainer = createTrainer({ dataDir, market, cipher, log: app?.log, ollama: () => { try { const me = backend.handle('user', 'me'); return { url: me.ollama_url, model: me.ollama_model }; } catch { return {}; } },
+    // The best tested version of each of the trader's bots that passed the bar
+    goodScripts: () => {
+      try {
+        const best = new Map();
+        for (const r of backend.handle('entity', 'StrategyRun', 'filter', {}, { limit: 5000 }).items) {
+          const m = r.metrics || {};
+          if (!(m.profitFactor > 1.3 && m.maxDDPct < 10 && m.trades >= 30 && r.code)) continue;
+          const old = best.get(r.bot_name);
+          if (!old || m.profitFactor > old.pf) best.set(r.bot_name, { name: r.bot_name, target: r.target, symbol: r.symbol, code: r.code, summary: r.summary, pf: Math.round(m.profitFactor * 100) / 100, dd: Math.round(m.maxDDPct * 10) / 10, trades: m.trades });
+        }
+        return [...best.values()];
+      } catch { return []; }
+    } });
   const terminal = createTerminal({ dataDir, db: entityDb, signals, ask: backend.ask, log: app?.log });
   // MT5 fast lane: live ticks in, orders out the moment they're checked; ticks drive pending orders, trails, alerts
   lane = createFastLane({

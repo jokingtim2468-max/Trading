@@ -48,3 +48,11 @@ test('replay forms the current candle up to the clock', async () => {
   const end = replayBars(b, null, H, 2 * H - 1);
   assert.ok(Math.abs(end.close[1] - 13) < 0.2);
 });
+
+test('training gets example scripts: the shipped strategies plus the trader\'s scripts that passed the bar', async () => {
+  const { scriptExamples } = await import('../../server/train.js');
+  const ex = scriptExamples([{ name: 'Good Bot', target: 'Pine', symbol: 'XAUUSD', code: '//@version=5\n' + 'x'.repeat(300), pf: 1.6, dd: 6.2, trades: 80, summary: 'London breakout' }]);
+  assert.ok(ex.some((e) => /Pine Script/.test(e.prompt) && /@version/.test(e.answer)), 'shipped Pine strategies');
+  assert.ok(ex.some((e) => /MQL5 Expert Advisor/.test(e.prompt) && /OnTick/.test(e.answer)), 'shipped MQL5 EAs');
+  assert.ok(ex.some((e) => /"Good Bot".*PF 1\.6, max drawdown 6\.2% over 80 trades/.test(e.prompt)), "the trader's good script");
+});
