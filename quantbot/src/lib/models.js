@@ -3,15 +3,8 @@ export const PROVIDERS = {
   google: { name: 'Google (Gemini)', short: 'Google Gemini', family: 'Gemini', prefix: 'AIza' },
 };
 
+// Local only: QuantBot runs everything on the local model (Ollama) set up in Settings
 export const MODELS = [
-  // "Auto" runs your default model: Claude if an Anthropic key is linked, then Gemini, then your local model
-  { id: 'builtin', label: 'Auto (your default model)', provider: null },
-  { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', provider: 'anthropic' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', provider: 'anthropic' },
-  { id: 'gemini-4-argon', label: 'Gemini 4 Argon', provider: 'google' },
-  { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', provider: 'google' },
-  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', provider: 'google' },
   { id: 'local', label: 'Local model (Ollama)', provider: 'local' },
 ];
 
@@ -27,12 +20,9 @@ export const DEFAULT_MODELS = { anthropic: 'claude-opus-5-5', google: 'gemini-3.
 // A saved model id that is no longer offered falls back to the default
 export const knownModel = (id, fallback) => (MODELS.some((m) => m.id === id) ? id : fallback);
 
-// Tester default: your Claude model when an Anthropic key is linked, your Gemini model when only Google is linked,
-// your local model when neither is
-export function defaultModel(status, user) {
-  if (!status?.anthropic?.linked && status?.google?.linked) return knownModel(user?.default_gemini_model, DEFAULT_MODELS.google);
-  if (!status?.anthropic?.linked && user?.ollama_model) return 'local';
-  return knownModel(user?.default_claude_model, DEFAULT_MODELS.anthropic);
+// Every tool uses the local model
+export function defaultModel() {
+  return 'local';
 }
 
 export const GROUPS = [

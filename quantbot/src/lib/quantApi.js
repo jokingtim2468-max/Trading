@@ -11,7 +11,7 @@ export async function loadSessions(userId, group) {
 
 export async function loadMessages(sessionId) {
   const page = await ChatMessage.filter({ session_id: sessionId }, { sort: 'created_date', limit: 200 });
-  return page.items;
+  return page.items.filter((m) => !m.hidden);
 }
 
 export const createSession = (title, group) =>
@@ -23,6 +23,11 @@ export const renameSession = (id, title) => ChatSession.update(id, { title });
 
 export const addUserMessage = (sessionId, content) =>
   ChatMessage.create({ session_id: sessionId, role: 'user', content });
+
+// The new chat's system prompt goes to the model first; it answers OK when it read it -> { status: 'ok' | 'failed', reply }
+export async function handshake(sessionId, style) {
+  return (await client.functions.invoke('chatHandshake', { session_id: sessionId, style })).data;
+}
 
 export async function askQuantAI(sessionId, style, model) {
   const res = await client.functions.invoke('quantChat', { session_id: sessionId, style, model });

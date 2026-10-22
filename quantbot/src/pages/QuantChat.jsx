@@ -91,6 +91,12 @@ export default function QuantChat() {
       id = s.id;
       setActiveId(id);
       refreshSessions();
+      try {
+        const h = await api.handshake(id, style);
+        toast(h.status === 'ok'
+          ? { title: 'System prompt loaded', description: 'The local model replied OK.' }
+          : { title: "The model didn't confirm the system prompt", description: `It replied: ${h.reply}`, variant: 'destructive' });
+      } catch (e) { toast({ title: 'System prompt not sent', description: e.response?.data?.error || e.message, variant: 'destructive' }); }
     }
     const userMsg = await api.addUserMessage(id, text);
     setMessages((m) => [...m, userMsg]);

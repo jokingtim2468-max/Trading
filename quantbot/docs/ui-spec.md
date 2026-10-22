@@ -512,3 +512,9 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Practice stops/targets are checked on every price move.
 - "Pine Editor" tab under the chart: script list on the left, code editor with line numbers, Add/Update on chart, Ctrl+S.
 - Position box: drag the middle to move it in price and time; the white handle on the right edge resizes its width.
+
+## Chat: local only + system-prompt handshake
+- Model menus offer only "Local model (Ollama)"; Settings no longer shows API key or default-model cards.
+- When a chat is created, the full system prompt is sent as its first (hidden) message ending "reply with exactly: OK".
+  A toast says "System prompt loaded" when the model answers OK, or shows its actual reply when it doesn't.
+- The hidden handshake always opens the conversation sent to the model.

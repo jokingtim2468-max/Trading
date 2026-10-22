@@ -1,9 +1,5 @@
-import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Lock } from 'lucide-react';
-import { getKeyStatus } from '@/lib/quantApi';
-import ProviderKeyCard from '@/components/quant/ProviderKeyCard';
-import DefaultModelsCard from '@/components/settings/DefaultModelsCard';
+import { ArrowLeft } from 'lucide-react';
 import LocalModelCard from '@/components/settings/LocalModelCard';
 import AgentTeamCard from '@/components/settings/AgentTeamCard';
 import BuiltInMarketsCard from '@/components/settings/BuiltInMarketsCard';
@@ -16,11 +12,9 @@ import VpsGuideCard from '@/components/settings/VpsGuideCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Settings() {
-  const [status, setStatus] = useState(null);
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') === 'deploy' ? 'deploy' : 'general';
 
-  useEffect(() => { getKeyStatus().then(setStatus); }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -37,18 +31,7 @@ export default function Settings() {
         </TabsList>
         <TabsContent value="general">
         <section className="mt-8 space-y-3">
-          <h2 className="font-heading text-lg font-semibold">API Keys</h2>
-          <ProviderKeyCard provider="anthropic" status={status} onChange={setStatus} />
-          <ProviderKeyCard provider="google" status={status} onChange={setStatus} />
-          <p className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            Keys are encrypted (AES-256-GCM) and stored only on this PC. They are only sent to Claude or Gemini when you use them.
-          </p>
-        </section>
-
-        <section className="mt-8 space-y-3">
           <h2 className="font-heading text-lg font-semibold">Models</h2>
-          <DefaultModelsCard />
           <LocalModelCard />
           <AgentTeamCard />
         </section>

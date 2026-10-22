@@ -19,19 +19,6 @@ function backendIn(dir) {
   return createBackend({ dataDir: dir, encrypt: c.encrypt, decrypt: c.decrypt, userName: 'Tester', defaults: entityDefaults(ENTITIES) });
 }
 
-// Replaces fetch for one call so AI functions run without a real model
-function fakeModel(reply, check) {
-  const real = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    globalThis.fetch = real;
-    check?.(String(url), JSON.parse(init.body), init.headers);
-    if (String(url).includes('generativelanguage')) {
-      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: reply }] } }] }));
-    }
-    return new Response(JSON.stringify({ content: [{ type: 'text', text: reply }] }));
-  };
-}
-
 describe('database', () => {
   test('create, read, update, delete and query', () => {
     const db = createDb(tmp(), 'local', entityDefaults(ENTITIES));
@@ -120,28 +107,70 @@ describe('files', () => {
   });
 });
 
+// A fake Ollama: reply(body) -> the model's text for that request
+async function fakeOllama(be, reply) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5-coder:7b' }] }));
+      const b = JSON.parse(body);
+      seen.push(b);
+      res.end(JSON.stringify({ message: { role: 'assistant', content: reply(b) } }));
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  await be.handle('function', 'localModel', { action: 'save', url: `${url}/`, model: 'qwen2.5-coder:7b' });
+  return { url, seen, close: () => new Promise((r) => server.close(r)) };
+}
+const lastUser = (b) => b.messages.filter((m) => m.role === 'user').at(-1).content;
+
 describe('AI functions', () => {
-  test('chat needs a key, then replies and names the chat after the script', async () => {
+  test('local only: a new chat first sends the system prompt, the model answers OK, then the chat replies', async () => {
     const be = backendIn(tmp());
     const s = be.handle('entity', 'ChatSession', 'create', { title: 'New chat', group: 'MT5' });
     be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'Build a gold scalper' });
-    await assert.rejects(be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'builtin' }), /Add a Claude or Gemini API key/);
-
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });
-    let sent;
-    fakeModel('Here it is\n```mql5\n// Script: Gold Scalper\nvoid OnTick(){}\n```', (url, body, headers) => { sent = { url, body, headers }; });
-    const { message } = await be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'builtin' });
-    assert.match(sent.url, /api\.anthropic\.com\/v1\/messages$/);
-    assert.equal(sent.headers['x-api-key'], 'sk-ant-test0001');
-    assert.equal(sent.body.model, 'claude-opus-5-5', 'Auto uses the default Claude model');
-    assert.equal(sent.body.fallbacks, 'default', 'Opus 5.5 opts into server-side fallback');
-    assert.equal(sent.headers['anthropic-beta'], 'server-side-fallback-2026-07-01');
-    assert.match(sent.body.system, /The trader's name is Tester/);
-    assert.equal(message.role, 'assistant');
-    assert.equal(be.handle('entity', 'ChatSession', 'get', s.id).title, 'Gold Scalper');
+    await assert.rejects(be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'claude-opus-5-5' }), /Set up your local model/);
+    const o = await fakeOllama(be, (b) => (/reply with exactly: OK/.test(lastUser(b)) ? 'OK' : 'Here it is\n```mql5\n// Script: Gold Scalper\nvoid OnTick(){}\n```'));
+    try {
+      const h = await be.handle('function', 'chatHandshake', { session_id: s.id, style: 'Concise' });
+      assert.deepEqual(h, { status: 'ok', reply: 'OK' });
+      assert.match(lastUser(o.seen[0]), /THE TRADER'S SYSTEM PROMPT[\s\S]*The trader's name is Tester/);
+      const { message } = await be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'claude-opus-5-5' });
+      assert.equal(o.seen.length, 2, 'the handshake is not repeated');
+      const chat = o.seen[1];
+      assert.equal(chat.model, 'qwen2.5-coder:7b', 'a Claude pick still runs on the local model');
+      assert.equal(chat.messages[0].role, 'system');
+      assert.match(chat.messages[1].content, /reply with exactly: OK/, 'the handshake opens the conversation');
+      assert.equal(chat.messages[2].content, 'OK');
+      assert.equal(lastUser(chat), 'Build a gold scalper');
+      assert.equal(message.role, 'assistant');
+      const visible = be.handle('entity', 'ChatMessage', 'filter', { session_id: s.id }, { limit: 50 }).items.filter((m) => !m.hidden);
+      assert.equal(visible.length, 2, 'the handshake messages are hidden');
+      assert.equal(be.handle('entity', 'ChatSession', 'get', s.id).title, 'Gold Scalper');
+    } finally { await o.close(); }
   });
 
-  test("a script's chat is Claude only, reads the script's folder and saves Claude's new code", async () => {
+  test("a reply other than OK is reported, and quantChat runs the handshake itself when it wasn't sent", async () => {
+    const be = backendIn(tmp());
+    const o = await fakeOllama(be, (b) => (/reply with exactly: OK/.test(lastUser(b)) ? 'I do not have a system prompt.' : 'hello'));
+    try {
+      const s = be.handle('entity', 'ChatSession', 'create', { title: 'x' });
+      be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'hi' });
+      const { message } = await be.handle('function', 'quantChat', { session_id: s.id, model: 'local' });
+      assert.equal(message.content, 'hello');
+      const after = be.handle('entity', 'ChatSession', 'get', s.id);
+      assert.equal(after.prompt_status, 'failed');
+      assert.match(after.prompt_reply, /do not have a system prompt/);
+      assert.equal(o.seen[1].options.num_ctx, 32768);
+    } finally { await o.close(); }
+    await assert.rejects(be.handle('function', 'localModel', { action: 'test', url: 'http://127.0.0.1:1' }), /Ollama isn't running/);
+  });
+
+  test("a script's chat runs on the local model, reads the script's folder and saves the new code", async () => {
     const dir = tmp();
     const be = backendIn(dir);
     const { createScriptFolders } = await import('../../server/scriptFolders.js');
@@ -150,91 +179,33 @@ describe('AI functions', () => {
     const script = be.handle('entity', 'Script', 'create', { name: 'Gold Breakout', language: 'Pine', code: '//@version=5\nstrategy("old")' });
     const s = be.handle('entity', 'ChatSession', 'create', { title: 'Gold Breakout', group: 'Pine', script_id: script.id });
     be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'Tighten the stop' });
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'google', api_key: 'AIzaTest' });
-    await assert.rejects(be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'gemini-3.8-flash' }), /Scripts are written with Claude only/);
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });
-    let sent;
-    fakeModel('Done\n```pine\n//@version=5\nstrategy("new")\n```', (url, body) => { sent = { url, body }; });
-    await be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'gemini-3.8-flash' });
-    assert.match(sent.url, /anthropic/, 'a Gemini pick still goes to Claude');
-    assert.match(sent.body.system, /LINKED SCRIPT: this chat writes and changes the copy trading script "Gold Breakout"/);
-    assert.match(sent.body.system, /strategy\("old"\)/);
-    assert.match(sent.body.system, /Files here/);
-    assert.equal(be.handle('entity', 'Script', 'get', script.id).code, '//@version=5\nstrategy("new")');
-    assert.equal(be.handle('entity', 'ChatSession', 'get', s.id).title, 'Gold Breakout');
-    assert.match(be.handle('entity', 'CopyEvent', 'filter', {})[0].message, /Claude updated Gold Breakout \(Pine, 2 lines\)/);
-  });
-
-  test('a refusal becomes a clear error', async () => {
-    const be = backendIn(tmp());
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });
-    const real = globalThis.fetch;
-    globalThis.fetch = async () => { globalThis.fetch = real; return new Response(JSON.stringify({ content: [], stop_reason: 'refusal', stop_details: { explanation: 'policy' } })); };
-    await assert.rejects(be.handle('function', 'scriptTester', { code: 'x', language: 'MT5', model: 'claude-haiku-5-5' }), /declined this request: policy/);
-  });
-
-  test('local model through Ollama', async () => {
-    const be = backendIn(tmp());
-    await assert.rejects(be.handle('function', 'quantChat', { session_id: 'x', model: 'local' }), /not found|Set up your local model/);
-    await assert.rejects(be.handle('function', 'localModel', { action: 'save', url: 'ftp://x', model: 'm' }), /http/);
-    const ollama = http.createServer((req, res) => {
-      let body = '';
-      req.on('data', (c) => { body += c; });
-      req.on('end', () => {
-        res.setHeader('content-type', 'application/json');
-        if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen2.5-coder:7b' }] }));
-        const b = JSON.parse(body);
-        res.end(JSON.stringify({ message: { role: 'assistant', content: `${b.model} ctx ${b.options.num_ctx} sys ${b.messages[0].role}` } }));
-      });
-    });
-    await new Promise((r) => ollama.listen(0, '127.0.0.1', r));
-    const url = `http://127.0.0.1:${ollama.address().port}`;
+    const o = await fakeOllama(be, () => 'Done\n```pine\n//@version=5\nstrategy("new")\n```');
     try {
-      assert.deepEqual(await be.handle('function', 'localModel', { action: 'test', url }), { models: ['qwen2.5-coder:7b'] });
-      await be.handle('function', 'localModel', { action: 'save', url: `${url}/`, model: 'qwen2.5-coder:7b' });
-      const s = be.handle('entity', 'ChatSession', 'create', { title: 'x' });
-      be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'hi' });
-      const { message } = await be.handle('function', 'quantChat', { session_id: s.id, model: 'builtin' });
-      assert.equal(message.content, 'qwen2.5-coder:7b ctx 32768 sys system', 'Auto falls back to the local model when no key is linked');
-      // No script in the reply: a second call names the chat, and the name becomes the chat's workspace folder
-      const named = be.handle('entity', 'ChatSession', 'get', s.id);
-      assert.equal(named.title, 'qwen2.5-coder:7b ctx 32768 sys system', 'the model named the chat');
-      assert.ok(named.workspace && fs.existsSync(path.join(named.workspace, 'README.md')), 'workspace folder created');
-      assert.equal(path.basename(named.workspace), 'qwen2-5-coder-7b-ctx-32768-sys-system');
-    } finally {
-      await new Promise((r) => ollama.close(r));
-    }
-    await assert.rejects(be.handle('function', 'localModel', { action: 'test', url }), /Ollama isn't running/);
-  });
-
-  test('Gemini key is used when chosen', async () => {
-    const be = backendIn(tmp());
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'google', api_key: 'AIzaTestKey9' });
-    const s = be.handle('entity', 'ChatSession', 'create', { title: 'x' });
-    be.handle('entity', 'ChatMessage', 'create', { session_id: s.id, role: 'user', content: 'hi' });
-    let url;
-    fakeModel('hello', (u) => { url = u; });
-    const { message } = await be.handle('function', 'quantChat', { session_id: s.id, model: 'gemini-3.8-flash' });
-    assert.match(url, /generativelanguage.*gemini-3\.8-flash:generateContent/);
-    assert.equal(message.content, 'hello');
+      await be.handle('function', 'quantChat', { session_id: s.id, style: 'Concise', model: 'local' });
+      const sys = o.seen[0].messages[0].content;
+      assert.match(sys, /LINKED SCRIPT: this chat writes and changes the copy trading script "Gold Breakout"/);
+      assert.match(sys, /strategy\("old"\)/);
+      assert.match(sys, /Files here/);
+      assert.equal(be.handle('entity', 'Script', 'get', script.id).code, '//@version=5\nstrategy("new")');
+    } finally { await o.close(); }
   });
 
   test('converter and tester parse the model JSON', async () => {
     const be = backendIn(tmp());
-    be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-test0001' });
     await assert.rejects(be.handle('function', 'strategyTester', { strategy: '', target: 'MT5' }), /Paste a strategy/);
-
-    fakeModel('```json\n{"code":"//ea","sim_code":"return null;","summary":"s","results":[{"rule":"r","status":"pass","detail":"d"}]}\n```');
-    const conv = await be.handle('function', 'strategyTester', { strategy: 'buy dips', rules: '', target: 'MT5', model: 'claude-sonnet-4-5' });
-    assert.deepEqual(conv, { code: '//ea', sim_code: 'return null;', summary: 's', results: [{ rule: 'r', status: 'pass', detail: 'd' }] });
-
-    fakeModel('{"sim_code":"return null;\n","summary":"ok","rules":["one"]}');
-    const t = await be.handle('function', 'scriptTester', { code: '//@version=5', language: 'Pine', model: 'builtin' });
-    assert.equal(t.sim_code, 'return null;\n', 'raw line breaks inside strings are repaired');
-    assert.deepEqual(t.settings, { balance: 10000 });
-
-    fakeModel('{"summary":"no sim"}');
-    await assert.rejects(be.handle('function', 'scriptTester', { code: 'x', language: 'MT5' }), /could not translate/);
+    let next = '';
+    const o = await fakeOllama(be, () => next);
+    try {
+      next = '```json\n{"code":"//ea","sim_code":"return null;","summary":"s","results":[{"rule":"r","status":"pass","detail":"d"}]}\n```';
+      const conv = await be.handle('function', 'strategyTester', { strategy: 'buy dips', rules: '', target: 'MT5', model: 'local' });
+      assert.deepEqual(conv, { code: '//ea', sim_code: 'return null;', summary: 's', results: [{ rule: 'r', status: 'pass', detail: 'd' }] });
+      next = '{"sim_code":"return null;\n","summary":"ok","rules":["one"]}';
+      const t = await be.handle('function', 'scriptTester', { code: '//@version=5', language: 'Pine', model: 'builtin' });
+      assert.equal(t.sim_code, 'return null;\n', 'raw line breaks inside strings are repaired');
+      assert.deepEqual(t.settings, { balance: 10000 });
+      next = '{"summary":"no sim"}';
+      await assert.rejects(be.handle('function', 'scriptTester', { code: 'x', language: 'MT5' }), /could not translate/);
+    } finally { await o.close(); }
   });
 
   test('profile updates keep built-in fields', () => {
@@ -301,7 +272,6 @@ describe('API keys from an older version', () => {
     const cipher = createCipher(dir);
     const be = createBackend({ dataDir: dir, encrypt: cipher.encrypt, decrypt: cipher.decrypt, userName: 'T' });
     assert.deepEqual(be.handle('function', 'apiKeys', { action: 'status' }).anthropic, { linked: false, unreadable: true });
-    await assert.rejects(() => Promise.resolve(be.handle('function', 'strategyTester', { strategy: 'x', rules: '', target: 'MT5', model: 'claude-opus-5-5', market: { symbol: 'XAUUSD', timeframe: 'M15', balance: 10000 } })), /can't be read.*Add it again in Settings/);
     be.handle('function', 'apiKeys', { action: 'save', provider: 'anthropic', api_key: 'sk-ant-new-key-5678' });
     assert.deepEqual(be.handle('function', 'apiKeys', { action: 'status' }).anthropic, { linked: true, last4: '5678' });
   });

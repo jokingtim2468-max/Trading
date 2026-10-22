@@ -23,16 +23,15 @@ function scriptBrief(script, context) {
   ].filter(Boolean).join('\n\n');
 }
 
+const HANDSHAKE_ASK = 'Everything above is your system prompt for this whole chat. Follow it in every reply. To confirm you have read it, reply with exactly: OK';
+
 export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null }) {
   const chatTools = createChatTools({ db, market });
   // There is no built-in model: "builtin" means your default model for whichever key is linked
-  function pickModel(model) {
-    if (model && model !== 'builtin') return model;
-    const me = user.me();
-    if (keys.get('anthropic')) return me.default_claude_model || DEFAULT_MODELS.anthropic;
-    if (keys.get('google')) return me.default_gemini_model || DEFAULT_MODELS.google;
-    if (me.ollama_model) return 'local';
-    return fail('Add a Claude or Gemini API key, or set up a local model, in Settings to use QuantBot.');
+  // Local only: every chat, conversion and test runs on the local model (Ollama) set up in Settings
+  function pickModel() {
+    if (user.me().ollama_model) return 'local';
+    return fail('Set up your local model in Settings (Models → "Set up a model for my PC") to use QuantBot.');
   }
 
   function credentials(provider) {
@@ -87,27 +86,45 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       return fail('Unknown action');
     },
 
-    async quantChat({ session_id, style, model }) {
+    // A new chat's first message is the system prompt itself; the model must answer OK, which shows it read it
+    async chatHandshake({ session_id, style }) {
       const session = db.run('ChatSession', 'get', session_id);
-      const recent = db.run('ChatMessage', 'filter', { session_id }, { sort: '-created_date', limit: 20 }).items.reverse();
+      if (session.prompt_status === 'ok') return { status: 'ok', reply: session.prompt_reply || 'OK' };
+      const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10) });
+      const ask0 = `${system}\n\n${HANDSHAKE_ASK}`;
+      let reply;
+      try { reply = String(await ask(null, 'Follow the instructions in the first message exactly.', [{ role: 'user', content: ask0 }], 50)).trim(); } catch (e) { reply = `(no answer: ${e.message})`; }
+      const ok = /^\W*ok\W*$/i.test(reply);
+      for (const m of db.run('ChatMessage', 'filter', { session_id, hidden: true }, { limit: 100 }).items) db.run('ChatMessage', 'delete', m.id);
+      db.run('ChatMessage', 'create', { session_id, role: 'user', content: ask0, hidden: true });
+      db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: ok ? 'OK' : reply, hidden: true });
+      db.run('ChatSession', 'update', session_id, { prompt_status: ok ? 'ok' : 'failed', prompt_reply: reply.slice(0, 300) });
+      return { status: ok ? 'ok' : 'failed', reply: reply.slice(0, 300) };
+    },
+
+    async quantChat({ session_id, style, model }) {
+      let session = db.run('ChatSession', 'get', session_id);
+      if (!session.script_id && !session.prompt_status) { await fns.chatHandshake({ session_id, style }); session = db.run('ChatSession', 'get', session_id); }
+      const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;
+      // The system-prompt handshake always opens the conversation, then the last 20 visible messages
+      const recent = [...all.filter((m) => m.hidden), ...all.filter((m) => !m.hidden).slice(-20)];
       // A copy trading script's chat: Claude only, with the script's folder context (CLAUDE.md) and code
       let script = null;
       if (session.script_id) { try { script = db.run('Script', 'get', session.script_id); } catch { /* script deleted */ } }
-      if (script && !keys.get('anthropic')) fail('Scripts are written with Claude only. Add your Anthropic (Claude) API key in Settings.');
-      const useModel = script && !String(model || '').startsWith('claude-') ? user.me().default_claude_model || DEFAULT_MODELS.anthropic : model;
+      const useModel = model;
       const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
       const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10) });
-      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent)), 16000, chatTools));
+      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, chatTools));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       // A normal chat's first reply: the model names the chat, and that name becomes its workspace folder
       let title = !script && name && name !== session.title ? name : null;
       let workspace = session.workspace || null;
       if (!script && !workspace && workspaces) {
-        if (!title && !recent.some((m) => m.role === 'assistant')) {
+        if (!title && !recent.some((m) => m.role === 'assistant' && !m.hidden)) {
           try {
             title = cleanTitle(await ask(useModel, 'You name chats. Reply with ONLY a short title of 2 to 5 words saying what the user wants, no quotes and no punctuation.',
-              [{ role: 'user', content: recent.filter((m) => m.role === 'user').map((m) => m.content).join('\n').slice(0, 2000) }], 200));
+              [{ role: 'user', content: recent.filter((m) => m.role === 'user' && !m.hidden).map((m) => m.content).join('\n').slice(0, 2000) }], 200));
           } catch { /* keep the first words of the message as the title */ }
         }
         try { workspace = workspaces.create(title || session.title, session_id); } catch { workspace = null; }
