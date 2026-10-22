@@ -33,6 +33,7 @@
       { "from": "../mt5", "to": "quantbot/mt5" },
       { "from": "../train", "to": "quantbot/train", "filter": ["**/*", "!**/__pycache__/**"] },
       { "from": "../strategies", "to": "quantbot/strategies", "filter": ["*.pine"] },
+      { "from": "../tools", "to": "quantbot/tools", "filter": ["*.py", "*.bat"] },
       { "from": "../package.json", "to": "quantbot/package.json" }
     ],
     "win": {

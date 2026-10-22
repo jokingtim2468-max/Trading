@@ -342,6 +342,17 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
   }
   const job = url.pathname.match(/^\/api\/market\/jobs\/(\d+)$/);
   if (req.method === 'GET' && job) return send(res, 200, market.job(job[1]));
+  // Today's model high / low for a symbol (asks the local model once a day, then answers from memory) and the
+  // recent days' levels, for scripts outside the app (tools/daily_levels.py writes them into a Pine indicator)
+  if (req.method === 'GET' && url.pathname === '/api/levels') {
+    const symbol = String(url.searchParams.get('symbol') || 'XAUUSD').toUpperCase();
+    const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const d = await market.bars(symbol, 'D1', day(Date.now() - 45 * 86400000), day(Date.now()));
+    const daily = Array.from(d.time, (t, i) => ({ time: t, open: d.open[i], high: d.high[i], low: d.low[i], close: d.close[i] }));
+    const today = await terminal.predict(symbol, daily, url.searchParams.get('model') || undefined);
+    const history = terminal.predictions().filter((x) => x.symbol === symbol).slice(-30);
+    return send(res, 200, { symbol, today, history });
+  }
   if (req.method === 'GET' && url.pathname === '/api/market/bars') {
     const q = url.searchParams;
     const bars = await market.bars(q.get('symbol'), q.get('tf'), q.get('from'), q.get('to'));

@@ -681,7 +681,8 @@ export default function Terminal() {
                     onCancelPending={(p) => post('/api/terminal/order', { event: 'cancel', id: p.id, group_id: p.group_id }).then(() => { toast({ kind: 'close', title: `${NAME[p.event]} cancelled`, lines: [`${p.symbol} at ${f2(p.at)}`] }); loadTrading(); })}
                     drawings={drawings} onDrawingsChange={setDrawings} sessions={sessions} news={prefs.newsMarkers && !replay ? news : []} barSec={tfMin * 60}
                     onReady={(api) => { shot.current = api; }}
-                    onToolDone={() => setTool('cross')} pointValue={pv} onPriceAt={setClickPrice} onCrosshair={setHover} />
+                    onToolDone={() => setTool('cross')} pointValue={pv} onPriceAt={setClickPrice} onCrosshair={setHover}
+                    onQuickOrder={replay ? null : pendingAt} />
                 </div>
               </ContextMenuTrigger>
               <ContextMenuContent className={MENU} data-testid="chart-menu">

@@ -534,3 +534,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 
 ## Model menus list each Ollama model by name
 - Chat, Strategy Tester and Agent Team menus show every installed Ollama model as "<Family> <size> · <strength>" (e.g. "Qwen2.5 Coder 7B · coding"); the Settings model is first and marked (default); "-gold" models read "trained on your data".
+
+## Chart "+" order button; daily levels to Pine
+- Hovering the chart shows a small "+" by the price axis at the crosshair price; click it for a menu: above price → Sell limit / Buy stop, below → Buy limit / Sell stop (blue = buy, red = sell). Hidden in replay.
+- tools/daily_levels.py (or daily_levels.bat): asks QuantBot's /api/levels (local model, once a day per symbol) and writes a TradingView indicator with each day's predicted high (red) / low (green) + confidence, copied to the clipboard.

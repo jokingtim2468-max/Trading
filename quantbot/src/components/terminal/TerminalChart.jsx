@@ -14,7 +14,7 @@ const DRAW_TOOLS = ['trend', 'rect', 'fib', 'position'];
 export default function TerminalChart({
   bars, settings, levels = [], lines = [], tool, onPriceAt, onCrosshair, trades = [], last = null, onModify, onCloseTrade,
   pending = [], onMovePending, onCancelPending, onBreakEven, onTrail, onHalf, trails = {},
-  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition, indicators = [],
+  drawings = [], onDrawingsChange, news = [], barSec = 900, onReady, sessions = [], onToolDone, pointValue = 1, onPlacePosition, indicators = [], onQuickOrder,
 }) {
   const drawingsRef = useRef(drawings);
   drawingsRef.current = drawings;
@@ -37,6 +37,9 @@ export default function TerminalChart({
     c.subscribeCrosshairMove((p) => {
       const d = p.seriesData?.get(series.current);
       onCrosshair?.(d && d.open != null ? d : null);
+      // The "+" order button follows the crosshair's price (kept while its menu is open)
+      const y = p.point?.y;
+      setPlus((old) => (old?.open || y == null ? old : { y, price: series.current.coordinateToPrice(y) }));
     });
     onReady?.({ screenshot: () => c.takeScreenshot().toDataURL('image/png') });
     return () => { c.remove(); chart.current = null; };
@@ -159,6 +162,7 @@ export default function TerminalChart({
   const [drag, setDrag] = useState(null); // { key, trade, kind: 'sl' | 'tp' | 'pending', price }
   const [draft, setDraft] = useState(null); // drawing in progress
   const [picked, setPicked] = useState(null); // selected drawing id
+  const [plus, setPlus] = useState(null); // { y, price, open }
   const [posDrag, setPosDrag] = useState(null); // { id, kind: 'tp' | 'sl' | 'entry', d, from }
   const posDragRef = useRef(null);
   posDragRef.current = posDrag;
@@ -428,6 +432,27 @@ export default function TerminalChart({
           </div>
         );
       })}
+
+      {/* TradingView-style "+" next to the price axis: orders at the crosshair's price (limit or stop, by side of price) */}
+      {onQuickOrder && plus && plus.price != null && last != null && (() => {
+        const p = Math.round(plus.price * 100) / 100, above = p > last;
+        const items = above ? [['sell_limit', 'Sell limit', '#f23645'], ['buy_stop', 'Buy stop', '#2962ff']] : [['buy_limit', 'Buy limit', '#2962ff'], ['sell_stop', 'Sell stop', '#f23645']];
+        return (
+          <div className="absolute z-30" style={{ top: plus.y, right: ys.scale + 4 }} onMouseLeave={() => setPlus((o) => (o?.open ? { ...o, open: false } : o))}>
+            <button type="button" aria-label="Place an order at this price" data-testid="quick-order-plus"
+              onClick={() => setPlus((o) => ({ ...o, open: !o?.open }))}
+              className="absolute right-0 -translate-y-1/2 w-5 h-5 rounded bg-[#2a2e39] border border-[#434651] text-[#d1d4dc] text-sm leading-none hover:bg-[#2962ff] hover:text-white">+</button>
+            {plus.open && (
+              <div className="absolute right-6 -translate-y-1/2 flex flex-col gap-1 p-1.5 rounded-lg bg-[#1e222d] border border-[#363a45] shadow-[0_10px_30px_rgba(0,0,0,.5)] text-[12px] whitespace-nowrap animate-in fade-in-0 zoom-in-95 duration-pop calm:animate-none" data-testid="quick-order-menu">
+                {items.map(([ev, label, c]) => (
+                  <button key={ev} type="button" onClick={() => { onQuickOrder(ev, p); setPlus(null); }} data-testid={`quick-${ev}`}
+                    className="flex items-center justify-between gap-3 px-2 h-7 rounded hover:bg-[#2a2e39]"><span style={{ color: c }}>{label}</span><span className="tabular-nums text-[#d1d4dc]">{p.toFixed(2)}</span></button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="absolute inset-0 z-10 pointer-events-none overflow-hidden" style={{ right: ys.scale }}>
         {pending.map((p) => {
