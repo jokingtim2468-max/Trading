@@ -547,3 +547,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Chart: model track record
 - Past days' model high / low drawn on their day in gold (#e8c468): solid + "✓" when price reached the level, dashed + "✗" when it didn't.
 - Chip next to the levels chip: "Model record Nd: miss X% vs guess Y% · high hit · low hit"; green when the model beats the simple guess, red when it doesn't.
+
+## Scaling planner (/scaling, sidebar "Scaling planner")
+- Inputs: average day %, daily swing %, account size (FTMO US fees), accounts at once (capped by $400K), months.
+- Four stat tiles (pass rate, months to funded, median net, 10%/90% net) and a month table (funded capital, payouts, fees, net; net green/red).

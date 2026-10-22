@@ -6,7 +6,7 @@ import ModelStatus from '@/components/ModelStatus';
 
 const PAGES = {
   '/': 'Chat', '/settings': 'Settings', '/strategy-lab': 'Strategy Lab', '/strategy-tester': 'Strategy Lab · Test', '/strategy-converter': 'Strategy Lab · Convert', '/market-lab': 'Strategy Lab · Market',
-  '/test-history': 'Test history', '/pnl': 'PnL calendar', '/accounts': 'Copy trading',
+  '/test-history': 'Test history', '/pnl': 'PnL calendar', '/accounts': 'Copy trading', '/scaling': 'Scaling planner',
 };
 
 // The desktop app's own title bar (the window has no Windows frame): logo, name, the page you're on, and window

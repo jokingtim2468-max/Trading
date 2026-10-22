@@ -76,3 +76,11 @@ test('model track record: past predictions against the real day and the simple g
   assert.equal(r.rows[0].model, 0); assert.equal(r.highHit, 50); assert.equal(r.lowHit, 50);
   assert.equal(r.guessErr, 0, 'guess = open +/- half the 4% average range = the real 102 / 98');
 });
+
+test('scaling planner: an edge passes more often and nets more than no edge', async () => {
+  const { planScaling } = await import('../../src/lib/scalingPlan.js');
+  const good = planScaling({ mean: 0.2, sd: 0.8, months: 12, runs: 150 });
+  const none = planScaling({ mean: 0, sd: 0.8, months: 12, runs: 150 });
+  assert.ok(good.passRate > none.passRate && good.medianNet > none.medianNet);
+  assert.ok(good.months.at(-1).funded > 0 && good.months.length === 12);
+});
