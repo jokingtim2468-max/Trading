@@ -50,7 +50,7 @@ def prep(b, m):
     x['vsd'] = np.where(key >= 0, np.sqrt(dev.where(key >= 0).groupby(key).cumsum() / cn), np.nan)
     # supertrend(10, 3)
     a10 = tr.rolling(10).mean(); hl2 = (x.h + x.l) / 2
-    ub, lb = (hl2 + 3 * a10).values, (hl2 - 3 * a10).values; cc = c.values; st = np.zeros(len(x)); dirn = np.ones(len(x))
+    ub, lb = (hl2 + 3 * a10).to_numpy(copy=True), (hl2 - 3 * a10).to_numpy(copy=True); cc = c.to_numpy(); st = np.zeros(len(x)); dirn = np.ones(len(x))
     for i in range(1, len(x)):
         if np.isnan(ub[i]): continue
         lb[i] = max(lb[i], lb[i - 1]) if cc[i - 1] > lb[i - 1] else lb[i]
