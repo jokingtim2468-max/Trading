@@ -72,10 +72,10 @@ def prep(b, m):
         w = x[(x.mins >= m['open_h'] * 60 + m['open_m']) & (x.mins < m['open_h'] * 60 + m['open_m'] + n)].groupby('day').agg(**{f'orh{n}': ('h', 'max'), f'orl{n}': ('l', 'min')})
         x = x.join(w, on='day')
     # last bar index of each day (the forced exit)
-    pos = np.arange(len(x)); last = pd.Series(pos, index=x.index).groupby(x.day.values).transform('max').values
-    x['last'] = last
+    x = x.dropna(subset=['atr', 'e200', 'datr']).copy()
+    pos = np.arange(len(x)); x['last'] = pd.Series(pos, index=x.index).groupby(x.day.values).transform('max').values
     x['year'] = x.index.year
-    return x.dropna(subset=['atr', 'e200', 'datr'])
+    return x
 
 def signals(x, m, s, p):
     """-> side array (+1 long, -1 short, 0), stop distance array, target distance array (np.inf = hold to the close)"""
