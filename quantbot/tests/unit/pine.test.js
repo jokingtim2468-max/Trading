@@ -104,3 +104,14 @@ test('chat tools for small models: exact maths, position size, prop rules, works
   assert.match((await j('workspace_read', { path: '../../etc/passwd' }, { workspace: ws })).error, /inside the workspace/);
   assert.match((await j('workspace_write', { path: 'run.bat', content: 'x' }, { workspace: ws })).error, /file type/);
 });
+
+test('train: spots Docker Desktop engine drops in the run log', async () => {
+  const { engineDropped } = await import('../../server/train.js');
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qb-')), 'output.log');
+  fs.writeFileSync(f, 'level=error msg="error waiting for container: unexpected EOF"\ndocker: error during connect: Post "http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.56/containers/x/start": EOF');
+  assert.equal(engineDropped(f), true);
+  fs.writeFileSync(f, 'CUDA out of memory');
+  assert.equal(engineDropped(f), false);
+  assert.equal(engineDropped(f + '.missing'), false);
+});

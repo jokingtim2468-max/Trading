@@ -118,6 +118,12 @@ export const DEFAULTS = {
 
 const docker = () => process.env.QUANTBOT_DOCKER || 'docker';
 // A docker stand-in written in JavaScript (the tests' fake) runs through Node: Windows can't start a .mjs file itself
+// Docker Desktop's engine pipe closed under the CLI (not a problem with the run itself)
+export function engineDropped(logPath) {
+  let t = '';
+  try { t = fs.readFileSync(logPath, 'utf8').slice(-4000); } catch { return false; }
+  return /unexpected EOF|error during connect|dockerDesktopLinuxEngine|The system cannot find the file specified/i.test(t);
+}
 const dockerCmd = (args) => (/\.(mjs|cjs|js)$/i.test(docker()) ? [process.execPath, [docker(), ...args]] : [docker(), args]);
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 
@@ -482,31 +488,46 @@ export function createTrainer({ dataDir, market, cipher = null, log = () => {}, 
           ...(cfg.model_source === 'local' ? ['-v', `${path.resolve(cfg.local_model)}:/workspace/model:ro`] : []),
           ...(hfToken() ? ['-e', 'HF_TOKEN'] : []), // the value comes from this process's environment, never the command line
           IMAGE, 'python', '/workspace/job/qb_train.py', '/workspace/job'];
-        const evFile = fs.createWriteStream(path.join(dir(id), 'events.jsonl'), { flags: 'a' });
-        const logFile = fs.createWriteStream(path.join(dir(id), 'output.log'), { flags: 'a' });
-        const proc = spawn(...dockerCmd(args), { windowsHide: true, env: { ...process.env, ...(hfToken() ? { HF_TOKEN: hfToken() } : {}) } });
-        entry.proc = proc;
-        let buf = '';
-        const onOut = (d) => {
-          logFile.write(d);
-          buf += d;
-          let nl;
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
-            if (line.startsWith('{')) { try { JSON.parse(line); evFile.write(`${line}\n`); } catch { /* not an event */ } }
+        // Docker Desktop's engine sometimes drops the connection as the container starts (exit 125, "unexpected EOF"):
+        // wait for the engine to come back and start the container once more before calling it a failure
+        let code;
+        for (let attempt = 1; ; attempt++) {
+          const evFile = fs.createWriteStream(path.join(dir(id), 'events.jsonl'), { flags: 'a' });
+          const logFile = fs.createWriteStream(path.join(dir(id), 'output.log'), { flags: 'a' });
+          const proc = spawn(...dockerCmd(args), { windowsHide: true, env: { ...process.env, ...(hfToken() ? { HF_TOKEN: hfToken() } : {}) } });
+          entry.proc = proc;
+          let buf = '';
+          const onOut = (d) => {
+            logFile.write(d);
+            buf += d;
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+              const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+              if (line.startsWith('{')) { try { JSON.parse(line); evFile.write(`${line}\n`); } catch { /* not an event */ } }
+            }
+          };
+          proc.stdout.on('data', onOut);
+          proc.stderr.on('data', (d) => logFile.write(d));
+          code = await new Promise((resolve) => { proc.on('error', (e) => { logFile.write(String(e)); resolve(-1); }); proc.on('close', resolve); });
+          await Promise.all([evFile, logFile].map((f) => new Promise((r) => f.end(r))));
+          if (code === 125 && attempt === 1 && !entry.stopped && engineDropped(path.join(dir(id), 'output.log'))) {
+            say('Docker engine dropped the connection, waiting for it and retrying…');
+            await new Promise((r) => setTimeout(r, 5000));
+            await ensureDocker(say);
+            st.phase = 'training'; saveState(id, st);
+            continue;
           }
-        };
-        proc.stdout.on('data', onOut);
-        proc.stderr.on('data', (d) => logFile.write(d));
-        const code = await new Promise((resolve) => { proc.on('error', (e) => { logFile.write(String(e)); resolve(-1); }); proc.on('close', resolve); });
-        await Promise.all([evFile, logFile].map((f) => new Promise((r) => f.end(r))));
+          break;
+        }
         const err = events(id).reverse().find((e) => e.type === 'error');
         if (entry.stopped) throw new Error('Stopped');
         if (code !== 0) {
           // Show the real cause: the last lines the container printed, not just a pointer to the file
           let tail = '';
           try { tail = fs.readFileSync(path.join(dir(id), 'output.log'), 'utf8').trim().split('\n').filter((l) => !l.startsWith('{')).slice(-4).join(' | ').slice(-500); } catch { /* no log */ }
-          throw new Error(err?.message || `Docker exited with code ${code}${tail ? `: ${tail}` : ''} (full log: output.log in ${dir(id)})`);
+          const hint = code === 125 && engineDropped(path.join(dir(id), 'output.log'))
+            ? ' Docker Desktop lost its engine twice: quit Docker Desktop from the tray, start it again (or run "wsl --shutdown" first), then retry.' : '';
+          throw new Error(err?.message || `Docker exited with code ${code}${tail ? `: ${tail}` : ''}.${hint} (full log: output.log in ${dir(id)})`);
         }
         Object.assign(st, { status: 'done', phase: 'done' });
         if (cfg.ollama_name) {
