@@ -1,0 +1,169 @@
+// QuantBot · Gold Compass (Pine Script v6) — XAUUSD indicator for 5m and 15m charts. No auto trading.
+//
+// WHAT THE RESEARCH FOUND (QuantBot, XAUUSD M5 2004-06 to 2026-10, 1.5M bars; scripts/xau-indicator-research.py):
+//   1,248 M5 / M15 signal versions (trend pullback, EMA touch, 20-bar breakout, prior-day high/low break, big-bar fade),
+//   each with 3 trend filters, 3 session windows, 2 stops, 2 targets, long-only or both sides, next-bar fills, real spread.
+//   Picked on 2004-2018, checked on 2019-2022: 0 versions were positive in both periods.
+//   Best near-miss = the "trend pullback" marked by this script (M15, long only, 14-20 broker time, 2 ATR stop, 3R):
+//     2004-2018 -0.05 R/trade (750 trades) | 2019-2022 +0.07 R | 2023-2026 +0.26 R (253 trades, PF 1.45)
+//   Per year it tracks gold's trend: lost in 2007, 2010-2016 and 2021, won in 2018-2020 and 2023-2025. Shorts lost most years.
+//   So the arrows are a trend-timing aid, not a prediction machine: size them small and expect losing streaks.
+//   What IS stable over 22 years: volatility by hour (the New York hours move ~3x the late Asian hours on M15) and the
+//   multi-day trend (daily Donchian/EMA systems held up out of sample). This script is built around those two.
+//
+// LOT SIZE: Pine cannot read the lot size typed in TradingView's order panel (no script can). Type the same lot size in
+// "Your lot size" below; every signal, line and the panel then shows your $ risk and reward at that size, and the
+// lot size that would match your risk %. Gold: 1.00 lot = 100 oz, so $1 move = $100 per lot (set your broker's size).
+//@version=6
+indicator("QuantBot Gold Compass", shorttitle="QB Compass", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=200)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────────────────────────
+string gR = "Risk and lot size"
+float lots      = input.float(0.10, "Your lot size (same as the order panel)", minval=0.01, step=0.01, group=gR)
+float contract  = input.float(100.0, "Contract size (oz per 1.00 lot)", minval=1, group=gR)
+float account   = input.float(10000.0, "Account balance ($)", minval=100, step=100, group=gR)
+float riskPct   = input.float(0.5, "Max risk per trade (%)", minval=0.05, step=0.05, group=gR)
+float stopAtr   = input.float(2.0, "Stop (x ATR14)", minval=0.5, step=0.1, group=gR)
+float targetR   = input.float(3.0, "Target (x stop)", minval=0.5, step=0.5, group=gR)
+string gS = "Signals"
+bool showSig    = input.bool(true, "Show trend-pullback arrows", group=gS)
+bool longOnly   = input.bool(true, "Long only (shorts lost in most years)", group=gS)
+int  rsiTh      = input.int(20, "Pullback depth: RSI(2) under", minval=2, maxval=40, group=gS)
+bool needDaily  = input.bool(true, "Need the daily trend to agree", group=gS)
+string sessTz   = input.string("Etc/GMT-3", "Session time zone (broker time; GMT+3 summer, GMT+2 winter)", group=gS)
+string sess     = input.session("1400-2000", "Signal hours (broker time)", group=gS)
+string gV = "Visuals"
+bool showLevels = input.bool(true, "Prior day high / low", group=gV)
+bool showAsia   = input.bool(true, "Asia range box", group=gV)
+bool showBand   = input.bool(true, "Expected range for this hour", group=gV)
+bool showDay    = input.bool(true, "Daily ATR band from the day's open", group=gV)
+int  profDays   = input.int(60, "Hour profile: days of history", minval=10, maxval=250, group=gV)
+color cUp   = input.color(#22c55e, "Up", group=gV)
+color cDn   = input.color(#ef4444, "Down", group=gV)
+color cInfo = input.color(#60a5fa, "Levels", group=gV)
+
+// ── Higher-timeframe trend (closed bars only, no repaint) ─────────────────────────────────────────
+[dC, dE] = request.security(syminfo.tickerid, "D", [close[1], ta.ema(close, 50)[1]], lookahead=barmerge.lookahead_on)
+[h4F, h4S] = request.security(syminfo.tickerid, "240", [ta.ema(close, 50)[1], ta.ema(close, 200)[1]], lookahead=barmerge.lookahead_on)
+[h1F, h1S] = request.security(syminfo.tickerid, "60", [ta.ema(close, 20)[1], ta.ema(close, 50)[1]], lookahead=barmerge.lookahead_on)
+[pdh, pdl, dAtr] = request.security(syminfo.tickerid, "D", [high[1], low[1], ta.atr(14)[1]], lookahead=barmerge.lookahead_on)
+dayOpen = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
+int tD  = dC > dE ? 1 : dC < dE ? -1 : 0
+int tH4 = h4F > h4S ? 1 : h4F < h4S ? -1 : 0
+int tH1 = h1F > h1S ? 1 : h1F < h1S ? -1 : 0
+int score = tD + tH4 + tH1
+
+// ── Trend-pullback signal (the researched version) ────────────────────────────────────────────────
+float atr = ta.atr(14)
+float r2 = ta.rsi(close, 2)
+bool inSess = not na(time(timeframe.period, sess, sessTz))
+bool upT = tH4 == 1 and tH1 == 1 and (not needDaily or tD == 1)
+bool dnT = tH4 == -1 and tH1 == -1 and (not needDaily or tD == -1)
+bool longSig  = showSig and barstate.isconfirmed and inSess and upT and r2[1] < rsiTh and close > high[1]
+bool shortSig = showSig and barstate.isconfirmed and inSess and dnT and r2[1] > 100 - rsiTh and close < low[1] and not longOnly
+bool tfOk = timeframe.isintraday and timeframe.multiplier <= 15
+
+// $ per trade at the user's lot size, and the lot size that matches the risk %
+float stopDist = stopAtr * atr
+float riskUsd  = stopDist * contract * lots
+float maxRisk  = account * riskPct / 100
+float fitLots  = math.floor(maxRisk / (stopDist * contract) / 0.01) * 0.01
+bool overRisk  = riskUsd > maxRisk
+
+var line slL = na
+var line tpL = na
+var line enL = na
+if (longSig or shortSig) and tfOk
+    int s = longSig ? 1 : -1
+    float e = close
+    float sl = e - s * stopDist
+    float tp = e + s * targetR * stopDist
+    line.delete(slL), line.delete(tpL), line.delete(enL)
+    enL := line.new(bar_index, e, bar_index + 24, e, color=color.new(color.gray, 20), style=line.style_dotted)
+    slL := line.new(bar_index, sl, bar_index + 24, sl, color=cDn, width=2)
+    tpL := line.new(bar_index, tp, bar_index + 24, tp, color=cUp, width=2)
+    string txt = (s == 1 ? "Long " : "Short ") + str.tostring(lots, "#.##") + " lot\nRisk $" + str.tostring(riskUsd, "#,##0") +
+         " · Target $" + str.tostring(riskUsd * targetR, "#,##0") + (overRisk ? "\nOver " + str.tostring(riskPct) + "%: use " + str.tostring(fitLots, "#.##") + " lot" : "")
+    label.new(bar_index, s == 1 ? low - atr * 0.3 : high + atr * 0.3, txt, style=s == 1 ? label.style_label_up : label.style_label_down,
+         color=color.new(s == 1 ? cUp : cDn, overRisk ? 55 : 15), textcolor=color.white, size=size.small,
+         tooltip="Trend pullback: daily, 4h and 1h trend agree, RSI(2) dipped, bar closed past the prior bar. Tested 2004-2026: lost 2004-2018, won 2019-2026 (gold bull years). Not a prediction.")
+
+// ── Hour-of-day volatility profile (from this chart's own history, so the time zone is always right) ─
+var array<float> hSum = array.new_float(24, 0.0)
+var array<float> hW   = array.new_float(24, 0.0)
+var array<int>   hCnt = array.new_int(24, 0)
+int hr = hour(time, "UTC")
+float barsInHour = math.max(1.0, 60.0 / timeframe.multiplier)
+float rngPct = (high - low) / close
+if barstate.isconfirmed and timeframe.isintraday
+    // exponentially weighted average per UTC hour, about profDays days long
+    float decay = 1.0 - 1.0 / (profDays * barsInHour)
+    array.set(hSum, hr, array.get(hSum, hr) * decay + rngPct)
+    array.set(hW, hr, array.get(hW, hr) * decay + 1.0)
+    array.set(hCnt, hr, array.get(hCnt, hr) + 1)
+float hourAvg = array.get(hCnt, hr) > 20 ? array.get(hSum, hr) / array.get(hW, hr) : na
+float allAvg = ta.sma(rngPct, 500)
+float hourMult = na(hourAvg) or na(allAvg) or allAvg == 0 ? na : hourAvg / allAvg
+
+// Expected range of the current hour: centered on the hour's open, half the hour's typical range each way
+bool newHour = hr != hr[1]
+var float hOpen = na
+if newHour
+    hOpen := open
+float expMove = na(hourAvg) ? na : hourAvg * close * math.sqrt(barsInHour) * 0.5
+plot(showBand and tfOk ? hOpen + expMove : na, "Hour band high", color=color.new(cInfo, 60), style=plot.style_linebr)
+plot(showBand and tfOk ? hOpen - expMove : na, "Hour band low", color=color.new(cInfo, 60), style=plot.style_linebr)
+
+// Daily ATR band: where a normal day ends up from its open (half a daily ATR each way, then a full ATR)
+plot(showDay ? dayOpen + dAtr * 0.5 : na, "Day +0.5 ATR", color=color.new(cUp, 70), style=plot.style_linebr)
+plot(showDay ? dayOpen - dAtr * 0.5 : na, "Day -0.5 ATR", color=color.new(cDn, 70), style=plot.style_linebr)
+plot(showDay ? dayOpen + dAtr : na, "Day +1 ATR", color=color.new(cUp, 40), style=plot.style_linebr, linewidth=2)
+plot(showDay ? dayOpen - dAtr : na, "Day -1 ATR", color=color.new(cDn, 40), style=plot.style_linebr, linewidth=2)
+
+// Prior day high / low
+plot(showLevels ? pdh : na, "Prior day high", color=cInfo, style=plot.style_linebr)
+plot(showLevels ? pdl : na, "Prior day low", color=cInfo, style=plot.style_linebr)
+
+// Asia range (00:00-07:00 UTC) as a box that grows through the session
+var box asiaBox = na
+var float aH = na
+var float aL = na
+bool inAsia = hr < 7
+if showAsia and inAsia and not inAsia[1]
+    aH := high, aL := low
+    asiaBox := box.new(bar_index, high, bar_index, low, border_color=color.new(cInfo, 50), bgcolor=color.new(cInfo, 92))
+else if showAsia and inAsia and not na(asiaBox)
+    aH := math.max(aH, high), aL := math.min(aL, low)
+    box.set_top(asiaBox, aH), box.set_bottom(asiaBox, aL), box.set_right(asiaBox, bar_index)
+
+// Trend tint behind the bars: green when all three timeframes agree up, red when all agree down
+bgcolor(score == 3 ? color.new(cUp, 94) : score == -3 ? color.new(cDn, 94) : na, title="Trend agreement")
+
+// ── Panel ─────────────────────────────────────────────────────────────────────────────────────────
+var table pnl = table.new(position.top_right, 2, 9, bgcolor=color.new(#0b0b0c, 15), border_color=color.new(color.gray, 70), border_width=1)
+f(int t) => t == 1 ? "Up" : t == -1 ? "Down" : "Flat"
+fc(int t) => t == 1 ? cUp : t == -1 ? cDn : color.gray
+if barstate.islast
+    table.cell(pnl, 0, 0, "QB Gold Compass", text_color=color.white, text_size=size.small)
+    table.cell(pnl, 1, 0, tfOk ? timeframe.period + "m" : "use 5m / 15m", text_color=tfOk ? color.gray : color.orange, text_size=size.small)
+    table.cell(pnl, 0, 1, "Daily trend", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 1, f(tD), text_color=fc(tD), text_size=size.small)
+    table.cell(pnl, 0, 2, "4h trend", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 2, f(tH4), text_color=fc(tH4), text_size=size.small)
+    table.cell(pnl, 0, 3, "1h trend", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 3, f(tH1), text_color=fc(tH1), text_size=size.small)
+    table.cell(pnl, 0, 4, "This hour moves", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 4, na(hourMult) ? "learning…" : str.tostring(hourMult, "#.0") + "x a normal hour", text_color=hourMult > 1.3 ? color.orange : color.white, text_size=size.small)
+    table.cell(pnl, 0, 5, "Day used", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 5, str.tostring(100 * (high - low) / dAtr, "#") + "% of daily ATR", text_color=color.white, text_size=size.small)
+    table.cell(pnl, 0, 6, "Stop now", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 6, "$" + str.tostring(stopDist, "#.00") + " = $" + str.tostring(riskUsd, "#,##0") + " at " + str.tostring(lots, "#.##") + " lot", text_color=overRisk ? color.orange : color.white, text_size=size.small)
+    table.cell(pnl, 0, 7, "Lot for " + str.tostring(riskPct) + "%", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 7, str.tostring(fitLots, "#.##") + " lot ($" + str.tostring(maxRisk, "#,##0") + ")", text_color=cInfo, text_size=size.small)
+    table.cell(pnl, 0, 8, "Edge check", text_color=color.gray, text_size=size.small)
+    table.cell(pnl, 1, 8, "arrows = timing aid, not a forecast", text_color=color.gray, text_size=size.tiny)
+
+// ── Alerts ────────────────────────────────────────────────────────────────────────────────────────
+alertcondition(longSig and tfOk, "Gold Compass long", "Gold Compass: trend pullback long on {{ticker}} {{interval}} at {{close}}")
+alertcondition(shortSig and tfOk, "Gold Compass short", "Gold Compass: trend pullback short on {{ticker}} {{interval}} at {{close}}")
+alertcondition(ta.cross(score, 2.5) or ta.cross(score, -2.5), "Gold Compass trend lined up", "Gold Compass: daily, 4h and 1h trend now agree on {{ticker}}")
