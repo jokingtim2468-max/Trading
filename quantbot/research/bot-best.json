@@ -1,71 +1,63 @@
 {
- "t": "2026-10-24 01:31:26",
+ "t": "2026-10-24 01:36:02",
  "bot": {
   "trend": "with",
   "gap": "any",
   "vol": "any",
   "h0": 3,
-  "h1": 24,
+  "h1": 12,
   "days": "all",
   "look": 2,
   "rank": "mean",
-  "topk": 3,
-  "min_trades": 60
+  "topk": 2,
+  "min_trades": 100
  },
- "score": 266.13,
- "totalR": 266.1,
- "losing_years": 0,
+ "score": 296.06,
+ "totalR": 312.5,
+ "losing_years": 1,
  "per_year": {
-  "2019": 101.9,
-  "2020": 4.4,
-  "2021": 55.7,
-  "2022": 38.4,
-  "2023": 24.8,
-  "2024": 27.6,
-  "2025": 13.4
+  "2019": 130.0,
+  "2020": -8.2,
+  "2021": 73.6,
+  "2022": 23.8,
+  "2023": 30.7,
+  "2024": 22.3,
+  "2025": 40.4
  },
  "picks": {
   "2019": [
    "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 2.0, 'R': None}",
    "NQ opening_drive {'k': 1.0, 'R': None}"
   ],
   "2020": [
    "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ opening_drive {'k': 1.0, 'R': None}",
-   "NQ ema_cross {'k': 1.0, 'R': None}"
+   "NQ opening_drive {'k': 1.0, 'R': None}"
   ],
   "2021": [
    "NQ macd_cross {'k': 1.0, 'R': None}",
-   "NQ opening_drive {'k': 1.0, 'R': None}",
-   "NQ inside_bar {'k': 1.0, 'R': None}"
+   "NQ opening_drive {'k': 1.0, 'R': None}"
   ],
   "2022": [
    "NQ ema_cross {'k': 1.0, 'R': None}",
-   "NQ opening_drive {'k': 1.0, 'R': None}",
-   "NQ vwap_trend {'k': 1.0, 'R': None}"
+   "NQ opening_drive {'k': 1.0, 'R': None}"
   ],
   "2023": [
    "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ opening_drive {'k': 1.0, 'R': None}",
-   "NQ overnight_break {'k': 1.0, 'R': None}"
+   "NQ opening_drive {'k': 1.0, 'R': None}"
   ],
   "2024": [
    "XAUUSD macd_cross {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 1.0, 'R': None}",
-   "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None}"
+   "NQ donchian {'k': 1.0, 'R': None}"
   ],
   "2025": [
    "NQ exhaustion {'k': 1.0, 'R': None}",
-   "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None}",
-   "NQ inside_bar {'k': 1.0, 'R': None}"
+   "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None}"
   ]
  },
- "exam_2026_R": 5.7,
+ "exam_2026_R": 6.8,
  "exam_2026_picks": [
   "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None}",
-  "XAUUSD buy_open {'k': 2.0, 'R': None}",
-  "XAUUSD opening_drive {'k': 2.0, 'R': None}"
+  "XAUUSD buy_open {'k': 2.0, 'R': None}"
  ],
  "note": "score = walk-forward total R 2019-2025 with losing years counted 3x; 2026 is never used to choose"
 }
