@@ -1,4 +1,4 @@
-# usage: python3 scripts/bot-best-dollars.py <XAUUSD M5 export> <NQ M5 export>
+# usage: python3 scripts/bot-best-dollars.py <XAUUSD M5 export> <NQ M5 export> [extra $ cost per trade per micro]
 # Turns the improver's best bot (research/bot-best-v2.json) into dollars on LucidFlex accounts:
 #   trades per day from the walk-forward (each year's setups chosen on earlier years only), $ risk per R sized so the
 #   2019-2025 drawdown stays under 75% of the account's max loss, daily loss limit applied, then 2026 graded.
@@ -7,6 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(ROOT, 'scripts', 'bot-improver.py')).read()
 src = src[:src.index("best = json.load(open(BEST))")]
 ARGS = sys.argv[:]
+EXTRA = float(ARGS[3]) if len(ARGS) > 3 else 0.0   # stress test: worse fills, e.g. 2 = one more NQ point per trade on MNQ
 g = {'__file__': os.path.join(ROOT, 'scripts', 'bot-improver.py')}; sys.argv = ARGS[:3]; exec(src, g)
 B = json.load(open(os.path.join(ROOT, 'research', 'bot-best-v2.json')))['bot']
 ACCTS = {'25K': (1000, 600), '50K': (2000, 1200), '100K': (3000, 1800), '150K': (4500, 2700)}
@@ -27,7 +28,7 @@ def daily_R(years):
         top = scored[:B['topk']]
         for _, df in top:
             cur = df[df.y == Y]
-            usd = cur.r.values * (cur.risk1.values if 'risk1' in cur else np.nan)   # $ per trade on 1 micro per setup
+            usd = cur.r.values * (cur.risk1.values if 'risk1' in cur else np.nan) - EXTRA   # $ per trade on 1 micro per setup
             for d, u in zip(cur.day.values, usd): rows.append((pd.Timestamp(d), u))
     s = pd.Series([r for _, r in rows], index=[d for d, _ in rows])
     return s.groupby(level=0).sum().sort_index()
