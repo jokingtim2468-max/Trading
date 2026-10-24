@@ -18,7 +18,7 @@ g = {}; exec(src, g)
 ITERS = int(ARGS[3]) if len(ARGS) > 3 else 0
 # The cache is written by this script itself (never a downloaded file), so loading it with pickle is safe
 CACHE = os.path.join(os.path.dirname(os.path.abspath(ARGS[1])), 'improver-trades.pkl')
-BEST = os.path.join(ROOT, 'research', 'bot-best.json'); LOG = os.path.join(ROOT, 'research', 'bot-improver-log.jsonl')
+BEST = os.path.join(ROOT, 'research', 'bot-best-v2.json'); LOG = os.path.join(ROOT, 'research', 'bot-improver-log.jsonl')
 
 def sim_first(x, m, side, stop, tgt):
     """one trade a day: the first signal; -> list of (bar index, R after costs)"""
@@ -108,8 +108,12 @@ def walk(B, years):
     return out, picks
 
 def score(per_year):
-    v = np.array(list(per_year.values()))
-    return float(v.sum() + 2.0 * v[v < 0].sum())   # losing years count three times
+    # robust score: the worse of 2019-2022 and 2023-2025 (per year), losing years counted three times. A bot that only
+    # shines in one half (the search fitting a few lucky years) no longer wins.
+    v = {int(k): x for k, x in per_year.items()}
+    def part(ys):
+        a = np.array([v[y] for y in ys if y in v]); return float((a.sum() + 2.0 * a[a < 0].sum()) / max(1, len(a)))
+    return min(part(range(2019, 2023)), part(range(2023, 2026)))
 
 def rand_bot(): return {k: random.choice(v) for k, v in SPACE.items()}
 def mutate(B):
@@ -133,7 +137,7 @@ while ITERS == 0 or it < ITERS:
     if best is None or sc > best['score'] + 0.01:
         exam, exam_picks = walk(B, [2026])
         best = dict(rec, picks={str(k): v for k, v in picks.items()}, exam_2026_R=round(exam[2026], 1), exam_2026_picks=exam_picks[2026],
-                    note='score = walk-forward total R 2019-2025 with losing years counted 3x; 2026 is never used to choose')
+                    note='score = the worse of 2019-2022 and 2023-2025 walk-forward R per year (losing years 3x); 2026 is never used to choose')
         json.dump(best, open(BEST, 'w'), indent=1)
         print(f"[{rec['t']}] it {it}: NEW BEST score {sc:.1f}, 2019-2025 total {rec['totalR']}R, losing years {rec['losing_years']}, "
               f"2026 exam {best['exam_2026_R']}R | {B}", flush=True)
