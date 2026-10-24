@@ -7,6 +7,9 @@
 //      200 EMA (buy), or 2.5 above it while below the 200 EMA (sell). SL 2 ATR, TP 2R.
 //   3. Opening-range breakout (off by default): the first 5 minutes after the open, broken in the 200-EMA direction,
 //      stop = the range. The yearly loop picked this on gold for 2026 (4 past years positive; 2026 so far ~breakeven).
+// BOT IMPROVER (scripts/bot-improver.py v2, research/bot-best-v2.json): best so far = opening drive with the gap and
+//   the trend, stop 2 ATR, add 2-3 units at +1R/+2R/+3R raising the stop each time, trail 4 ATR, out at 15:55.
+//   Walk-forward 2019-2025 +681.5R (no losing year), 2026 exam +25.5R (R = the first unit's stop). These defaults.
 // WALK-FORWARD 2017-2026 (scripts/signal-bot-loop.py, each year chosen only on the 4 years before it):
 //   1,367 trades, 20% winners (small losses, a few big winners), +0.169R per trade, +231R = +$23,108 at $100 risk.
 //   Most of it came in 2019 and 2021 (NQ opening drive). 2022-2025 were small losses (-$205 to -$2,376 a year).
@@ -25,7 +28,9 @@ float tpR       = input.float(2.0, "Target (x the stop)", minval=0.5, step=0.25,
 string gS = "Setups"
 bool useDrive   = input.bool(true, "Opening drive", group=gS)
 float driveBody = input.float(0.5, "Opening drive: first bar body (x ATR)", minval=0, step=0.1, group=gS)
-float driveStop = input.float(1.0, "Opening drive: stop (x ATR)", minval=0.25, step=0.25, group=gS)
+float driveStop = input.float(2.0, "Opening drive: stop (x ATR)", minval=0.25, step=0.25, group=gS)
+int  driveAdds  = input.int(3, "Opening drive: add a unit at +1R, +2R... (0 = no adds)", minval=0, maxval=5, group=gS)
+float driveTrail = input.float(4.0, "Opening drive: trail the stop this many ATR behind the best price (after +1R)", minval=0, step=0.5, group=gS)
 bool useFade    = input.bool(true, "VWAP fade with the trend", group=gS)
 float fadeZ     = input.float(2.5, "VWAP fade: deviations from VWAP", minval=1, step=0.25, group=gS)
 float fadeStop  = input.float(2.0, "VWAP fade: stop (x ATR)", minval=0.25, step=0.25, group=gS)
@@ -107,15 +112,21 @@ if side != 0
     tookToday := true
     float e = close
     float sl = e - side * stopDist
-    float tp = e + side * tpR * stopDist
+    bool isDrive = why == "Opening drive"
+    float tp = isDrive and driveAdds > 0 ? e + side * (driveAdds + 1) * stopDist : e + side * tpR * stopDist
     float perC = stopDist * syminfo.pointvalue
     int q = perC > 0 ? math.min(maxQty, math.max(1, int(math.floor(riskUsd / perC)))) : 1
     line.delete(slL), line.delete(tpL), line.delete(enL)
     enL := line.new(bar_index, e, bar_index + 30, e, color=color.new(color.gray, 20), style=line.style_dotted)
     slL := line.new(bar_index, sl, bar_index + 30, sl, color=#ef4444, width=2)
-    tpL := line.new(bar_index, tp, bar_index + 30, tp, color=#22c55e, width=2)
+    tpL := line.new(bar_index, tp, bar_index + 30, tp, color=#22c55e, width=2, style=isDrive and driveAdds > 0 ? line.style_dashed : line.style_solid)
+    if isDrive and driveAdds > 0
+        for k = 1 to driveAdds
+            float lv = e + side * k * stopDist
+            line.new(bar_index, lv, bar_index + 30, lv, color=color.new(#60a5fa, 30), style=line.style_dotted)
+            label.new(bar_index + 30, lv, "add " + str.tostring(k) + " · stop to " + str.tostring(e + side * (k - 1) * stopDist, format.mintick), style=label.style_label_left, color=color.new(#60a5fa, 70), textcolor=color.white, size=size.tiny)
     label.new(bar_index, side == 1 ? low - atr * 0.4 : high + atr * 0.4,
-         (side == 1 ? "BUY " : "SELL ") + str.tostring(q) + "\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\nRisk $" + str.tostring(q * perC, "#,##0") + " · " + why,
+         (side == 1 ? "BUY " : "SELL ") + str.tostring(q) + "\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\nRisk $" + str.tostring(q * perC, "#,##0") + " · " + why + (isDrive and driveAdds > 0 ? "\nAdd " + str.tostring(q) + " at each blue line, trail " + str.tostring(driveTrail) + " ATR, out 15:55" : ""),
          style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(side == 1 ? #22c55e : #ef4444, 10), textcolor=color.white, size=size.small)
     if sendAlerts
         alert(qbMsg(side == 1 ? "buy" : "sell", e, sl, tp, q), alert.freq_once_per_bar_close)
