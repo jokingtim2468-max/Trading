@@ -1,60 +1,63 @@
 {
- "t": "2026-10-24 01:50:26",
+ "t": "2026-10-24 01:58:19",
  "bot": {
   "trend": "with",
-  "gap": "any",
-  "vol": "high",
+  "gap": "with",
+  "vol": "any",
   "h0": 9,
   "h1": 15,
   "days": "all",
-  "look": 5,
+  "look": 3,
   "rank": "mean",
-  "topk": 3,
-  "min_trades": 150
+  "topk": 2,
+  "min_trades": 30
  },
- "score": 26.54,
- "totalR": 202.0,
+ "score": 90.66,
+ "totalR": 681.5,
  "losing_years": 0,
  "per_year": {
-  "2019": 0.0,
-  "2020": 0.0,
-  "2021": 4.0,
-  "2022": 102.2,
-  "2023": 41.6,
-  "2024": 52.3,
-  "2025": 1.9
+  "2019": 105.6,
+  "2020": 21.9,
+  "2021": 239.3,
+  "2022": 42.7,
+  "2023": 112.0,
+  "2024": 119.2,
+  "2025": 40.8
  },
  "picks": {
-  "2019": [],
-  "2020": [],
+  "2019": [
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'break', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.0, 'gap': 'with', 'on': 'break', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}"
+  ],
+  "2020": [
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'break', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.0, 'gap': 'with', 'on': 'break', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}"
+  ],
   "2021": [
-   "NQ donchian {'k': 2.0, 'R': None}"
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 0.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'any', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 0.0, 'raise': True}"
   ],
   "2022": [
-   "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 2.0, 'R': None}"
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 2, 'trail': 0.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'any', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 2, 'trail': 0.0, 'raise': True}"
   ],
   "2023": [
-   "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 2.0, 'R': None}",
-   "NQ overnight_break {'k': 2.0, 'R': None}"
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 2, 'trail': 0.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'any', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 2, 'trail': 0.0, 'raise': True}"
   ],
   "2024": [
-   "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 2.0, 'R': None}",
-   "NQ overnight_break {'k': 2.0, 'R': None}"
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'any', 'on': 'any', 'stop': 1.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}"
   ],
   "2025": [
-   "NQ donchian {'k': 1.0, 'R': None}",
-   "NQ donchian {'k': 2.0, 'R': None}",
-   "NQ orb {'n': 15, 'frac': 0.5, 'R': None}"
+   "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'break', 'stop': 2.0, 'be': False, 'adds': 3, 'trail': 0.0, 'raise': True}",
+   "NQ opening_drive_plus {'body': 0.0, 'gap': 'with', 'on': 'break', 'stop': 2.0, 'be': False, 'adds': 3, 'trail': 0.0, 'raise': True}"
   ]
  },
- "exam_2026_R": 36.2,
+ "exam_2026_R": 25.5,
  "exam_2026_picks": [
-  "NQ opening_drive {'k': 1.0, 'R': None}",
-  "NQ orb {'n': 5, 'frac': 0.5, 'R': None}",
-  "NQ donchian {'k': 2.0, 'R': None}"
+  "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'break', 'stop': 2.0, 'be': False, 'adds': 3, 'trail': 4.0, 'raise': True}",
+  "NQ opening_drive_plus {'body': 0.5, 'gap': 'with', 'on': 'break', 'stop': 2.0, 'be': False, 'adds': 2, 'trail': 4.0, 'raise': True}"
  ],
  "note": "score = the worse of 2019-2022 and 2023-2025 walk-forward R per year (losing years 3x); 2026 is never used to choose"
 }
