@@ -43,16 +43,18 @@ def signal(S, kind, n, both):
 
 def per_micro(S, m, sig, k):
     o, h, l, c, a = S.o.values, S.h.values, S.l.values, S.c.values, S.atr.values
-    out = np.zeros(len(S)); mae = np.zeros(len(S))
+    out = np.zeros(len(S)); mae = np.zeros(len(S)); mfe = np.zeros(len(S))
     for i in range(len(S)):
         s = sig[i]
         if s == 0: continue
-        worst = (l[i] if s > 0 else h[i])
+        worst = (l[i] if s > 0 else h[i]); bestp = (h[i] if s > 0 else l[i])
         e = o[i] + s * m['slip']; stop = e - s * k * a[i]
         hit = (l[i] <= stop) if s > 0 else (h[i] >= stop)
         ex = stop if hit else c[i]
         out[i] = ((ex - e) * s - m['slip']) * m['pv'] - 1.5
         mae[i] = (max((worst - e) * s, (stop - e) * s) if not hit else (stop - e) * s) * m['pv'] - 1.5   # worst open loss per micro
+        mfe[i] = (bestp - e) * s * m['pv'] - 1.5   # best open profit per micro (the stop may come first: used only for caps)
+    per_micro.mfe = mfe
     return out, mae
 
 def account(x):
