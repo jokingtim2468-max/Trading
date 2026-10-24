@@ -18,7 +18,7 @@ g = {}; exec(src, g)
 ITERS = int(ARGS[3]) if len(ARGS) > 3 else 0
 # The cache is written by this script itself (never a downloaded file), so loading it with pickle is safe
 CACHE = os.path.join(os.path.dirname(os.path.abspath(ARGS[1])), 'improver-trades.pkl')
-BEST = os.path.join(ROOT, 'research', 'bot-best-v2.json'); LOG = os.path.join(ROOT, 'research', 'bot-improver-log.jsonl')
+BEST = os.path.join(ROOT, 'research', 'bot-best-v2.live.json')   # live file (gitignored); copied to bot-best-v2.json on each check; LOG = os.path.join(ROOT, 'research', 'bot-improver-log.jsonl')
 
 def sim_first(x, m, side, stop, tgt):
     """one trade a day: the first signal; -> list of (bar index, R after costs)"""

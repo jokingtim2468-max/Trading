@@ -1,5 +1,5 @@
 {
- "t": "2026-10-24 01:49:55",
+ "t": "2026-10-24 01:50:26",
  "bot": {
   "trend": "with",
   "gap": "any",
@@ -10,11 +10,11 @@
   "look": 5,
   "rank": "mean",
   "topk": 3,
-  "min_trades": 100
+  "min_trades": 150
  },
- "score": 25.68,
- "totalR": 194.4,
- "losing_years": 1,
+ "score": 26.54,
+ "totalR": 202.0,
+ "losing_years": 0,
  "per_year": {
   "2019": 0.0,
   "2020": 0.0,
@@ -22,7 +22,7 @@
   "2022": 102.2,
   "2023": 41.6,
   "2024": 52.3,
-  "2025": -5.6
+  "2025": 1.9
  },
  "picks": {
   "2019": [],
@@ -47,7 +47,7 @@
   "2025": [
    "NQ donchian {'k': 1.0, 'R': None}",
    "NQ donchian {'k': 2.0, 'R': None}",
-   "NQ vwap_revert {'z': 2.5, 'k': 2.0, 'R': None}"
+   "NQ orb {'n': 15, 'frac': 0.5, 'R': None}"
   ]
  },
  "exam_2026_R": 36.2,
