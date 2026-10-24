@@ -69,6 +69,8 @@ def build():
 
 if os.path.exists(CACHE): cands = pickle.load(open(CACHE, 'rb'))
 else: cands = build(); pickle.dump(cands, open(CACHE, 'wb'))
+EXTRA = os.path.join(os.path.dirname(os.path.abspath(ARGS[1])), 'improver-extra.pkl')   # from scripts/improver-extra.py
+if os.path.exists(EXTRA): cands = cands + pickle.load(open(EXTRA, 'rb'))
 print(len(cands), 'candidate setups cached', flush=True)
 
 SPACE = dict(trend=['any', 'with', 'against'], gap=['any', 'with', 'against'], vol=['any', 'high', 'low'],
