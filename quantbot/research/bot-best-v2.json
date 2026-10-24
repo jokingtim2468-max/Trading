@@ -1,0 +1,41 @@
+{
+ "t": "2026-10-24 01:46:11",
+ "bot": {
+  "trend": "with",
+  "gap": "with",
+  "vol": "low",
+  "h0": 2,
+  "h1": 24,
+  "days": "mid_week",
+  "look": 6,
+  "rank": "worst_year",
+  "topk": 2,
+  "min_trades": 100
+ },
+ "score": -1.38,
+ "totalR": -1.8,
+ "losing_years": 1,
+ "per_year": {
+  "2019": 0.0,
+  "2020": -1.8,
+  "2021": 0.0,
+  "2022": 0.0,
+  "2023": 0.0,
+  "2024": 0.0,
+  "2025": 0.0
+ },
+ "picks": {
+  "2019": [],
+  "2020": [
+   "NQ donchian {'k': 2.0, 'R': 3.0}"
+  ],
+  "2021": [],
+  "2022": [],
+  "2023": [],
+  "2024": [],
+  "2025": []
+ },
+ "exam_2026_R": 0.0,
+ "exam_2026_picks": [],
+ "note": "score = the worse of 2019-2022 and 2023-2025 walk-forward R per year (losing years 3x); 2026 is never used to choose"
+}
