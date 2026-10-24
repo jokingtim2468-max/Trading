@@ -1,0 +1,108 @@
+// QuantBot · Signal Bot (Pine Script v6) — NQ / MNQ (works on gold too), 5-minute chart. Signals only, no auto trading.
+// Tells you BUY or SELL, where the entry, stop (SL) and target (TP) are, and how many contracts fit your $ risk.
+// Two setups, from QuantBot's research (scripts/strategy-lab.py, scripts/aplus-grid.py, scripts/opening-drive-lab.py):
+//   1. Opening drive: the 09:30 New York bar is strong (body >= 0.5 ATR), goes the same way as the overnight gap and
+//      breaks the overnight high/low -> trade that way. SL 1 ATR, TP 2R.
+//   2. VWAP fade with the trend: after 10:00, price pulls back 2.5 deviations below the session VWAP while above the
+//      200 EMA (buy), or 2.5 above it while below the 200 EMA (sell). SL 2 ATR, TP 2R.
+// One signal a day (the first one), nothing after 15:30, everything should be flat by 15:55 (Lucid: 16:45).
+// HONEST RESULTS so far (unseen years, costs included): both setups are small edges, about breakeven to slightly
+// positive per trade; most weeks are flat or small losses and a few big days pay. Size small. The test -> improve loop
+// (scripts/signal-bot-loop.py) re-checks every setting each year; its latest log is in research/signal-bot-choice.json.
+// Alerts: one alert on this indicator, condition "Any alert() function call", webhook = your QuantBot signal address.
+//@version=6
+indicator("QuantBot Signal Bot", shorttitle="QB Signals", overlay=true, max_labels_count=500, max_lines_count=500)
+
+string gR = "Risk"
+float riskUsd   = input.float(100.0, "Risk per trade ($)", minval=10, step=10, group=gR)
+int   maxQty    = input.int(100, "Max contracts", minval=1, group=gR)
+float tpR       = input.float(2.0, "Target (x the stop)", minval=0.5, step=0.25, group=gR)
+string gS = "Setups"
+bool useDrive   = input.bool(true, "Opening drive", group=gS)
+float driveBody = input.float(0.5, "Opening drive: first bar body (x ATR)", minval=0, step=0.1, group=gS)
+float driveStop = input.float(1.0, "Opening drive: stop (x ATR)", minval=0.25, step=0.25, group=gS)
+bool useFade    = input.bool(true, "VWAP fade with the trend", group=gS)
+float fadeZ     = input.float(2.5, "VWAP fade: deviations from VWAP", minval=1, step=0.25, group=gS)
+float fadeStop  = input.float(2.0, "VWAP fade: stop (x ATR)", minval=0.25, step=0.25, group=gS)
+bool onePerDay  = input.bool(true, "One signal a day", group=gS)
+string gW = "QuantBot webhook"
+bool sendAlerts = input.bool(true, "Send signals to QuantBot", group=gW)
+string botName  = input.string("QB Signal Bot", "Script name in QuantBot", group=gW)
+string tz = "America/New_York"
+
+int m = hour(time, tz) * 60 + minute(time, tz)
+bool rthStart = m == 570
+bool newDay = ta.change(time("D", "", tz)) != 0
+float atr = ta.atr(14)
+float ema200 = ta.ema(close, 200)
+
+// overnight high/low (18:00-09:30) and the previous regular-session close (15:55 bar)
+var float onH = na
+var float onL = na
+var float prevClose = na
+var float lastClose = na
+if m >= 18 * 60 and m[1] < 18 * 60
+    onH := high, onL := low
+else if m >= 18 * 60 or m < 570
+    onH := math.max(nz(onH, high), high), onL := math.min(nz(onL, low), low)
+if m == 955
+    lastClose := close
+if rthStart
+    prevClose := lastClose
+
+// session VWAP from 09:30 with deviation bands
+[vw, vwUp, vwDn] = ta.vwap(hlc3, rthStart, fadeZ)
+
+var bool tookToday = false
+if newDay
+    tookToday := false
+
+int side = 0
+float stopDist = na
+string why = ""
+if useDrive and rthStart and barstate.isconfirmed
+    int d = close > open ? 1 : close < open ? -1 : 0
+    float gap = open - nz(prevClose, open)
+    bool strong = math.abs(close - open) >= driveBody * atr
+    bool withGap = math.sign(gap) == d
+    bool breaks = (d == 1 and close > onH[1]) or (d == -1 and close < onL[1])
+    if d != 0 and strong and withGap and breaks
+        side := d, stopDist := driveStop * atr, why := "Opening drive"
+if side == 0 and useFade and m >= 600 and m < 930 and barstate.isconfirmed and not na(vwUp)
+    if close < vwDn and close > ema200
+        side := 1, stopDist := fadeStop * atr, why := "VWAP fade (trend up)"
+    else if close > vwUp and close < ema200
+        side := -1, stopDist := fadeStop * atr, why := "VWAP fade (trend down)"
+if m >= 930 or (onePerDay and tookToday)
+    side := 0
+
+qbMsg(string ev, float px, float s, float t, int q) =>
+    '{"qb":1,"event":"' + ev + '","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","price":' + str.tostring(px, format.mintick) + ',"sl":' + str.tostring(s, format.mintick) + ',"tp":' + str.tostring(t, format.mintick) + ',"qty":' + str.tostring(q) + ',"risk_usd":' + str.tostring(riskUsd) + ',"reason":"' + why + '","strategy":"' + botName + '","source":"tradingview","time":' + str.tostring(time_close) + '}'
+
+var line slL = na
+var line tpL = na
+var line enL = na
+if side != 0
+    tookToday := true
+    float e = close
+    float sl = e - side * stopDist
+    float tp = e + side * tpR * stopDist
+    float perC = stopDist * syminfo.pointvalue
+    int q = perC > 0 ? math.min(maxQty, math.max(1, int(math.floor(riskUsd / perC)))) : 1
+    line.delete(slL), line.delete(tpL), line.delete(enL)
+    enL := line.new(bar_index, e, bar_index + 30, e, color=color.new(color.gray, 20), style=line.style_dotted)
+    slL := line.new(bar_index, sl, bar_index + 30, sl, color=#ef4444, width=2)
+    tpL := line.new(bar_index, tp, bar_index + 30, tp, color=#22c55e, width=2)
+    label.new(bar_index, side == 1 ? low - atr * 0.4 : high + atr * 0.4,
+         (side == 1 ? "BUY " : "SELL ") + str.tostring(q) + "\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\nRisk $" + str.tostring(q * perC, "#,##0") + " · " + why,
+         style=side == 1 ? label.style_label_up : label.style_label_down, color=color.new(side == 1 ? #22c55e : #ef4444, 10), textcolor=color.white, size=size.small)
+    if sendAlerts
+        alert(qbMsg(side == 1 ? "buy" : "sell", e, sl, tp, q), alert.freq_once_per_bar_close)
+if m == 955 and sendAlerts and tookToday
+    alert('{"qb":1,"event":"close_all","symbol":"' + syminfo.ticker + '","reason":"15:55 flat","strategy":"' + botName + '","source":"tradingview"}', alert.freq_once_per_bar_close)
+
+plot(vw, "Session VWAP", color=color.new(#60a5fa, 30), style=plot.style_linebr)
+plot(useFade ? vwUp : na, "VWAP upper", color=color.new(#60a5fa, 75), style=plot.style_linebr)
+plot(useFade ? vwDn : na, "VWAP lower", color=color.new(#60a5fa, 75), style=plot.style_linebr)
+plot(ema200, "EMA 200 (trend)", color=color.new(color.orange, 40))
+bgcolor(m >= 570 and m < 930 ? color.new(#60a5fa, 95) : na, title="Signal hours")
