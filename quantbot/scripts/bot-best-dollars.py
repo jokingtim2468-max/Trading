@@ -60,3 +60,22 @@ for acct, (mll, dll) in ACCTS.items():
         print(f"{acct} {best} micro(s) per unit | {label}: avg week ${w.mean():,.0f}, median week ${w.median():,.0f}, winning weeks {100 * (w > 0).mean():.0f}%, "
               f"weeks >= $1k {int((w >= 1000).sum())}/{len(w)}, best day ${x.max():,.0f}, worst day ${x.min():,.0f}, "
               f"max drawdown ${float((e.cummax() - e).max()):,.0f}, blown {blown}, total ${x.sum():,.0f}")
+
+# Monte Carlo: 2,000 random years built from the 2019-2025 trading days (5-day weeks kept together), 150K at the size
+# above: how often the account is blown within a year, and the spread of yearly results
+rng = np.random.default_rng(7)
+pre = R[R.index.year <= 2025].clip(lower=-2700.0)
+weeks = [w.values for _, w in pre.groupby(pre.index.to_period('W'))]
+res = []; blown = 0
+for _ in range(2000):
+    eq, floor, b = 0.0, -4500.0, False
+    for wi in rng.integers(0, len(weeks), 52):
+        for p in weeks[wi]:
+            eq += p
+            if eq <= floor: b = True; break
+            if eq > 0: floor = max(floor, min(0.0, eq - 4500.0))
+        if b: break
+    blown += b; res.append(eq if not b else -4500.0)
+res = np.array(res)
+print(f"MONTE CARLO 150K, 1 micro per unit, 2,000 random years: blown within a year {100 * blown / 2000:.1f}%, "
+      f"median year ${np.median(res):,.0f}, bad year (10%) ${np.percentile(res, 10):,.0f}, good year (90%) ${np.percentile(res, 90):,.0f}")
