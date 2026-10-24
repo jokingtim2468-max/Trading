@@ -1,0 +1,49 @@
+{
+ "account": "150K",
+ "chosen": {
+  "P": {
+   "body": 0.5,
+   "gap": "with",
+   "on": "break",
+   "stop": 1.0,
+   "be": false,
+   "adds": 2,
+   "trail": 4.0,
+   "raise": true
+  },
+  "micros": 4,
+  "train": {
+   "per_week": 9,
+   "median_week": 0,
+   "win_weeks": 7,
+   "best_day": 1297,
+   "worst_day": -74,
+   "max_dd": 1483,
+   "blown": 0,
+   "total": 2700,
+   "trades": 183
+  },
+  "val": {
+   "per_week": 71,
+   "median_week": 0,
+   "win_weeks": 10,
+   "best_day": 4193,
+   "worst_day": -405,
+   "max_dd": 2133,
+   "blown": 0,
+   "total": 14880,
+   "trades": 170
+  }
+ },
+ "holdout": {
+  "per_week": 79,
+  "median_week": -38,
+  "win_weeks": 8,
+  "best_day": 6156,
+  "worst_day": -519,
+  "max_dd": 6130,
+  "blown": 1,
+  "total": 19739,
+  "trades": 210
+ }
+}
