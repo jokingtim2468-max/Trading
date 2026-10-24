@@ -5,6 +5,11 @@
 //      breaks the overnight high/low -> trade that way. SL 1 ATR, TP 2R.
 //   2. VWAP fade with the trend: after 10:00, price pulls back 2.5 deviations below the session VWAP while above the
 //      200 EMA (buy), or 2.5 above it while below the 200 EMA (sell). SL 2 ATR, TP 2R.
+//   3. Opening-range breakout (off by default): the first 5 minutes after the open, broken in the 200-EMA direction,
+//      stop = the range. The yearly loop picked this on gold for 2026 (4 past years positive; 2026 so far ~breakeven).
+// WALK-FORWARD 2017-2026 (scripts/signal-bot-loop.py, each year chosen only on the 4 years before it):
+//   1,367 trades, 20% winners (small losses, a few big winners), +0.169R per trade, +231R = +$23,108 at $100 risk.
+//   Most of it came in 2019 and 2021 (NQ opening drive). 2022-2025 were small losses (-$205 to -$2,376 a year).
 // One signal a day (the first one), nothing after 15:30, everything should be flat by 15:55 (Lucid: 16:45).
 // HONEST RESULTS so far (unseen years, costs included): both setups are small edges, about breakeven to slightly
 // positive per trade; most weeks are flat or small losses and a few big days pay. Size small. The test -> improve loop
@@ -24,6 +29,9 @@ float driveStop = input.float(1.0, "Opening drive: stop (x ATR)", minval=0.25, s
 bool useFade    = input.bool(true, "VWAP fade with the trend", group=gS)
 float fadeZ     = input.float(2.5, "VWAP fade: deviations from VWAP", minval=1, step=0.25, group=gS)
 float fadeStop  = input.float(2.0, "VWAP fade: stop (x ATR)", minval=0.25, step=0.25, group=gS)
+bool useOrb     = input.bool(false, "Opening-range breakout (gold: the loop's 2026 pick)", group=gS)
+int  orbStart   = input.int(500, "ORB start (NY minutes after midnight; gold 500 = 08:20, NQ 570 = 09:30)", group=gS)
+int  orbMins    = input.int(5, "ORB length (minutes)", minval=5, step=5, group=gS)
 bool onePerDay  = input.bool(true, "One signal a day", group=gS)
 string gW = "QuantBot webhook"
 bool sendAlerts = input.bool(true, "Send signals to QuantBot", group=gW)
@@ -50,6 +58,14 @@ if m == 955
 if rthStart
     prevClose := lastClose
 
+// opening range (gold: COMEX open 08:20) -> breakout in the 200-EMA direction, stop = the range (at least 0.5 ATR)
+var float orH = na
+var float orL = na
+if m == orbStart
+    orH := high, orL := low
+else if m > orbStart and m < orbStart + orbMins
+    orH := math.max(orH, high), orL := math.min(orL, low)
+
 // session VWAP from 09:30 with deviation bands
 [vw, vwUp, vwDn] = ta.vwap(hlc3, rthStart, fadeZ)
 
@@ -73,6 +89,11 @@ if side == 0 and useFade and m >= 600 and m < 930 and barstate.isconfirmed and n
         side := 1, stopDist := fadeStop * atr, why := "VWAP fade (trend up)"
     else if close > vwUp and close < ema200
         side := -1, stopDist := fadeStop * atr, why := "VWAP fade (trend down)"
+if side == 0 and useOrb and m >= orbStart + orbMins and m < orbStart + 180 and barstate.isconfirmed and not na(orH)
+    if close > orH and close[1] <= orH and close > ema200
+        side := 1, stopDist := math.max(orH - orL, 0.5 * atr), why := "Opening-range breakout"
+    else if close < orL and close[1] >= orL and close < ema200
+        side := -1, stopDist := math.max(orH - orL, 0.5 * atr), why := "Opening-range breakout"
 if m >= 930 or (onePerDay and tookToday)
     side := 0
 

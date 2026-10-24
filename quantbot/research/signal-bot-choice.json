@@ -1,0 +1,85 @@
+{
+ "chosen_on": "2022-2025",
+ "name": "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None} trend=True",
+ "market": "XAUUSD",
+ "strategy": "orb",
+ "params": {
+  "n": 5,
+  "frac": 1.0,
+  "R": null
+ },
+ "trend": true,
+ "worst_year_R": 0.178,
+ "log": [
+  {
+   "year": 2017,
+   "choice": null,
+   "trades": 0,
+   "avgR": 0.0,
+   "totalR": 0.0
+  },
+  {
+   "year": 2018,
+   "choice": null,
+   "trades": 0,
+   "avgR": 0.0,
+   "totalR": 0.0
+  },
+  {
+   "year": 2019,
+   "choice": "NQ opening_drive {'k': 1.0, 'R': None} trend=True",
+   "trades": 159,
+   "avgR": 0.774,
+   "totalR": 123.1
+  },
+  {
+   "year": 2020,
+   "choice": "NQ opening_drive {'k': 1.0, 'R': None} trend=True",
+   "trades": 158,
+   "avgR": 0.084,
+   "totalR": 13.3
+  },
+  {
+   "year": 2021,
+   "choice": "NQ opening_drive {'k': 1.0, 'R': None} trend=True",
+   "trades": 164,
+   "avgR": 0.819,
+   "totalR": 134.4
+  },
+  {
+   "year": 2022,
+   "choice": "NQ supertrend {'k': 1.5, 'R': None} trend=True",
+   "trades": 192,
+   "avgR": -0.043,
+   "totalR": -8.2
+  },
+  {
+   "year": 2023,
+   "choice": "NQ inside_bar {'k': 1.0, 'R': None} trend=True",
+   "trades": 234,
+   "avgR": -0.009,
+   "totalR": -2.1
+  },
+  {
+   "year": 2024,
+   "choice": "NQ bb_squeeze {'k': 1.0, 'R': None} trend=True",
+   "trades": 47,
+   "avgR": -0.506,
+   "totalR": -23.8
+  },
+  {
+   "year": 2025,
+   "choice": "NQ overnight_break {'k': 2.0, 'R': None} trend=False",
+   "trades": 223,
+   "avgR": -0.029,
+   "totalR": -6.5
+  },
+  {
+   "year": 2026,
+   "choice": "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None} trend=True",
+   "trades": 190,
+   "avgR": 0.005,
+   "totalR": 0.9
+  }
+ ]
+}
