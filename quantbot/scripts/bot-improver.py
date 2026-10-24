@@ -71,8 +71,8 @@ else: cands = build(); pickle.dump(cands, open(CACHE, 'wb'))
 print(len(cands), 'candidate setups cached', flush=True)
 
 SPACE = dict(trend=['any', 'with', 'against'], gap=['any', 'with', 'against'], vol=['any', 'high', 'low'],
-             h0=[0, 3, 8, 9, 10], h1=[11, 12, 14, 16, 24], days=['all', 'no_mon', 'no_fri', 'mid_week'],
-             look=[2, 3, 4, 5], rank=['worst_year', 'mean', 'mean_minus_sd'], topk=[1, 2, 3], min_trades=[30, 60, 100])
+             h0=[0, 2, 3, 7, 8, 9, 10, 11], h1=[10, 11, 12, 13, 14, 15, 16, 24], days=['all', 'no_mon', 'no_fri', 'mid_week'],
+             look=[2, 3, 4, 5, 6], rank=['worst_year', 'mean', 'mean_minus_sd'], topk=[1, 2, 3, 4, 5], min_trades=[30, 60, 100, 150])
 
 def filt(df, B):
     k = np.ones(len(df), bool)
@@ -130,7 +130,7 @@ while ITERS == 0 or it < ITERS:
     rec = dict(t=time.strftime('%Y-%m-%d %H:%M:%S'), bot=B, score=round(sc, 2), totalR=round(sum(per.values()), 1),
                losing_years=int(sum(v < 0 for v in per.values())), per_year={str(k): round(v, 1) for k, v in per.items()})
     with open(LOG, 'a') as f: f.write(json.dumps(rec) + '\n')
-    if best is None or sc > best['score']:
+    if best is None or sc > best['score'] + 0.01:
         exam, exam_picks = walk(B, [2026])
         best = dict(rec, picks={str(k): v for k, v in picks.items()}, exam_2026_R=round(exam[2026], 1), exam_2026_picks=exam_picks[2026],
                     note='score = walk-forward total R 2019-2025 with losing years counted 3x; 2026 is never used to choose')
