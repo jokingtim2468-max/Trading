@@ -1,0 +1,67 @@
+{
+ "t": "2026-10-24 01:30:02",
+ "bot": {
+  "trend": "with",
+  "gap": "any",
+  "vol": "any",
+  "h0": 3,
+  "h1": 24,
+  "days": "all",
+  "look": 4,
+  "rank": "mean_minus_sd",
+  "topk": 3,
+  "min_trades": 60
+ },
+ "score": 248.58,
+ "totalR": 301.5,
+ "losing_years": 2,
+ "per_year": {
+  "2019": 123.1,
+  "2020": -2.8,
+  "2021": 134.4,
+  "2022": 45.5,
+  "2023": 9.5,
+  "2024": 15.6,
+  "2025": -23.6
+ },
+ "picks": {
+  "2019": [
+   "NQ opening_drive {'k': 1.0, 'R': None}"
+  ],
+  "2020": [
+   "NQ opening_drive {'k': 1.0, 'R': None}",
+   "NQ donchian {'k': 2.0, 'R': None}",
+   "NQ donchian {'k': 1.0, 'R': None}"
+  ],
+  "2021": [
+   "NQ opening_drive {'k': 1.0, 'R': None}"
+  ],
+  "2022": [
+   "NQ inside_bar {'k': 1.0, 'R': None}",
+   "NQ overnight_break {'k': 1.0, 'R': None}",
+   "NQ supertrend {'k': 1.5, 'R': None}"
+  ],
+  "2023": [
+   "NQ opening_drive {'k': 1.0, 'R': None}",
+   "NQ macd_cross {'k': 1.0, 'R': None}",
+   "NQ overnight_break {'k': 1.0, 'R': None}"
+  ],
+  "2024": [
+   "NQ bb_squeeze {'k': 1.0, 'R': None}",
+   "NQ overnight_break {'k': 2.0, 'R': None}",
+   "NQ orb {'n': 15, 'frac': 1.0, 'R': 3.0}"
+  ],
+  "2025": [
+   "NQ donchian {'k': 1.0, 'R': None}",
+   "NQ buy_open {'k': 2.0, 'R': None}",
+   "NQ overnight_break {'k': 2.0, 'R': None}"
+  ]
+ },
+ "exam_2026_R": 7.1,
+ "exam_2026_picks": [
+  "XAUUSD orb {'n': 5, 'frac': 1.0, 'R': None}",
+  "NQ pdhl_fade {'k': 2.0, 'R': None}",
+  "NQ pdhl_fade {'k': 2.0, 'R': 3.0}"
+ ],
+ "note": "score = walk-forward total R 2019-2025 with losing years counted 3x; 2026 is never used to choose"
+}
