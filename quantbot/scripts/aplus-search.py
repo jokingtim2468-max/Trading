@@ -80,7 +80,7 @@ def grade(r, risk):
 
 if ok:
     top = ok[0]
-    safe = min(0.75 * MLL / max(top['full']['ddR'], 1.0), 100 * min(rr for _, _, rr in top['rows']) if top['rows'] else 1e9)
+    safe = min(0.75 * MLL / max(top['full']['ddR'], 1.0), 100 * float(np.median([rr for _, _, rr in top['rows']])))
     per_trade_week = top['full']['n'] / max(1, (2025 - min(d.year for d, _, _ in top['rows']) + 1) * 52)
     need = 1000 / max(1e-9, top['full']['avgR'] * per_trade_week)
     print(f"\nCHOSEN: {top['mkt']} {top['s']} {top['p']} trend={top['trend']}")
