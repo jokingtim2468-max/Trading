@@ -1,4 +1,4 @@
-# usage: python3 scripts/opening-drive-lab.py <NQ M5 MT5 export> [account=150K]
+# usage: python3 scripts/opening-drive-lab.py <M5 MT5 export> [account=150K] [NQ|XAUUSD]
 # Improves the NQ opening drive (the one public strategy that survived scripts/strategy-lab.py) for LucidFlex accounts.
 # Variants: filters on the first 5-minute bar and the gap, stop size, break-even, adding to winners (pyramiding, stops
 # raised as it adds), trailing exit. Everything is flat by 16:40 ET.
@@ -9,9 +9,11 @@ import sys, itertools, json
 import numpy as np, pandas as pd
 
 F = sys.argv[1]; ACCT = sys.argv[2] if len(sys.argv) > 2 else '150K'
+MKT = sys.argv[3] if len(sys.argv) > 3 else 'NQ'   # NQ: 09:30 open, MNQ $2/pt; XAUUSD: COMEX 08:20 open, MGC $10/$1
 A = {'25K': (1000, 600, 20), '50K': (2000, 1200, 40), '100K': (3000, 1800, 60), '150K': (4500, 2700, 100)}
 MLL, DLL, CAP = A[ACCT]
-PV, SLIP, COMM = 2.0, 0.5, 1.5
+PV, SLIP, COMM = (10.0, 0.20, 1.5) if MKT == 'XAUUSD' else (2.0, 0.5, 1.5)
+OPEN = 500 if MKT == 'XAUUSD' else 570
 
 df = pd.read_csv(F, sep='\t')
 t = pd.to_datetime(df['<DATE>'] + ' ' + df['<TIME>'], format='%Y.%m.%d %H:%M:%S') - pd.Timedelta(hours=7)
@@ -21,13 +23,13 @@ pc = b.c.shift(1)
 b['atr'] = np.maximum(b.h - b.l, np.maximum((b.h - pc).abs(), (b.l - pc).abs())).rolling(14).mean()
 mins = b.index.hour * 60 + b.index.minute
 b['day'] = b.index.normalize()
-rth = b[(mins >= 570) & (mins <= 16 * 60 + 40)]
-eth = b[mins < 570]
+rth = b[(mins >= OPEN) & (mins <= 16 * 60 + 40)]
+eth = b[mins < OPEN]
 close16 = b[mins == 16 * 60 - 5].groupby('day').c.last()          # 15:55 bar close ~ the RTH close
 on = eth.groupby('day').agg(onh=('h', 'max'), onl=('l', 'min'))
 days = []
 for d, g in rth.groupby('day'):
-    if len(g) < 60 or g.index[0].hour * 60 + g.index[0].minute != 570: continue
+    if len(g) < 60 or g.index[0].hour * 60 + g.index[0].minute != OPEN: continue
     days.append((d, g.o.values, g.h.values, g.l.values, g.c.values, g.atr.values[0]))
 prev_close = {d: close16.get(d) for d in close16.index}
 ds = [x[0] for x in days]
