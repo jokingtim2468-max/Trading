@@ -1,41 +1,60 @@
 {
- "t": "2026-10-24 01:46:11",
+ "t": "2026-10-24 01:49:55",
  "bot": {
   "trend": "with",
-  "gap": "with",
-  "vol": "low",
-  "h0": 2,
-  "h1": 24,
-  "days": "mid_week",
-  "look": 6,
-  "rank": "worst_year",
-  "topk": 2,
+  "gap": "any",
+  "vol": "high",
+  "h0": 9,
+  "h1": 15,
+  "days": "all",
+  "look": 5,
+  "rank": "mean",
+  "topk": 3,
   "min_trades": 100
  },
- "score": -1.38,
- "totalR": -1.8,
+ "score": 25.68,
+ "totalR": 194.4,
  "losing_years": 1,
  "per_year": {
   "2019": 0.0,
-  "2020": -1.8,
-  "2021": 0.0,
-  "2022": 0.0,
-  "2023": 0.0,
-  "2024": 0.0,
-  "2025": 0.0
+  "2020": 0.0,
+  "2021": 4.0,
+  "2022": 102.2,
+  "2023": 41.6,
+  "2024": 52.3,
+  "2025": -5.6
  },
  "picks": {
   "2019": [],
-  "2020": [
-   "NQ donchian {'k': 2.0, 'R': 3.0}"
+  "2020": [],
+  "2021": [
+   "NQ donchian {'k': 2.0, 'R': None}"
   ],
-  "2021": [],
-  "2022": [],
-  "2023": [],
-  "2024": [],
-  "2025": []
+  "2022": [
+   "NQ donchian {'k': 1.0, 'R': None}",
+   "NQ donchian {'k': 2.0, 'R': None}"
+  ],
+  "2023": [
+   "NQ donchian {'k': 1.0, 'R': None}",
+   "NQ donchian {'k': 2.0, 'R': None}",
+   "NQ overnight_break {'k': 2.0, 'R': None}"
+  ],
+  "2024": [
+   "NQ donchian {'k': 1.0, 'R': None}",
+   "NQ donchian {'k': 2.0, 'R': None}",
+   "NQ overnight_break {'k': 2.0, 'R': None}"
+  ],
+  "2025": [
+   "NQ donchian {'k': 1.0, 'R': None}",
+   "NQ donchian {'k': 2.0, 'R': None}",
+   "NQ vwap_revert {'z': 2.5, 'k': 2.0, 'R': None}"
+  ]
  },
- "exam_2026_R": 0.0,
- "exam_2026_picks": [],
+ "exam_2026_R": 36.2,
+ "exam_2026_picks": [
+  "NQ opening_drive {'k': 1.0, 'R': None}",
+  "NQ orb {'n': 5, 'frac': 0.5, 'R': None}",
+  "NQ donchian {'k': 2.0, 'R': None}"
+ ],
  "note": "score = the worse of 2019-2022 and 2023-2025 walk-forward R per year (losing years 3x); 2026 is never used to choose"
 }
