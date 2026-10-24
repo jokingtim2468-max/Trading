@@ -6,7 +6,10 @@
 //   - the displacement leaves a fair value gap; limit entry at its middle, stop beyond the sweep extreme, target 2R
 //   - unfilled orders cancelled at 11:30; everything flat at 15:55
 //   - size: fixed $ risk / (stop x point value), never a % of the balance; day stops at +$250 or -$300 / 2 losses
-// REPLAY RESULT (QuantBot data, costs included, fixed $150 risk):
+// REPLAY WITH ALL FOUR FILTERS (HTF 1h+4h EMA200, ADX>20 + ATR above median, London + NY AM killzones, BE at 1R),
+// scripts/ict-sb-lucid-v2.py: NQ 2012-2026 250 trade days, 34% winning days, -$1,210, avg week -$2; 2022-2026 -$1,628.
+//   XAUUSD 2004-2026 268 trade days, 30% winning days, -$6,004 (one 150K blown); 2022-2026 -$2,143.
+// REPLAY WITHOUT THE FILTERS (Silver Bullet hour only, costs included, fixed $150 risk):
 //   NQ 2012-2026: 118 trade days in 14 years, 33% winning days, -$2,535 total, avg week -$3, worst drawdown $3,426
 //   NQ 2022-2026: 42 trade days, +$730 total, avg week +$1.   XAUUSD 2004-2026: 67 trade days, -$107 total.
 //   The full setup is rare (about 8 days a year on NQ) and has no edge after costs. Run TradingView's Strategy Tester
@@ -24,6 +27,11 @@ int   maxQty    = input.int(100, "Max contracts (Lucid 150K: 100 micros / 10 min
 string gE = "Entry"
 float dispAtr   = input.float(1.0, "Displacement: bar range > x ATR14", minval=0.5, step=0.1, group=gE)
 bool  useVol    = input.bool(true, "Volume confluence (bar volume > 20-bar average)", group=gE)
+string gF = "Filters"
+bool  useHtf    = input.bool(true, "Only with the 1h AND 4h trend (close vs EMA200)", group=gF)
+bool  useAdx    = input.bool(true, "ADX(14) > 20 and ATR14 above its 100-bar median", group=gF)
+bool  useKz     = input.bool(true, "Killzones: London 02:00-05:00 + NY AM 09:30-11:30 (off = 10:00-11:00 only)", group=gF)
+bool  useBe     = input.bool(true, "Stop to breakeven + 1 tick at +1R", group=gF)
 string tz       = "America/New_York"
 
 // ── New York clock ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +39,10 @@ int m = hour(time, tz) * 60 + minute(time, tz)
 bool newDay = ta.change(time("D", "", tz)) != 0
 bool pre = m < 570
 bool orr = m >= 570 and m < 600
-bool win = m >= 600 and m < 660
+bool kzLondon = m >= 120 and m < 300
+bool kzNy = m >= 570 and m < 690
+bool win = useKz ? (kzLondon or kzNy) : (m >= 600 and m < 660)
+bool winStart = win and not win[1]
 
 var float onH = na
 var float onL = na
@@ -60,8 +71,14 @@ float dayPnl = strategy.netprofit - dayStartProfit + strategy.openprofit
 bool dayDone = dayPnl >= dayCap or dayPnl <= -dayStop or dayLosses >= maxLosses
 
 // ── Liquidity sweep → MSS with displacement → FVG ──────────────────────────────────────────────
-float liqH = math.min(nz(onH, high), nz(orH, high))
-float liqL = math.max(nz(onL, low), nz(orL, low))
+float h6 = ta.highest(high, 72)[1]
+float l6 = ta.lowest(low, 72)[1]
+var float zH = na
+var float zL = na
+if winStart
+    zH := h6, zL := l6, swept := 0, sweepExt := na
+float liqH = useKz ? zH : math.min(nz(onH, high), nz(orH, high))
+float liqL = useKz ? zL : math.max(nz(onL, low), nz(orL, low))
 if win and high > liqH
     sweepExt := swept == -1 ? math.max(sweepExt, high) : high
     swept := -1
@@ -71,12 +88,16 @@ if win and low < liqL
 float ph = ta.valuewhen(not na(ta.pivothigh(high, 1, 1)), high[1], 0)
 float pl = ta.valuewhen(not na(ta.pivotlow(low, 1, 1)), low[1], 0)
 float atr = ta.atr(14)
+[diP, diM, adx] = ta.dmi(14, 14)
+bool volatOk = not useAdx or (adx > 20 and atr > ta.median(atr, 100))
+int h1T = request.security(syminfo.tickerid, "60", close[1] > ta.ema(close, 200)[1] ? 1 : -1, lookahead=barmerge.lookahead_on)
+int h4T = request.security(syminfo.tickerid, "240", close[1] > ta.ema(close, 200)[1] ? 1 : -1, lookahead=barmerge.lookahead_on)
 bool volOk = not useVol or na(volume) or volume > ta.sma(volume, 20)
 bool disp = (high - low) > dispAtr * atr and volOk
 bool bullFvg = low > high[2]
 bool bearFvg = high < low[2]
-bool longSetup  = win and swept == 1 and disp and close > open and close > ph and bullFvg
-bool shortSetup = win and swept == -1 and disp and close < open and close < pl and bearFvg
+bool longSetup  = win and swept == 1 and volatOk and (not useHtf or (h1T == 1 and h4T == 1)) and disp and close > open and close > ph and bullFvg
+bool shortSetup = win and swept == -1 and volatOk and (not useHtf or (h1T == -1 and h4T == -1)) and disp and close < open and close < pl and bearFvg
 
 // ── Orders: fixed $ risk sizing ────────────────────────────────────────────────────────────────
 qtyFor(float stopDist) =>
@@ -105,8 +126,16 @@ if strategy.position_size == 0 and not dayDone and barstate.isconfirmed
             box.new(bar_index - 2, low[2], bar_index + 6, high, border_color=color.new(#ef4444, 30), bgcolor=color.new(#ef4444, 85))
             label.new(bar_index, sl, "SB short " + str.tostring(q) + " · risk $" + str.tostring(q * (sl - ent) * syminfo.pointvalue, "#"), style=label.style_label_down, color=color.new(#ef4444, 20), textcolor=color.white, size=size.small)
 
-if m >= 690 and strategy.position_size == 0
+if not win and not win[6] and strategy.position_size == 0
     strategy.cancel_all()
+// breakeven: once +1R, the stop moves to entry + 1 tick
+var float tradeR = na
+if strategy.position_size != 0 and strategy.position_size[1] == 0
+    tradeR := math.abs(strategy.position_avg_price - (strategy.position_size > 0 ? sweepExt - syminfo.mintick : sweepExt + syminfo.mintick))
+if useBe and strategy.position_size > 0 and high - strategy.position_avg_price >= tradeR
+    strategy.exit("SB long exit", "SB long", stop=strategy.position_avg_price + syminfo.mintick, limit=strategy.position_avg_price + rr * tradeR)
+if useBe and strategy.position_size < 0 and strategy.position_avg_price - low >= tradeR
+    strategy.exit("SB short exit", "SB short", stop=strategy.position_avg_price - syminfo.mintick, limit=strategy.position_avg_price - rr * tradeR)
 if m >= 955 or dayDone
     strategy.cancel_all()
     strategy.close_all(comment="day end / day limit")
