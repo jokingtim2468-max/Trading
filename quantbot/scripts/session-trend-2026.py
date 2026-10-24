@@ -1,15 +1,18 @@
-# usage: python3 scripts/session-trend-2026.py <XAUUSD M5 export> <NQ M5 export>
+# usage: python3 scripts/session-trend-2026.py <XAUUSD M5 export> <NQ M5 export> [25K|50K|100K|150K]
 # Lucid requires every position closed by 4:45 PM ET, but a position opened at the 6:00 PM ET reopen and closed by
 # 4:40 PM ET the next day follows that rule. So a daily trend signal can be traded per session: re-enter in the trend's
 # direction at 18:00, flat by 16:40. Tested on gold (MGC) and NQ (MNQ):
 #   signals on the session close: EMA fast/slow, close vs EMA(n), Donchian-n breakout state; long-only or both sides
 #   protective stop k x daily ATR from the session open (checked on the session high/low, stop first), exit 16:40
 #   size: micros = budget / (daily ATR x $ per point); budget chosen on 2012-2025 so drawdown <= 75% of $4,500
+#   daily loss limit checked against the session's worst open loss (the day ends at -DLL when it is reached)
 #   costs: slippage (gold $0.20, NQ 0.5 pt) each side + $1.50 per micro, every session
 # CHOOSE on 2012-2025, GRADE 2026 once.
 import sys, itertools, numpy as np, pandas as pd
 MK = {'XAUUSD': dict(f=sys.argv[1], pv=10.0, slip=0.20), 'NQ': dict(f=sys.argv[2], pv=2.0, slip=0.50)}
-MLL, DLL = 4500.0, 2700.0
+ACCTS = {'25K': (1000.0, 600.0, 20), '50K': (2000.0, 1200.0, 40), '100K': (3000.0, 1800.0, 60), '150K': (4500.0, 2700.0, 100)}
+ACCT = sys.argv[3] if len(sys.argv) > 3 else '150K'
+MLL, DLL, CAP = ACCTS[ACCT]
 
 def sessions(f):
     df = pd.read_csv(f, sep='\t')
@@ -40,15 +43,17 @@ def signal(S, kind, n, both):
 
 def per_micro(S, m, sig, k):
     o, h, l, c, a = S.o.values, S.h.values, S.l.values, S.c.values, S.atr.values
-    out = np.zeros(len(S))
+    out = np.zeros(len(S)); mae = np.zeros(len(S))
     for i in range(len(S)):
         s = sig[i]
         if s == 0: continue
+        worst = (l[i] if s > 0 else h[i])
         e = o[i] + s * m['slip']; stop = e - s * k * a[i]
         hit = (l[i] <= stop) if s > 0 else (h[i] >= stop)
         ex = stop if hit else c[i]
         out[i] = ((ex - e) * s - m['slip']) * m['pv'] - 1.5
-    return out
+        mae[i] = (max((worst - e) * s, (stop - e) * s) if not hit else (stop - e) * s) * m['pv'] - 1.5   # worst open loss per micro
+    return out, mae
 
 def account(x):
     x = x.clip(lower=-DLL); eq, floor, blown = 0.0, -MLL, 0
@@ -66,13 +71,14 @@ for mkt, m in MK.items():
     S = sessions(m['f'])
     unit = (S.atr * m['pv']).values             # $ move of 1 micro on a normal session
     for kind, n, both, k in itertools.product(['ema', 'above', 'donch'], [20, 50, 100, 200], [False, True], [1.0, 2.0, 3.0]):
-        pm = per_micro(S, m, signal(S, kind, n, both), k)
+        pm, mae = per_micro(S, m, signal(S, kind, n, both), k)
         tr = (S.index.year >= 2012) & (S.index.year <= 2025)
         # size by volatility: micros = budget / unit, budget the largest that keeps 2012-2025 drawdown under 75% of MLL
         best = None
-        for budget in (50, 100, 150, 200, 300, 400, 600, 800, 1000, 1500):
-            q = np.clip(np.floor(budget / unit), 1, 100)
-            x = pd.Series(pm * q, index=S.index)
+        for budget in (25, 50, 100, 150, 200, 300, 400, 600, 800, 1000, 1500):
+            q = np.clip(np.floor(budget / unit), 1, CAP)
+            # the daily loss limit is hit intraday when the worst open loss reaches it: the day ends there at -DLL
+            x = pd.Series(np.where(mae * q <= -DLL, -DLL, pm * q), index=S.index)
             xt = x[tr].clip(lower=-DLL); e = xt.cumsum()
             if best is not None and float((e.cummax() - e).max()) > 0.75 * MLL: break
             best = (budget, x)   # the smallest budget is always kept (1 micro minimum), even if it overshoots
