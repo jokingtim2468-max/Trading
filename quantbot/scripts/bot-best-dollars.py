@@ -26,19 +26,26 @@ def daily_R(years):
         scored.sort(key=lambda z: -z[0])
         top = scored[:B['topk']]
         for _, df in top:
-            for d, r in df[df.y == Y][['day', 'r']].values: rows.append((pd.Timestamp(d), r / max(1, len(top))))
+            cur = df[df.y == Y]
+            usd = cur.r.values * (cur.risk1.values if 'risk1' in cur else np.nan)   # $ per trade on 1 micro per setup
+            for d, u in zip(cur.day.values, usd): rows.append((pd.Timestamp(d), u))
     s = pd.Series([r for _, r in rows], index=[d for d, _ in rows])
     return s.groupby(level=0).sum().sort_index()
 
-R = daily_R(range(2019, 2027))
+R = daily_R(range(2019, 2027))   # $ per day with 1 micro on each chosen setup (whole contracts only)
+if R.isna().any(): sys.exit('a chosen setup has no $ per micro (rebuild the caches)')
+CAPS = {'25K': 20, '50K': 40, '100K': 60, '150K': 100}
 for acct, (mll, dll) in ACCTS.items():
     pre = R[R.index.year <= 2025]
     best = None
-    for risk in range(25, 2001, 25):
-        x = (pre * risk).clip(lower=-dll); e = x.cumsum()
+    for n in range(1, CAPS[acct] // 4 + 1):      # micros per unit (up to 4 units with adds must fit the cap)
+        x = (pre * n).clip(lower=-dll); e = x.cumsum()
         if float((e.cummax() - e).max()) > 0.75 * mll: break
-        best = risk
-    if best is None: print(acct, 'even $25 per R is too big'); continue
+        best = n
+    if best is None:
+        x = (pre * 1).clip(lower=-dll); e = x.cumsum()
+        print(f"{acct}: even 1 micro is too big (2019-2025 drawdown ${float((e.cummax() - e).max()):,.0f} vs ${mll:,} max loss); shown at 1 micro anyway")
+        best = 1
     for label, part in (('2019-2025', pre), ('2026 exam', R[R.index.year == 2026])):
         x = (part * best).clip(lower=-dll)
         eq, floor, blown = 0.0, -mll, 0
@@ -49,6 +56,6 @@ for acct, (mll, dll) in ACCTS.items():
         lo, hi = (2019, 2025) if label != '2026 exam' else (2026, 2026)
         allw = pd.period_range(f'{lo}-01-01', f'{hi}-10-16' if hi == 2026 else f'{hi}-12-31', freq='W')
         w = x.groupby(x.index.to_period('W')).sum().reindex(allw, fill_value=0.0); e = x.cumsum()
-        print(f"{acct} ${best}/R | {label}: avg week ${w.mean():,.0f}, median week ${w.median():,.0f}, winning weeks {100 * (w > 0).mean():.0f}%, "
+        print(f"{acct} {best} micro(s) per unit | {label}: avg week ${w.mean():,.0f}, median week ${w.median():,.0f}, winning weeks {100 * (w > 0).mean():.0f}%, "
               f"weeks >= $1k {int((w >= 1000).sum())}/{len(w)}, best day ${x.max():,.0f}, worst day ${x.min():,.0f}, "
               f"max drawdown ${float((e.cummax() - e).max()):,.0f}, blown {blown}, total ${x.sum():,.0f}")

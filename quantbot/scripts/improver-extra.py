@@ -33,9 +33,9 @@ for body, gap, on, stop, adds, trail in itertools.product([0.0, 0.5], ['any', 'w
         if not (R0 > 0) or d not in feat.index: continue
         f = feat.loc[d]
         rr = (pts - g['COMM'] * units / m['pv']) / R0
-        rows.append((pd.Timestamp(d), d.year, 9, d.weekday(), f.vol, f.side == f.tdir, f.side == f.gap, rr))
+        rows.append((pd.Timestamp(d), d.year, 9, d.weekday(), f.vol, f.side == f.tdir, f.side == f.gap, rr, R0 * m['pv']))
     if len(rows) < 100: continue
-    df = pd.DataFrame(rows, columns=['day', 'y', 'hour', 'wd', 'vol', 'withtrend', 'withgap', 'r'])
+    df = pd.DataFrame(rows, columns=['day', 'y', 'hour', 'wd', 'vol', 'withtrend', 'withgap', 'r', 'risk1'])   # risk1 = $ of 1R on 1 micro
     out.append(dict(name=f'NQ opening_drive_plus {P}', mkt='NQ', s='opening_drive_plus', p=P, t=df))
 print(len(out), 'extra setups')
 # written by this script itself, read only by scripts/bot-improver.py (safe to unpickle)
