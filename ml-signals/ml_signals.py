@@ -1,13 +1,18 @@
 # Standalone ML signal builder (not part of QuantBot). Needs: python3, pandas, numpy, scikit-learn.
 # usage: python3 ml_signals.py <NQ M5 MT5 export .csv> [out.pine]
-# 1. Candidates: NQ opening drive (09:30 ET 5-minute bar), long or short with the bar.
-# 2. Features known at the signal bar (all computable in Pine). Label: +2R target before a 1 ATR stop by 15:55 ET.
+# 1. Candidates: opening drive (NQ 09:30 / gold 08:20 ET 5-minute bar; gold if the file name has XAU or GOLD), long or short with the bar.
+# 2. Features known at the signal bar (all computable in Pine). Label: the trade made money with the improver's exits (2 ATR stop, 3 adds, 4 ATR trail, out 15:55 ET).
 # 3. Walk-forward logistic regression: each year 2019-2025 predicted by a model trained on earlier years only.
 # 4. 2026 graded once. 5. Final model (trained to 2025) written into a Pine v6 indicator.
 import sys, numpy as np, pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 F = sys.argv[1]; OUT = sys.argv[2] if len(sys.argv) > 2 else 'qb-ml-signals.pine'
+GOLD = 'XAU' in F.upper() or 'GOLD' in F.upper()
+# market settings: gold opens 08:20 ET (COMEX), costs $0.20 slippage + $0.15 commission (MGC $1.50 / $10 per $1);
+# NQ opens 09:30 ET, 0.5 pt slippage + 0.75 pt commission (MNQ $1.50 / $2 per pt)
+OPEN, COST, SLIP = (500, 0.35, 0.20) if GOLD else (570, 1.25, 0.5)
+print('market:', 'gold (XAUUSD)' if GOLD else 'NQ')
 df = pd.read_csv(F, sep='\t')
 t = pd.to_datetime(df['<DATE>'] + ' ' + df['<TIME>'], format='%Y.%m.%d %H:%M:%S') - pd.Timedelta(hours=7)  # broker -> ET
 b = pd.DataFrame({'o': df['<OPEN>'].values, 'h': df['<HIGH>'].values, 'l': df['<LOW>'].values, 'c': df['<CLOSE>'].values}, index=t)
@@ -20,14 +25,14 @@ d = b.c.diff(); up = d.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean(); dn 
 b['rsi'] = 100 - 100 / (1 + up / dn)
 mins = b.index.hour * 60 + b.index.minute
 b['day'] = b.index.normalize()
-on = b[mins < 570].groupby('day').agg(onh=('h', 'max'), onl=('l', 'min'))
+on = b[mins < OPEN].groupby('day').agg(onh=('h', 'max'), onl=('l', 'min'))
 close1555 = b[mins == 955].groupby('day').c.last()
 
 FEATS = ['body_atr', 'range_atr', 'vol_ratio', 'gap_atr', 'gap_with', 'on_break', 'ema20_atr', 'ema50_atr', 'ema200_atr', 'rsi_c', 'weekday_mon', 'weekday_fri']
 rows = []
 pcl = close1555.shift(1)
-for day, g in b[(mins >= 570) & (mins <= 955)].groupby('day'):
-    if len(g) < 60 or g.index[0].hour * 60 + g.index[0].minute != 570 or day not in on.index or pd.isna(pcl.get(day)): continue
+for day, g in b[(mins >= OPEN) & (mins <= 955)].groupby('day'):
+    if len(g) < 60 or g.index[0].hour * 60 + g.index[0].minute != OPEN or day not in on.index or pd.isna(pcl.get(day)): continue
     o, h, l, c, a = g.o.values, g.h.values, g.l.values, g.c.values, g.atr.values[0]
     s = 1 if c[0] > o[0] else -1 if c[0] < o[0] else 0
     if s == 0 or not (a > 0): continue
@@ -37,13 +42,22 @@ for day, g in b[(mins >= 570) & (mins <= 955)].groupby('day'):
              on_break=float((s > 0 and c[0] > on.onh[day]) or (s < 0 and c[0] < on.onl[day])),
              ema20_atr=s * (c[0] - r0.e20) / a, ema50_atr=s * (c[0] - r0.e50) / a, ema200_atr=s * (c[0] - r0.e200) / a,
              rsi_c=s * (r0.rsi - 50) / 50, weekday_mon=float(day.weekday() == 0), weekday_fri=float(day.weekday() == 4))
-    e = o[1] + s * 0.5; sl = e - s * a; tp = e + s * 2 * a; res = None
+    # exits from the QuantBot improver's best bot: stop 2 ATR, add a unit at +1R/+2R/+3R raising the stop one step
+    # each time, trail 4 ATR behind the best price once +1R, out at 15:55. R = the first unit's risk.
+    R1 = 2 * a; e = o[1] + s * SLIP; entries = [e]; stop = e - s * R1; best = e; adds = 0; res = None
     for j in range(1, len(o)):
-        if (s > 0 and l[j] <= sl) or (s < 0 and h[j] >= sl): res = -1.0; break
-        if (s > 0 and h[j] >= tp) or (s < 0 and l[j] <= tp): res = 2.0; break
-    if res is None: res = (c[-1] - e) * s / a
-    res -= (0.5 + 0.75) / a            # exit slippage + $1.50 commission per MNQ in points
+        if (s > 0 and l[j] <= stop) or (s < 0 and h[j] >= stop):
+            res = sum((stop - s * SLIP - x) * s for x in entries) / R1; break
+        best = max(best, h[j]) if s > 0 else min(best, l[j])
+        while adds < 3 and (best - e) * s >= R1 * (adds + 1):
+            adds += 1; entries.append(e + s * R1 * adds + s * SLIP); stop = e + s * R1 * (adds - 1)
+        if (best - e) * s >= R1:
+            ts = best - s * 4 * a
+            if (ts - stop) * s > 0: stop = ts
+    if res is None: res = sum((c[-1] - s * SLIP - x) * s for x in entries) / R1
+    res -= COST * len(entries) / R1   # commission + slippage for every unit
     rows.append(dict(day=day, y=day.year, side=s, R=res, win=int(res > 0), **f))
+    continue
 D = pd.DataFrame(rows).dropna()
 print(f'{len(D)} opening-drive signals {D.y.min()}-{D.y.max()}, plain average {D.R.mean():+.3f}R')
 
@@ -63,13 +77,14 @@ for Y in range(2019, 2027):
     model = fit(tr)
     p_tr = prob(model, tr)
     # threshold from the training years: the probability cut that maximised average R there
-    best = max(np.arange(0.2, 0.7, 0.02), key=lambda th: tr.R[p_tr >= th].mean() if (p_tr >= th).sum() >= 50 else -9)
+    best = max(np.arange(0.05, 0.8, 0.01), key=lambda th: tr.R[p_tr >= th].sum() if (p_tr >= th).sum() >= 30 else -1e9)
     p = prob(model, te); take = te[p >= best]
     tag = 'EXAM (graded once)' if Y == 2026 else ''
     print(f'{Y}: plain {len(te)} trades {te.R.sum():+6.1f}R | ML takes {len(take)} at p>={best:.2f}: {take.R.sum():+6.1f}R '
           f'({take.R.mean() if len(take) else 0:+.3f}R/trade) {tag}')
     th_hist.append(best)
 
+if GOLD: print('\nWARNING: gold opening drives lose in almost every year even with the model; use the NQ export for signals.')
 final = fit(D[D.y <= 2025]); m, mu, sd = final
 th = float(th_hist[-1])
 coef = m.coef_[0] / sd.values; icpt = m.intercept_[0] - float((m.coef_[0] * mu.values / sd.values).sum())
@@ -94,11 +109,11 @@ var float c1555 = na
 var float pcl = na
 if m >= 18 * 60 and m[1] < 18 * 60
     onh := high, onl := low
-else if m >= 18 * 60 or m < 570
+else if m >= 18 * 60 or m < {OPEN}
     onh := math.max(nz(onh, high), high), onl := math.min(nz(onl, low), low)
 if m == 955
     c1555 := close
-if m == 570 and barstate.isconfirmed
+if m == {OPEN} and barstate.isconfirmed
     int s = close > open ? 1 : close < open ? -1 : 0
     pcl := c1555
     if s != 0 and atr[1] > 0
@@ -118,11 +133,11 @@ if m == 570 and barstate.isconfirmed
         float weekday_fri = dayofweek(time, tz) == dayofweek.friday ? 1.0 : 0.0
         float z = {icpt:.6f} + {terms}
         float p = 1 / (1 + math.exp(-z))
-        float sl = close - s * a
-        float tp = close + s * 2 * a
-        int q = math.max(1, int(math.floor(riskUsd / (a * syminfo.pointvalue))))
+        float sl = close - s * 2 * a
+        float tp = close + s * 8 * a
+        int q = math.max(1, int(math.floor(riskUsd / (2 * a * syminfo.pointvalue))))
         bool take = p >= th
-        label.new(bar_index, s > 0 ? low - a * 0.4 : high + a * 0.4, (s > 0 ? "BUY " : "SELL ") + str.tostring(math.round(p * 100)) + "%\\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\\n" + str.tostring(q) + " contracts", style=s > 0 ? label.style_label_up : label.style_label_down, color=color.new(s > 0 ? #22c55e : #ef4444, take ? 10 : 75), textcolor=color.white, size=size.small)
+        label.new(bar_index, s > 0 ? low - a * 0.4 : high + a * 0.4, (s > 0 ? "BUY " : "SELL ") + str.tostring(math.round(p * 100)) + "%\\nSL " + str.tostring(sl, format.mintick) + "  TP " + str.tostring(tp, format.mintick) + "\\n" + str.tostring(q) + " contracts · add " + str.tostring(q) + " at +1R/+2R/+3R, trail 4 ATR, out 15:55", style=s > 0 ? label.style_label_up : label.style_label_down, color=color.new(s > 0 ? #22c55e : #ef4444, take ? 10 : 75), textcolor=color.white, size=size.small)
         if take
             line.new(bar_index, sl, bar_index + 40, sl, color=#ef4444, width=2)
             line.new(bar_index, tp, bar_index + 40, tp, color=#22c55e, width=2)
