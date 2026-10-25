@@ -1,0 +1,46 @@
+// QB Gold Trend for Lucid (Pine Script v6). Signals only. Use on MGC1! / GC1! (or XAUUSD) with a 5m-1h chart.
+// Lucid rule: flat by 4:45 PM ET. So the daily gold trend is traded one session at a time:
+//   BUY signal: daily EMA 13 crosses above EMA 55 (daily close). While the trend trade is on:
+//   - enter long at the 6:00 PM ET reopen, close everything by 4:40 PM ET, repeat every session
+//   - trailing stop 1.5 x daily ATR(20) behind the best daily close (checked intraday), out after 60 sessions
+// Replay on XAUUSD 2004-2026 (scripts in ml-signals/, costs $0.40/oz per session):
+//   1 MGC: +$5,605 total, 2019-2025 +$3,180, 2026 so far +$2,297, worst drawdown $1,567, worst day -$922.
+//   Many flat/losing years (2006, 2008-2010, 2012-2014, 2017, 2020, 2022); the gains come from big gold trends.
+// Size by account (worst drawdown per MGC $1,567 vs the max loss): 150K = 2 MGC, 100K = 1 MGC, 50K = 1 MGC (tight),
+// 25K = do not run (the drawdown is bigger than the $1,000 max loss).
+//@version=6
+indicator("QB Gold Trend for Lucid", overlay=true, max_labels_count=500)
+string acct = input.string("150K", "Lucid account", options=["25K", "50K", "100K", "150K"])
+string tz = "America/New_York"
+int mgc = acct == "150K" ? 2 : acct == "25K" ? 0 : 1
+
+[dc, df, ds, da] = request.security(syminfo.tickerid, "D", [close[1], ta.ema(close, 13)[1], ta.ema(close, 55)[1], ta.atr(20)[1]], lookahead=barmerge.lookahead_on)
+[pf, ps] = request.security(syminfo.tickerid, "D", [ta.ema(close, 13)[2], ta.ema(close, 55)[2]], lookahead=barmerge.lookahead_on)
+int m = hour(time, tz) * 60 + minute(time, tz)
+bool newSession = m >= 18 * 60 and m[1] < 18 * 60
+bool flatTime = m >= 16 * 60 + 40 and m[1] < 16 * 60 + 40
+
+var bool inTrend = false
+var float best = na
+var float trail = na
+var int age = 0
+if newSession
+    if not inTrend and df > ds and pf <= ps and da > 0
+        inTrend := true, best := dc, trail := dc - 1.5 * da, age := 0
+        label.new(bar_index, low, "GOLD TREND BUY\nlong each session 6:00 PM - 4:40 PM\n" + (mgc > 0 ? str.tostring(mgc) + " MGC" : "25K: too small, skip"), style=label.style_label_up, color=color.new(#22c55e, 10), textcolor=color.white)
+    else if inTrend
+        age += 1
+        best := math.max(best, dc)
+        trail := math.max(trail, best - 1.5 * da)
+        if age >= 60
+            inTrend := false
+    if inTrend and mgc > 0
+        alert("GOLD: BUY " + str.tostring(mgc) + " MGC at the open, stop " + str.tostring(trail, format.mintick) + ", flat by 4:40 PM ET", alert.freq_once_per_bar)
+if inTrend and low <= trail
+    inTrend := false
+    label.new(bar_index, high, "TREND OVER (stop)", style=label.style_label_down, color=color.new(color.gray, 10), textcolor=color.white)
+    alert("GOLD: trend stop hit, close and stay flat", alert.freq_once_per_bar)
+if flatTime and inTrend and mgc > 0
+    alert("GOLD: close the session position by 4:40 PM ET (Lucid)", alert.freq_once_per_bar)
+plot(inTrend ? trail : na, "Trend stop", color=color.orange, style=plot.style_linebr, linewidth=2)
+bgcolor(inTrend and (m >= 18 * 60 or m < 16 * 60 + 40) ? color.new(#22c55e, 92) : na, title="Hold window")
