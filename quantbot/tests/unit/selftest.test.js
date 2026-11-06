@@ -68,3 +68,28 @@ test('the system prompt tells the model which tools it has, that it has the inte
   assert.match(t, /Connected now: none/);
   assert.match(t, /never place trades/);
 });
+
+test('tool calls written as text (<tool>, <tool_call>, fenced or bare JSON) are run like real ones', async () => {
+  const { textToolCalls } = await import('../../server/lib/ollama.js');
+  const defs = [{ name: 'calculate' }];
+  const one = (t) => textToolCalls(t, defs).map((c) => [c.function.name, c.function.arguments.expression]);
+  assert.deepEqual(one('<tool> {"name": "calculate", "arguments": {"expression": "17*23"}} </tool>'), [['calculate', '17*23']]);
+  assert.deepEqual(one('<tool_call>\n{"name":"calculate","arguments":"{\\"expression\\":\\"1+1\\"}"}\n</tool_call>'), [['calculate', '1+1']]);
+  assert.deepEqual(one('```json\n{"name":"calculate","arguments":{"expression":"2*2"}}\n```'), [['calculate', '2*2']]);
+  assert.deepEqual(one('{"name":"rm_rf","arguments":{}}'), [], 'only tools that were offered');
+  assert.deepEqual(one('The answer is {not json}'), []);
+
+  // end to end: a model that writes <tool> text gets the result and answers with it
+  const s = http.createServer(async (req, res) => {
+    let body = ''; for await (const c of req) body += c;
+    const j = JSON.parse(body);
+    const last = j.messages[j.messages.length - 1];
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ message: { role: 'assistant', content: last.role === 'tool' ? String(JSON.parse(last.content).result) : '<tool> {"name": "calculate", "arguments": {"expression": "17*23"}} </tool>' } }));
+  });
+  await new Promise((r) => s.listen(0, '127.0.0.1', r));
+  const tools = createChatTools({ db: null, market: null });
+  const reply = await callOllama(`http://127.0.0.1:${s.address().port}`, 'm', 'sys', [{ role: 'user', content: '17*23?' }], 50, tools);
+  assert.equal(reply, '391');
+  s.close();
+});

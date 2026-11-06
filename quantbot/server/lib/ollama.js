@@ -43,6 +43,32 @@ const MAX_TOOL_ROUNDS = 6;
 // tools: { defs, run(name, input) -> text }. Models without tool support (Ollama answers "does not support tools")
 // are asked again without them.
 // onLive(text): the reply so far (thinking included) while it streams, and "Using <tool>…" during tool calls
+// Small or fine-tuned models sometimes write the tool call as text instead of Ollama's tool_calls:
+// <tool>{"name":..,"arguments":{..}}</tool>, <tool_call>..</tool_call>, ```json {..} ``` or a bare JSON object.
+// Those are read here and run like real calls when the name is one of the tools offered.
+export function textToolCalls(content, defs = []) {
+  const names = new Set(defs.map((d) => d.name));
+  const text = String(content || '');
+  const blobs = [...text.matchAll(/<(tool_call|tool|function_call|tools)>\s*([\s\S]*?)\s*<\/\1>/g)].map((m) => m[2]);
+  if (!blobs.length) {
+    const fenced = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(text);
+    const bare = /^\s*(\{[\s\S]*\})\s*$/.exec(text);
+    if (fenced || bare) blobs.push((fenced || bare)[1]);
+  }
+  const out = [];
+  for (const b of blobs) {
+    let j;
+    try { j = JSON.parse(b); } catch { continue; }
+    for (const c of Array.isArray(j) ? j : [j]) {
+      const name = c?.name || c?.function?.name;
+      let args = c?.arguments ?? c?.parameters ?? c?.function?.arguments ?? {};
+      if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+      if (names.has(name)) out.push({ function: { name, arguments: args } });
+    }
+  }
+  return out;
+}
+
 export async function callOllama(url, model, system, messages, maxTokens = 8192, tools = null, onLive = null) {
   const turns = [{ role: 'system', content: system }, ...messages];
   let withTools = !!tools;
@@ -66,7 +92,7 @@ export async function callOllama(url, model, system, messages, maxTokens = 8192,
     let message;
     if (onLive) message = await readStream(res, onLive);
     else message = (await res.json().catch(() => ({}))).message || {};
-    const calls = message.tool_calls || [];
+    const calls = message.tool_calls?.length ? message.tool_calls : useTools ? textToolCalls(message.content, tools.defs) : [];
     if (useTools && calls.length) {
       turns.push({ role: 'assistant', content: message.content || '', tool_calls: calls });
       for (const c of calls) {
