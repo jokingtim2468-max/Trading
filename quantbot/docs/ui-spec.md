@@ -614,3 +614,11 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Settings > Local model: Check everything
 - Box (testid `selftest`) with one line of text and a **Check everything** button (spinner + "Checking…" while running).
 - Results list (testid `selftest-results`): green ✓ or red ✗ per check, bold name, grey detail, and a "Fix:" line under each failure. Checks: Ollama running, chat model installed, model supports tool calls, the model really calls a tool and uses its answer, fits the graphics card, skills load, each MCP server, MT5 data folder, Python, pandas + numpy, internet (web_search).
+
+## Built-in MT5 MCP
+- Settings > Tools & skills > MCP servers always lists **mt5** first with a "built-in" pill (no trash button; Turn off / Turn on only).
+- Tools: account_info, positions, pending_orders, symbol_info, bars, trade_history (any account) and place_order, modify_position, close_position, cancel_order (refused unless the logged-in MT5 account is a demo).
+- Check everything adds an "MT5 terminal (mt5 MCP)" line: account, server, balance and whether trading tools are on.
+
+## Market data: Dukascopy check
+- When Dukascopy's bot check needs a person, a small "Dukascopy check: QuantBot market data" window opens for up to 2 minutes; the download continues once it clears.

@@ -40,7 +40,8 @@ export default function McpServersCard() {
               <span className="text-xs text-muted-foreground truncate">{s.transport === 'http' ? s.url : `${s.command} ${(s.args || []).join(' ')}`}</span>
               <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">{s.status?.connected ? `${s.status.tools} tool${s.status.tools === 1 ? '' : 's'}` : s.status?.error || (s.enabled ? 'not started' : 'off')}</span>
               <Button size="sm" variant="outline" disabled={busy} onClick={() => toggle(s)}>{s.enabled ? 'Turn off' : 'Turn on'}</Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove(s.name)} aria-label={`Remove ${s.name}`}><Trash2 className="w-4 h-4" /></Button>
+              {s.builtin ? <span className="text-[10px] rounded-full border border-border px-1.5 text-muted-foreground">built-in</span>
+                : <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove(s.name)} aria-label={`Remove ${s.name}`}><Trash2 className="w-4 h-4" /></Button>}
             </li>
           ))}
         </ul>

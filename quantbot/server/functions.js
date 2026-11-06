@@ -95,9 +95,14 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     // Settings > MCP servers: list (with status), save one, remove one, test one
     async mcpServers({ action = 'list', server, name } = {}) {
       const saved = user.me().mcp_servers || [];
-      if (action === 'save') {
+      if (action === 'save' && server?.builtin) {
+        user.update({ mt5_mcp: server.enabled !== false });
+      } else if (action === 'save') {
         const s = cleanServer(server);
+        if (s.name === 'mt5') fail('"mt5" is the built-in MT5 server: pick another name');
         user.update({ mcp_servers: [...saved.filter((x) => x.name !== s.name), s] });
+      } else if (action === 'remove' && name === 'mt5') {
+        fail('The built-in MT5 server can be turned off, not removed');
       } else if (action === 'remove') {
         user.update({ mcp_servers: saved.filter((x) => x.name !== name) });
       } else if (action === 'test') {
@@ -106,7 +111,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       }
       if (mcp) await mcp.ensure().catch(() => {});
       const st = mcp ? mcp.status() : [];
-      return { servers: (user.me().mcp_servers || []).map((s) => ({ ...s, status: st.find((x) => x.name === s.name) || null })) };
+      const builtin = { name: 'mt5', builtin: true, transport: 'stdio', command: 'built-in', args: ['MetaTrader 5 terminal: reads anything, trades on demo accounts only'], enabled: user.me().mt5_mcp !== false };
+      return { servers: [builtin, ...(user.me().mcp_servers || []).filter((s) => s.name !== 'mt5')].map((s) => ({ ...s, status: st.find((x) => x.name === s.name) || null })) };
     },
     // Settings > Skills: list, get one, save one (yours), remove one (yours)
     skills({ action = 'list', name, skill } = {}) {

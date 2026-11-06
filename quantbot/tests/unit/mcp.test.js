@@ -79,3 +79,33 @@ test('skills: built-in skills load, yours override and can be removed', () => {
   assert.throws(() => s.save({ name: 'x', description: '' }), /description/);
   assert.deepEqual(parseSkill('no header', 'f'), { name: 'f', description: '', body: 'no header' });
 });
+
+test('built-in MT5 MCP: reads the account, trades only on a demo account', async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const py = process.platform === 'win32' ? 'python' : 'python3';
+  if (spawnSync(py, ['--version']).status !== 0) { t.skip('no python'); return; }
+  const script = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'mt5', 'mt5_mcp.py');
+  const fakeDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'support', 'fake_mt5_mcp');
+  const run = async (env) => {
+    const mcp = createMcp({ servers: () => [{ name: 'mt5', transport: 'stdio', command: py, args: [script], env: { PYTHONPATH: fakeDir, ...env }, enabled: true }] });
+    try {
+      const tools = (await mcp.tools()).map((x) => x.name);
+      const acc = JSON.parse(await mcp.run('mcp_mt5_account_info', {}));
+      const buy = await mcp.run('mcp_mt5_place_order', { symbol: 'XAUUSD', side: 'buy', volume: 0.1, sl: 2390 });
+      const pos = JSON.parse(await mcp.run('mcp_mt5_positions', {}));
+      const sym = await mcp.run('mcp_mt5_symbol_info', { symbol: 'NOPE' });
+      return { tools, acc, buy, pos, sym };
+    } finally { mcp.close(); }
+  };
+  const demo = await run({});
+  assert.deepEqual(demo.tools.sort(), ['account_info', 'bars', 'cancel_order', 'close_position', 'modify_position', 'pending_orders', 'place_order', 'positions', 'symbol_info', 'trade_history'].map((n) => `mcp_mt5_${n}`).sort());
+  assert.equal(demo.acc.is_demo, true);
+  assert.equal(demo.acc.balance, 10000);
+  assert.match(demo.buy, /"ok": true/);
+  assert.equal(demo.pos[0].side, 'buy');
+  assert.match(demo.sym, /No symbol NOPE/);
+  const live = await run({ FAKE_MT5_LIVE: '1' });
+  assert.equal(live.acc.is_demo, false);
+  assert.match(live.buy, /Tool error: .*not a demo account/);
+  assert.equal(live.pos[0].ticket, 77, 'reading still works on a live account');
+});

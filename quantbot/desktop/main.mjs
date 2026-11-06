@@ -154,21 +154,31 @@ async function useBrowserForMarketData() {
   useBrowser({
     fetch: (url, init) => ses.fetch(url, { signal: init?.signal }),
     log,
+    // Hidden first; if the check wants a person (a puzzle), the same page opens in a small visible window for up to
+    // 2 minutes. Passed when the page answers 200 or Amazon's aws-waf-token cookie appears.
     solve: async (url) => {
-      const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
-      try {
-        // The check page runs its script, then reloads the address, which now answers 200 with data
+      const attempt = async (visible) => {
+        const w = new BrowserWindow({ show: visible, width: 480, height: 640, title: 'Dukascopy check: QuantBot market data', autoHideMenuBar: true, webPreferences: { sandbox: true, contextIsolation: true } });
         let last = null;
-        const ok = await new Promise((resolve) => {
-          w.webContents.on('did-navigate', (_e, _u, code) => { last = code; if (code === 200) resolve(true); else if (code !== 202) resolve(false); });
-          setTimeout(() => resolve(false), 20000);
-          w.loadURL(url).catch(() => {});
-        });
-        log(`market data: Dukascopy bot check ${ok ? 'passed' : `failed (${last ?? 'no answer'})`}`);
-        return ok;
-      } finally {
-        if (!w.isDestroyed()) w.destroy();
-      }
+        try {
+          return await new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(false), visible ? 120000 : 25000);
+            const poll = setInterval(async () => {
+              const c = await ses.cookies.get({ name: 'aws-waf-token' }).catch(() => []);
+              if (c.length) { clearInterval(poll); clearTimeout(timer); resolve(true); }
+            }, 1000);
+            w.on('closed', () => { clearInterval(poll); clearTimeout(timer); resolve(false); });
+            w.webContents.on('did-navigate', (_e, _u, code) => { last = code; if (code === 200) { clearInterval(poll); clearTimeout(timer); resolve(true); } });
+            w.loadURL(url).catch(() => {});
+          });
+        } finally {
+          log(`market data: Dukascopy bot check (${visible ? 'visible' : 'hidden'}) last answer ${last ?? 'none'}`);
+          if (!w.isDestroyed()) w.destroy();
+        }
+      };
+      const ok = (await attempt(false)) || (await attempt(true));
+      log(`market data: Dukascopy bot check ${ok ? 'passed' : 'failed'}`);
+      return ok;
     },
   });
 }

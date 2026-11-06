@@ -27,7 +27,11 @@ export function createBackend({ dataDir, encrypt, decrypt, userName, defaults, m
   const keys = createKeys(dataDir, encrypt, decrypt);
   const files = createFiles(path.join(dataDir, 'files'));
   // MCP servers set in Settings (started on first use) and skills (built-in + the trader's own)
-  const mcp = createMcp({ servers: () => user.me().mcp_servers || [] });
+  // plus the built-in MT5 server (mt5/mt5_mcp.py): reads the MT5 terminal, trades on demo accounts only
+  const mt5Builtin = () => ({ name: 'mt5', transport: 'stdio', builtin: true, command: process.platform === 'win32' ? 'python' : 'python3',
+    args: [path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'mt5', 'mt5_mcp.py')], env: user.me().mt5_terminal_path ? { MT5_TERMINAL: user.me().mt5_terminal_path } : {},
+    enabled: user.me().mt5_mcp !== false && !process.env.QUANTBOT_NO_MT5_MCP });
+  const mcp = createMcp({ servers: () => [mt5Builtin(), ...(user.me().mcp_servers || []).filter((s) => s.name !== 'mt5')] });
   const skills = createSkills({ builtinDir: path.join(path.dirname(fileURLToPath(import.meta.url)), 'skills'), userDir: path.join(dataDir, 'skills') });
   const functions = createFunctions({ db, user, keys, market, folders: () => folders, workspaces: createWorkspaces(path.join(dataDir, 'workspaces')), mcp, skills });
   const setFolders = (f) => { folders = f; };

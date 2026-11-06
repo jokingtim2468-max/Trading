@@ -57,6 +57,12 @@ export async function selfTest({ me, chatTools, skills, mcp }) {
     const st = mcp.status();
     if (!st.length) add('MCP servers', true, 'none added (optional: Settings > Tools & skills)');
     for (const s of st) add(`MCP server ${s.name}`, s.connected, s.connected ? `${s.tools} tools` : s.error || 'not connected', s.connected ? '' : 'Check its command / URL in Settings > Tools & skills and press Test.');
+    if (st.some((s) => s.name === 'mt5' && s.connected)) {
+      const r = String(await mcp.run('mcp_mt5_account_info', {}).catch((e) => `Tool error: ${e.message}`));
+      let acc = null; try { acc = JSON.parse(r); } catch { /* error text */ }
+      add('MT5 terminal (mt5 MCP)', !!acc, acc ? `account ${acc.login} on ${acc.server}, balance ${acc.balance} ${acc.currency}; ${acc.trading_tools}` : r.slice(0, 200),
+        acc ? '' : /MetaTrader5 Python package/.test(r) ? 'Run: pip install MetaTrader5' : 'Open MT5, log in to your demo account and turn Algo Trading on.');
+    }
   }
 
   const dir = me.mt5_data_dir || '';

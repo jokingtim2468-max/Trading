@@ -42,6 +42,8 @@ function stdioConnection(cfg, log) {
   const child = spawn(direct ? cfg.command : q(cfg.command), (cfg.args || []).map(q), {
     env: { ...process.env, ...(cfg.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: !direct,
   });
+  // An idle MCP server never keeps QuantBot (or a test run) from exiting
+  child.unref(); child.stdin?.unref?.(); child.stdout?.unref?.(); child.stderr?.unref?.();
   const pending = new Map(); let buf = ''; let closed = null; let stderr = '';
   child.stdout.on('data', (d) => {
     buf += d.toString('utf8');

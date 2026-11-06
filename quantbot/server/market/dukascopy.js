@@ -37,7 +37,7 @@ function paced(fn) {
 // an address after a few requests without it, the check page included)
 const solveChallenge = (url) => {
   solving = solving || solver(url).then((ok) => {
-    if (ok === false) throw new Error("Dukascopy's bot check did not clear. Wait a minute and try again.");
+    if (ok === false) throw new Error("Dukascopy's bot check did not clear. Your saved data still works; press Download again and complete the check if a small Dukascopy window opens.");
     solved = true;
   }).finally(() => { solving = null; });
   return solving;
@@ -88,7 +88,7 @@ export async function fetchCandles(url, { retries = 6, signal } = {}) {
       const res = await paced(() => fetcher(url, { signal: signal || AbortSignal.timeout(30000) }));
       if (res.status === 202 && res.headers.get('x-amzn-waf-action') === 'challenge') {
         if (!solver) throw new Error('Dukascopy now only answers browsers. Download market data from the QuantBot desktop app.');
-        if (checks++ >= 3) throw new Error("Dukascopy's bot check did not clear. Try again in a minute.");
+        if (checks++ >= 3) throw new Error("Dukascopy's bot check did not clear. Your saved data still works; press Download again and complete the check if a small Dukascopy window opens.");
         await solveChallenge(url);
         attempt--; // run the check, then ask again straight away
         continue;
