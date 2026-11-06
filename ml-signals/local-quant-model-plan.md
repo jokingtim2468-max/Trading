@@ -12,7 +12,7 @@ firm rules. RunPod is only used to fine-tune it, and only once a test shows fine
 | Qwen3 8B | ~5.2 GB | yes, tight (q8 KV cache) | yes | stronger reasoning, slower; thinking mode costs context |
 | Qwen2.5-Coder 14B | ~9 GB | no (does not fit 8 GB) | yes | only if you upgrade the GPU |
 
-- **Default: Qwen2.5-Coder 7B Instruct.** Train and serve the *same* base model, with the *same* chat template.
+- **Chosen: Qwen2.5-Coder 7B Instruct (Q4_K_M), for the 8 GB RTX 4060.** Train and serve the *same* base model, with the *same* chat template.
 - Check that the exact tag you pull supports tools: `ollama show qwen2.5-coder:7b` should list "tools" under
   Capabilities.
 
