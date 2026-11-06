@@ -14,6 +14,16 @@
 
 !macro customInit
   !insertmacro quantbotKillAll
+  ; Skip the old version's uninstaller: versions before 1.0.168 shipped one that stops with "QuantBot cannot be
+  ; closed" / "Failed to uninstall old application files". Without its UninstallString the setup simply installs over
+  ; the old files (your data in %APPDATA%\QuantBot is never touched); the new install writes fresh uninstall entries.
+  DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY}" UninstallString
+  DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY}" UninstallString
+  !ifdef UNINSTALL_REGISTRY_KEY_2
+    DeleteRegValue HKCU "${UNINSTALL_REGISTRY_KEY_2}" UninstallString
+    DeleteRegValue HKLM "${UNINSTALL_REGISTRY_KEY_2}" UninstallString
+  !endif
+  ClearErrors
 !macroend
 
 ; Replaces "QuantBot cannot be closed. Please close it manually": close it ourselves
