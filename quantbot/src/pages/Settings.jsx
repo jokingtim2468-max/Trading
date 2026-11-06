@@ -11,6 +11,7 @@ import DaemonCard from '@/components/settings/DaemonCard';
 import VpsGuideCard from '@/components/settings/VpsGuideCard';
 import McpServersCard from '@/components/settings/McpServersCard';
 import SkillsCard from '@/components/settings/SkillsCard';
+import DataFolderCard from '@/components/settings/DataFolderCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Settings() {
@@ -40,6 +41,7 @@ export default function Settings() {
 
         <section className="mt-8 space-y-3">
           <h2 className="font-heading text-lg font-semibold">Tools &amp; skills</h2>
+          <DataFolderCard />
           <McpServersCard />
           <SkillsCard />
         </section>

@@ -4,6 +4,7 @@ import { INSTRUMENTS, TIMEFRAMES, MAX_RANGE_DAYS, firstDate } from '../market/in
 import { marketStats } from '../../src/lib/backtest/marketStats.js';
 import { evaluate, levelFromXp, tierOf, groupScriptIds, ACCOUNT_STEP, SCRIPT_STEP } from './copyRules.js';
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { loadPresets } from './fleetRules.js';
 
@@ -42,6 +43,11 @@ export const TOOL_DEFS = [
     name: 'workspace_write',
     description: "Save a notes / data file in this chat's workspace (scripts are saved automatically from your code blocks). Not for .exe/.bat/.ps1.",
     parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
+  },
+  {
+    name: 'run_python',
+    description: "Run a Python script in this chat's workspace and get its printed output (stdout + stderr, exit code). Use it to RUN every backtest or analysis script you write, then fix errors and run again. The trader's MT5 data folder path is in the environment variable QB_DATA (and passed as data_dir). Timeout 300 s.",
+    parameters: { type: 'object', properties: { code: { type: 'string', description: 'the full Python script' }, file: { type: 'string', description: 'save it as this file in scripts/ (default run.py)' }, args: { type: 'array', items: { type: 'string' } } }, required: ['code'] },
   },
   {
     name: 'web_search',
@@ -263,6 +269,28 @@ export async function webFetch(url, key = '') {
   return { title: textOf(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || ''), text: textOf(html).slice(0, 20000) };
 }
 
+// Runs a script with the system's Python in the workspace: { exit_code, output } (output cut to the last 12k chars)
+export function runPython(ctx, code, file = 'run.py', args = [], timeoutMs = 300000) {
+  const ws = ctx?.workspace;
+  if (!ws) throw new Error('This chat has no workspace yet: it is created after the first reply');
+  const name = String(file || 'run.py').replace(/[^a-zA-Z0-9_.-]/g, '_').replace(/^\.+/, '') || 'run.py';
+  const dir = path.join(ws, 'scripts');
+  fs.mkdirSync(dir, { recursive: true });
+  const full = path.join(dir, name.endsWith('.py') ? name : `${name}.py`);
+  fs.writeFileSync(full, String(code || ''));
+  const dataDir = ctx?.dataDir || process.env.QB_DATA || '';
+  return new Promise((resolve) => {
+    const py = process.platform === 'win32' ? 'python' : 'python3';
+    const child = spawn(py, [full, ...(Array.isArray(args) ? args.map(String) : [])], { cwd: ws, env: { ...process.env, QB_DATA: dataDir, PYTHONIOENCODING: 'utf-8' }, windowsHide: true });
+    let out = '';
+    const add = (d) => { out = (out + d.toString('utf8')).slice(-200000); };
+    child.stdout.on('data', add); child.stderr.on('data', add);
+    const t = setTimeout(() => { child.kill(); out += `\n[stopped after ${timeoutMs / 1000} s]`; }, timeoutMs);
+    child.on('error', (e) => { clearTimeout(t); resolve({ exit_code: -1, output: `Python could not start: ${e.message}. Install Python 3 with pandas and numpy.` }); });
+    child.on('close', (codeNum) => { clearTimeout(t); resolve({ exit_code: codeNum, file: path.relative(ws, full), data_dir: dataDir, output: out.length > 12000 ? `...[start cut]\n${out.slice(-12000)}` : out }); });
+  });
+}
+
 export function createChatTools({ db, market, webKey = () => '' }) {
   const list = (entity, query, opts) => db.run(entity, 'filter', query, opts).items;
   const getRun = (id) => {
@@ -427,6 +455,7 @@ export function createChatTools({ db, market, webKey = () => '' }) {
         high: hi, low: lo, firstOpen: bars.open[0], lastClose: bars.close[n - 1],
       };
     },
+    run_python: ({ code, file, args }, ctx) => runPython(ctx, code, file, args),
     web_search: ({ query, max_results }) => webSearch(String(query || ''), max_results, webKey()),
     web_fetch: ({ url }) => webFetch(String(url || ''), webKey()),
   };

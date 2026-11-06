@@ -67,7 +67,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       defs,
       run: (name, input) => (name === 'load_skill' && skills ? skills.load(input?.name)
         : name.startsWith(MCP_PREFIX) && mcp ? mcp.run(name, input)
-          : chatTools.run(name, input, { workspace: session.workspace || '' })),
+          : chatTools.run(name, input, { workspace: session.workspace || '', dataDir: user.me().mt5_data_dir || '' })),
     };
   };
   // Skill index + connected MCP servers for the system prompt
