@@ -28,6 +28,14 @@
   Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB)) MB)..." -ForegroundColor Cyan
   Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $file -UseBasicParsing
 
+  # A running QuantBot (or its MT5 daemon / helpers) locks its files and the setup then fails with
+  # "Failed to uninstall old application files": close them first
+  Write-Host 'Closing QuantBot if it is running...' -ForegroundColor Cyan
+  Get-Process -Name 'QuantBot' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine -match 'mt5_manager\.py' -or $_.ExecutablePath -match '\\QuantBot\\') } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 2
   Write-Host 'Opening the QuantBot setup wizard.' -ForegroundColor Green
   Start-Process -FilePath $file
 }
