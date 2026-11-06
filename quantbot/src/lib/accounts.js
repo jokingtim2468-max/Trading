@@ -4,6 +4,7 @@ export const PLATFORMS = [
   { id: 'MT5', title: 'MetaTrader 5', short: 'MT5', family: 'MT5' },
   { id: 'Tradovate', title: 'Tradovate', short: 'Tradovate', family: 'Futures' },
   { id: 'TradingView', title: 'TradingView', short: 'TradingView', family: 'Futures' },
+  { id: 'Quantower', title: 'Quantower', short: 'Quantower', family: 'Futures' },
 ];
 export const platformOf = (id) => PLATFORMS.find((p) => p.id === id) || PLATFORMS[1];
 // Groups hold accounts of one family: MT5 with MT5, futures (Tradovate / TradingView) together

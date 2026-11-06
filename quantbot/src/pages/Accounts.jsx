@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Plus, BookOpen } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { DragDropContext } from '@hello-pangea/dnd';
 import { client } from '@/api/client';
@@ -17,6 +17,7 @@ import ReplaceDialog from '@/components/copy/ReplaceDialog';
 import ScriptsPanel from '@/components/copy/ScriptsPanel';
 import ScriptDialog from '@/components/copy/ScriptDialog';
 import AccountDialog from '@/components/accounts/AccountDialog';
+import ConnectionGuide from '@/components/accounts/ConnectionGuide';
 import ChartLoader from '@/components/quant/ChartLoader';
 import FleetPanel from '@/components/fleet/FleetPanel';
 import CopyInsights from '@/components/copy/CopyInsights';
@@ -40,6 +41,7 @@ export default function Accounts() {
   const data = useAccounts();
   const [openId, setOpenId] = useState(null);
   const [dragging, setDragging] = useState(null);
+  const [guide, setGuide] = useState(false);
   const [editing, setEditing] = useState(null);
   const [groupDialog, setGroupDialog] = useState(null);
   const [scriptDialog, setScriptDialog] = useState(null);
@@ -130,6 +132,8 @@ export default function Accounts() {
         <Link to="/" className="p-2 rounded-md hover:bg-accent"><ArrowLeft className="w-4 h-4" /></Link>
         <h1 className="font-heading text-lg font-semibold">Accounts</h1>
         <span className="text-xs text-muted-foreground ml-2 hidden sm:inline">Your accounts, their profiles, and the groups that copy your scripts</span>
+        <button type="button" onClick={() => setGuide(true)} data-testid="open-connection-guide" className="ml-auto inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-border hover:bg-accent"><BookOpen className="w-4 h-4" />Connect MT5 / Quantower</button>
+        {guide && <ConnectionGuide onClose={() => setGuide(false)} />}
       </header>
       {!data.accounts ? <div className="flex justify-center py-20"><ChartLoader className="w-20 h-12" /></div> : (
         <DragDropContext

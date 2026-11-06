@@ -592,3 +592,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Settings > Local model: Import fine-tuned model
 - Under the address/model fields, a divider then a path input (mono font, testid `gguf-path`) and an **Import** button (testid `gguf-import`, spinner while busy).
 - Import writes `Modelfile.quantbot` next to the .gguf (32k context, temperature 0.2, Qwen2.5 template copied from `qwen2.5-coder:7b` when installed), runs `ollama create quant-coder`, and makes it the active local model.
+
+## Accounts: Quantower + connection guides
+- Platform picker gains **Quantower** (futures family). Quantower accounts show no Tradovate fields; under Copy trading they get the copier switch ("Place the trades on this Quantower account"), symbol map (whole contracts) and 3 setup steps with a download of `QuantBotCopier.cs`.
+- Header button **Connect MT5 / Quantower** (BookOpen icon, right side, testid `open-connection-guide`) opens a dialog (testid `connection-guide`) with two tab buttons (MetaTrader 5 / Quantower, active = primary border + primary/10 fill), a numbered step list and a download link for that platform's copier.

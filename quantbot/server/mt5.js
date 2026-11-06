@@ -3,6 +3,8 @@
 // Plain text so the EA needs no JSON parser:
 //   poll -> one order per line: id|action|symbol|side|lots|sl|tp|tag|ticket   (action open / modify / close / close_part)
 //   ack  <- one line per order:  id|ok|ticket|price|message                  (ok 1 or 0)
+// Platforms whose terminal runs a QuantBot Copier that polls this bridge (MT5 EA, Quantower strategy)
+export const COPIER_PLATFORMS = new Set(['MT5', 'Quantower']);
 const RESEND_MS = 60000;
 const MAX_TRIES = 5;
 const num = (v) => (v == null || v === '' ? 0 : Number(v));
@@ -20,7 +22,7 @@ export function createMt5Bridge({ db, note = async () => {} }) {
 
   async function poll(accountId, now = Date.now()) {
     const a = await account(accountId);
-    if (!a || a.platform !== 'MT5') throw Object.assign(new Error('Not an MT5 account'), { status: 404 });
+    if (!a || !COPIER_PLATFORMS.has(a.platform)) throw Object.assign(new Error('Not an MT5 or Quantower account'), { status: 404 });
     if (now - (seen.get(a.id) || 0) > 20000) { seen.set(a.id, now); await run('TradingAccount', 'update', a.id, { mt5_seen_at: new Date(now).toISOString() }); }
     if (!a.mt5_on) return '';
     const orders = (await run('Mt5Order', 'filter', { account_id: a.id }, 'created_date'))

@@ -141,6 +141,10 @@ async function handleApi(req, res, { backend, market, app, signals, port, folder
     res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': 'attachment; filename="QuantBotCopier.mq5"' });
     return res.end(fs.readFileSync(path.join(root, 'mt5', 'QuantBotCopier.mq5')));
   }
+  if (req.method === 'GET' && url.pathname === '/api/quantower/strategy') {
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'content-disposition': 'attachment; filename="QuantBotCopier.cs"' });
+    return res.end(fs.readFileSync(path.join(root, 'quantower', 'QuantBotCopier.cs')));
+  }
   if (req.method === 'GET' && url.pathname === '/api/mt5/url') {
     const id = url.searchParams.get('account') || '';
     return send(res, 200, { url: `http://127.0.0.1:${port()}/mt5/${signals.key()}/${id}`, allow: `http://127.0.0.1:${port()}`, fast_lane: lane?.port() ? `127.0.0.1:${lane.port()}` : null });

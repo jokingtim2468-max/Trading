@@ -55,7 +55,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
         risk_usd: num(form.risk_usd), risk_share: num(form.risk_share), tradovate_on: !!form.tradovate_on, forward_url: (form.forward_url || '').trim(),
         stage: plan.stages ? form.stage || Object.keys(plan.stages)[0] : '', daily_loss: num(form.daily_loss), day_zone: form.day_zone || plan.dayZone || '',
         auto_withdraw: !!form.auto_withdraw && form.stage === 'funded', split: num(form.split), payout_days: num(form.payout_days),
-        mt5_on: isMt5 && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
+        mt5_on: (isMt5 || platform === 'Quantower') && !!form.mt5_on, symbol_map: (form.symbol_map || '').trim(),
         ...(isMt5 ? { terminal_path: (form.terminal_path || '').trim() } : {}),
       };
       // Firm limits: Lucid 5 funded accounts, FTMO $400K funded capital
@@ -121,7 +121,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
             </div>
           </div>
           <Field label="Name"><Input value={form.label} onChange={(e) => set('label', e.target.value)} placeholder="e.g. Lucid 50K #1" /></Field>
-          <Field label="Account number or name" hint="MT5: the login number. Tradovate: the account name, e.g. LTT04821. Optional for TradingView.">
+          <Field label="Account number or name" hint="MT5: the login number. Quantower: the account name shown in Quantower. Tradovate: the account name, e.g. LTT04821. Optional for TradingView.">
             <Input value={form.login} onChange={(e) => set('login', e.target.value)} placeholder="e.g. LTT04821 or 5100123" />
           </Field>
           <Field label="Platform">
@@ -141,7 +141,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
                   : picked && detected && detected.platform !== picked && familyOf(detected.platform) !== familyOf(picked) ? `Set by hand (it looks like ${platformOfTitle(detected.platform)}).` : 'Set by hand.'}
             </p>
           </Field>
-          {platform && (isMt5 ? <Mt5Fields form={form} set={set} servers={servers} /> : <TradovateFields form={form} set={set} account={account} />)}
+          {platform && (isMt5 ? <Mt5Fields form={form} set={set} servers={servers} /> : platform === 'Quantower' ? null : <TradovateFields form={form} set={set} account={account} />)}
           {platform && !isMt5 && (
             <Field label="Prop firm (optional)">
               <Input value={form.firm || detected?.firm || ''} onChange={(e) => set('firm', e.target.value)} placeholder="e.g. Lucid Trading" />
@@ -164,7 +164,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
                 </div>
               )}
               <PropFields form={form} plan={plan} onStage={pickStage} set={set} limitError={limitError} />
-              {isMt5 && <Mt5CopierFields account={account} form={form} set={set} />}
+              {(isMt5 || platform === 'Quantower') && <Mt5CopierFields account={account} form={form} set={set} kind={platform} />}
               <Field label="Risk per trade ($)" hint="Each copied trade is sized so its stop loses about this much. Empty: the script's quantity x this account's Qty.">
                 <Input type="number" min={0} value={form.risk_usd ?? ''} onChange={(e) => set('risk_usd', e.target.value)} aria-label="Risk per trade" placeholder="e.g. 300" />
               </Field>

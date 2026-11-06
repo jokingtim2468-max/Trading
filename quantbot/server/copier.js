@@ -88,14 +88,14 @@ export function createCopier({ db, log = () => {}, forward = defaultForward, new
   // lane: { t0, pushed: [] } of the signal being copied (the time from the app's first check to each order leaving)
   async function queueMt5(account, action, trade, refs, lane = null) {
     if (account.platform === 'Tradovate' && account.tradovate_on && tradovate) return sendTradovate(account, action, trade, refs);
-    if (account.platform !== 'MT5' || !account.mt5_on) return;
+    if (!['MT5', 'Quantower'].includes(account.platform) || !account.mt5_on) return;
     const order = await run('Mt5Order', 'create', {
       account_id: account.id, trade_id: trade.id, action, symbol: trade.symbol, side: trade.side, lots: trade.qty,
       sl: trade.sl ?? null, tp: trade.tp ?? null, status: 'pending', ticket: trade.mt5_ticket || '',
     });
     const took = onMt5 ? await onMt5(order, lane?.t0) : null;
     if (took != null) lane?.pushed.push(took);
-    await note('order', `${who(account)}: ${action} ${action === 'open' ? `${trade.side === 'long' ? 'buy' : 'sell'} ${trade.qty} lots ` : ''}${trade.symbol} queued for MT5`, { ...refs, account_id: account.id, trade_id: trade.id }, { mt5_order: order.id, action });
+    await note('order', `${who(account)}: ${action} ${action === 'open' ? `${trade.side === 'long' ? 'buy' : 'sell'} ${trade.qty} lots ` : ''}${trade.symbol} queued for ${account.platform}`, { ...refs, account_id: account.id, trade_id: trade.id }, { mt5_order: order.id, action });
   }
 
   async function close(account, script, trade, price, reason, at, refs) {

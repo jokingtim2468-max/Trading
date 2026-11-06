@@ -136,7 +136,19 @@ describe('MT5 copier bridge', () => {
     assert.deepEqual(next.map((f) => [f[1], f[5], f[8]]), [['modify', '2400', '5551234'], ['close', '2400', '5551234']]);
     await bridge.ack(a.id, `${next[1][0]}|0|0|0|close rejected: market closed\n`);
     assert.ok((await db.run('CopyEvent', 'filter', { kind: 'order', level: 'error' })).some((e) => /failed: close rejected: market closed/.test(e.message)));
-    await assert.rejects(bridge.poll('nope'), /Not an MT5 account/);
+    await assert.rejects(bridge.poll('nope'), /Not an MT5 or Quantower account/);
+  });
+
+  test('Quantower accounts use the same copier queue (the QuantBot Copier strategy polls it)', async () => {
+    const db = dbIn(tmp());
+    const bridge = createMt5Bridge({ db });
+    const a = await db.run('TradingAccount', 'create', { label: 'Q1', platform: 'Quantower', mt5_on: true });
+    const o = await db.run('Mt5Order', 'create', { account_id: a.id, trade_id: 'T1', action: 'open', symbol: 'MGC', side: 'short', lots: 2, sl: 2410, tp: 2380, status: 'pending' });
+    assert.equal(await bridge.poll(a.id), `${o.id}|open|MGC|short|2|2410|2380|${orderTag('T1')}|0`);
+    assert.equal(await bridge.ack(a.id, `${o.id}|1|POS7|2400.5|\n`), 1);
+    assert.equal((await db.run('Mt5Order', 'get', o.id)).status, 'done');
+    const tv = await db.run('TradingAccount', 'create', { label: 'T1', platform: 'Tradovate' });
+    await assert.rejects(bridge.poll(tv.id), /Not an MT5 or Quantower account/);
   });
 
   test("the EA's address answers only on this PC with the key", async () => {
