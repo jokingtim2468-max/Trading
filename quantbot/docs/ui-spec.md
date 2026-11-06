@@ -596,3 +596,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Accounts: Quantower + connection guides
 - Platform picker gains **Quantower** (futures family). Quantower accounts show no Tradovate fields; under Copy trading they get the copier switch ("Place the trades on this Quantower account"), symbol map (whole contracts) and 3 setup steps with a download of `QuantBotCopier.cs`.
 - Header button **Connect MT5 / Quantower** (BookOpen icon, right side, testid `open-connection-guide`) opens a dialog (testid `connection-guide`) with two tab buttons (MetaTrader 5 / Quantower, active = primary border + primary/10 fill), a numbered step list and a download link for that platform's copier.
+
+## Confirmations and right-click menus
+- Every delete or change asks first in one shared dialog (`ConfirmHost`, testids `confirm-dialog` / `confirm-ok` / `confirm-cancel`): title as a question, one-line consequence, Cancel + action button (destructive red for deletes). Replaces all browser `confirm()` popups.
+- Accounts table rows: right-click opens a menu (Edit login and details, Edit profile, Audit payout, Pause/Resume, separator, red Remove account). Each row also has a red trash button (testid `fleet-remove`). Changing an account's Group asks before moving it.
+- Group cards: right-click menu (Open, Rename, Pause/Resume copying, separator, red Delete group). Taking a script or account out of a group asks first.

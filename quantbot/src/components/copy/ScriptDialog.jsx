@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Field from '@/components/accounts/Field';
 import CopyField from '@/components/signals/CopyField';
+import { confirmAction } from '@/lib/confirm';
 
 const LANGUAGES = ['Pine', 'MT5', 'Other'];
 
@@ -112,7 +113,7 @@ export default function ScriptDialog({ script, config, onClose, onSaved, onDelet
           ) : <p className="text-[11px] text-muted-foreground">Save to get the script&apos;s own webhook address and folder.</p>}
           <DialogFooter className="gap-2">
             {script && <Button type="button" variant="ghost" className="text-destructive sm:mr-auto" disabled={busy}
-              onClick={() => window.confirm(`Delete ${script.name}? Its trades stay in the history.`) && onDelete(script)}>Delete</Button>}
+              onClick={async () => (await confirmAction({ title: `Delete ${script.name}?`, message: 'It comes off its groups. Its trades stay in the history.', action: 'Delete script', danger: true })) && onDelete(script)}>Delete</Button>}
             <Button type="submit" disabled={busy || !form.name.trim()}>{busy ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </form>

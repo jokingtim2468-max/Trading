@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Download, Play, Square, Trash2, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import ChartLoader from '@/components/quant/ChartLoader';
+import { confirmAction } from '@/lib/confirm';
 
 const api = (p, body, method = 'POST') => fetch(p, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`); return j; });
@@ -125,7 +126,7 @@ function RunCard({ run, models, onChange }) {
         <div className="ml-auto flex gap-2">
           {run.status === 'running'
             ? <Button size="sm" variant="outline" onClick={() => api(`/api/train/runs/${run.id}/stop`, {}).then(onChange)}><Square className="w-3.5 h-3.5 mr-1" />Stop</Button>
-            : <Button size="sm" variant="ghost" onClick={() => window.confirm('Delete this run and its trained adapter?') && api(`/api/train/runs/${run.id}`, undefined, 'DELETE').then(onChange)}><Trash2 className="w-3.5 h-3.5" /></Button>}
+            : <Button size="sm" variant="ghost" onClick={async () => (await confirmAction({ title: 'Delete this training run?', message: 'Its trained adapter is deleted too.', action: 'Delete run', danger: true })) && api(`/api/train/runs/${run.id}`, undefined, 'DELETE').then(onChange)}><Trash2 className="w-3.5 h-3.5" /></Button>}
         </div>
       </div>
       {run.status === 'running' && p && (

@@ -14,6 +14,7 @@ import Composer from '@/components/quant/Composer';
 import MessageQueue from '@/components/quant/MessageQueue';
 import { parseCommand } from '@/lib/chatCommands';
 import NoKeyBanner from '@/components/quant/NoKeyBanner';
+import { confirmAction } from '@/lib/confirm';
 
 export default function QuantChat() {
   const { toast } = useToast();
@@ -194,7 +195,7 @@ export default function QuantChat() {
   };
 
   const removeChat = async () => {
-    if (!window.confirm('Delete this conversation?')) return;
+    if (!(await confirmAction({ title: 'Delete this conversation?', message: 'Its messages are removed. This cannot be undone.', action: 'Delete', danger: true }))) return;
     deleteChat(activeId);
   };
 

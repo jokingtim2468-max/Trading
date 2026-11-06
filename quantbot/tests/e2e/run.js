@@ -38,6 +38,8 @@ const consoleErrors = [];
 page.on('pageerror', (e) => pageErrors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error' && !/fonts\.g|Failed to load resource/.test(m.text())) consoleErrors.push(m.text()); });
 page.on('dialog', (d) => d.accept());
+// QuantBot's own confirmation dialog: press its action button
+const confirmOk = async () => { await page.getByTestId('confirm-ok').click(); await page.getByTestId('confirm-dialog').waitFor({ state: 'detached' }); };
 
 const results = [];
 let shot = 0;
@@ -633,14 +635,17 @@ await step('Accounts: platform detected from the account, TradingView by hand, f
   await menu();
   await page.getByRole('menuitem', { name: 'Pause copying' }).click();
   await page.getByRole('menu').waitFor({ state: 'detached' });
+  await confirmOk();
   await menu();
   await page.getByRole('menuitem', { name: 'Resume copying' }).waitFor();
   await page.getByRole('menuitem', { name: 'Delete group' }).click();
+  await confirmOk();
   await page.getByTestId('groups-overview').waitFor();
   await page.locator('[data-group-card="Lucid copies"]').waitFor({ state: 'detached' });
   await snap('accounts');
   await card('FTMO 100K').getByRole('button', { name: 'Edit FTMO 100K' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Remove' }).click();
+  await confirmOk();
   await card('FTMO 100K').waitFor({ state: 'detached' });
 });
 
@@ -699,7 +704,9 @@ await step('Copy trading: add a script, drag accounts and the script onto a grou
   await panel.getByTestId('group-title').filter({ hasText: 'Lucid squad' }).waitFor();
   // Accounts join a group from the Group column of the accounts table
   await page.locator('[data-account="Lucid 50K #2"]').getByTestId('fleet-group').selectOption({ label: 'Lucid squad' });
+  await confirmOk();
   await page.locator('[data-account="Lucid 50K #3"]').getByTestId('fleet-group').selectOption({ label: 'Lucid squad' });
+  await confirmOk();
   await page.locator('[data-member]').nth(1).waitFor();
   await drag(page.locator('[data-script="Gold Breakout"]'), page.getByTestId('script-slot'));
   await panel.locator('[data-group-script="Gold Breakout"]').waitFor();
@@ -841,6 +848,7 @@ await step('FTMO and MT5: stages, firm limits, auto-withdraw, the MT5 copier, ne
   const panel = page.getByTestId('group-panel');
   await panel.getByTestId('group-title').filter({ hasText: 'FTMO squad' }).waitFor();
   await page.locator('[data-account="FTMO 100K #1"]').getByTestId('fleet-group').selectOption({ label: 'FTMO squad' });
+  await confirmOk();
   await panel.locator('[data-member="FTMO 100K #1"]').waitFor();
   await drag(page.locator('[data-script="Silver Scalper"]'), page.getByTestId('script-slot'));
   await panel.locator('[data-group-script="Silver Scalper"]').waitFor();

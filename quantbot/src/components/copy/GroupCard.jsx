@@ -1,4 +1,5 @@
-import { Pause, FileCode2, ChevronRight } from 'lucide-react';
+import { Pause, Play, FileCode2, ChevronRight, Pencil, Trash2, FolderOpen } from 'lucide-react';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { groupMembers } from '@/lib/accounts';
 import { SCRIPT_STEP, groupStats, groupScriptIds, evaluate, money, signedMoney } from '@/lib/copy';
 import RankAvatar from './RankAvatar';
@@ -12,12 +13,14 @@ export function rankedScripts(group, scripts, trades) {
 
 // One group in the overview: its script, accounts, P&L, trades made / max and passed / failed / current.
 // Click it to open the group; drop accounts or scripts on it to add them.
-export default function GroupCard({ group, accounts, trades, scripts, over, dropOk, onOpen }) {
+export default function GroupCard({ group, accounts, trades, scripts, over, dropOk, onOpen, onRename, onToggle, onDelete }) {
   const members = groupMembers(group, accounts);
   const st = groupStats(group, members, trades.filter((t) => t.group_id === group.id));
   const ranked = rankedScripts(group, scripts, trades);
   const isOver = over === `tab:${group.id}`;
   return (
+    <ContextMenu>
+    <ContextMenuTrigger asChild>
     <div data-drop={`tab:${group.id}`} {...(dropOk ? {} : { 'data-drop-disabled': '' })} data-group-card={group.name}
       role="button" tabIndex={0} aria-label={`Open ${group.name}`} onClick={onOpen} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
       className={`group/card rounded-2xl border bg-background p-4 space-y-3 cursor-pointer transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isOver ? 'border-primary ring-2 ring-primary bg-primary/5' : 'border-border'} ${dropOk === false ? 'opacity-40' : ''}`}>
@@ -63,5 +66,13 @@ export default function GroupCard({ group, accounts, trades, scripts, over, drop
         <span className="ml-auto text-[11px] text-muted-foreground whitespace-nowrap">{members.length} account{members.length === 1 ? '' : 's'}</span>
       </div>
     </div>
+    </ContextMenuTrigger>
+    <ContextMenuContent className="w-48" data-testid="group-menu">
+      <ContextMenuItem onSelect={onOpen}><FolderOpen className="w-4 h-4 mr-2" />Open</ContextMenuItem>
+      {onRename && <ContextMenuItem onSelect={() => onRename(group)}><Pencil className="w-4 h-4 mr-2" />Rename</ContextMenuItem>}
+      {onToggle && <ContextMenuItem onSelect={() => onToggle(group)}>{group.enabled === false ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}{group.enabled === false ? 'Resume copying' : 'Pause copying'}</ContextMenuItem>}
+      {onDelete && <><ContextMenuSeparator /><ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => onDelete(group)}><Trash2 className="w-4 h-4 mr-2" />Delete group</ContextMenuItem></>}
+    </ContextMenuContent>
+    </ContextMenu>
   );
 }

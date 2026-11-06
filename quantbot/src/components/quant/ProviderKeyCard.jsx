@@ -5,6 +5,7 @@ import ApiKeyForm from './ApiKeyForm';
 import ChartLoader from './ChartLoader';
 import { removeKey } from '@/lib/quantApi';
 import { PROVIDERS } from '@/lib/models';
+import { confirmAction } from '@/lib/confirm';
 
 export default function ProviderKeyCard({ provider, status, onChange }) {
   const [removing, setRemoving] = useState(false);
@@ -12,7 +13,7 @@ export default function ProviderKeyCard({ provider, status, onChange }) {
   const s = status?.[provider];
 
   const remove = async () => {
-    if (!window.confirm(`Remove your ${meta.short} API key?`)) return;
+    if (!(await confirmAction({ title: `Remove your ${meta.short} API key?`, action: 'Remove', danger: true }))) return;
     setRemoving(true);
     onChange(await removeKey(provider));
     setRemoving(false);

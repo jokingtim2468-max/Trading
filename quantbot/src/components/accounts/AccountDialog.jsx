@@ -13,6 +13,7 @@ import Mt5Fields from './Mt5Fields';
 import TradovateFields from './TradovateFields';
 import PropFields from './PropFields';
 import Mt5CopierFields from './Mt5CopierFields';
+import { confirmAction } from '@/lib/confirm';
 
 const BLANK = { label: '', login: '', server: '', environment: 'demo', firm: '', copy_qty: 1, plan: 'lucid50', forward_url: '' };
 const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
@@ -96,7 +97,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
   };
 
   const remove = async () => {
-    if (!window.confirm(`Remove ${account.label}? Its journal trades stay.`)) return;
+    if (!(await confirmAction({ title: `Remove ${account.display_name || account.label}?`, message: 'The account leaves QuantBot and its group. Its journal trades stay.', action: 'Remove account', danger: true }))) return;
     setBusy(true);
     await client.entities.TradingAccount.delete(account.id);
     await logSetup(`${account.display_name || account.label} removed (balance $${Number(account.balance ?? 0).toLocaleString()}, ${account.status || 'active'})`, { account_id: account.id });
@@ -180,7 +181,7 @@ export default function AccountDialog({ account, accounts = [], servers, groups,
           <DialogFooter className="gap-2">
             {account && <Button type="button" variant="ghost" className="text-destructive sm:mr-auto" onClick={remove} disabled={busy}>Remove</Button>}
             {account && account.balance != null && <Button type="button" variant="outline" disabled={busy || missing}
-              onClick={() => window.confirm('Start this account over from its starting balance? Its rank stays.') && save(null, true)}>Start over</Button>}
+              onClick={async () => (await confirmAction({ title: 'Start this account over?', message: 'It goes back to its starting balance. Its rank stays.', action: 'Start over', danger: true })) && save(null, true)}>Start over</Button>}
             <Button type="submit" disabled={busy || missing || !!limitError}>{busy ? 'Saving…' : 'Save'}</Button>
           </DialogFooter>
         </form>

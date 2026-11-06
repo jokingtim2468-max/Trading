@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import CopyField from '@/components/signals/CopyField';
+import { confirmAction } from '@/lib/confirm';
 
 // The 24/7 MT5 daemon (mt5/mt5_manager.py): how to run it, its token, and whether it is reporting
 export default function DaemonCard() {
@@ -9,7 +10,7 @@ export default function DaemonCard() {
   const load = () => fetch('/api/mt5/daemon').then((r) => r.json()).then(setInfo).catch(() => {});
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, []);
   const rotate = async () => {
-    if (!window.confirm('Make a new daemon token? The running daemon stops working until you restart it with the new command.')) return;
+    if (!(await confirmAction({ title: 'Make a new daemon token?', message: 'The running daemon stops working until you restart it with the new command.', action: 'Make new token' }))) return;
     await fetch('/api/mt5/daemon/rotate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     load();
   };

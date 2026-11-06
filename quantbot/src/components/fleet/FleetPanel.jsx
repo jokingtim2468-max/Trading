@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Settings2, ShieldCheck, Pause, Play, CheckCircle2, XCircle, Pencil } from 'lucide-react';
+import { Plus, Settings2, ShieldCheck, Pause, Play, CheckCircle2, XCircle, Pencil, Trash2 } from 'lucide-react';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { client } from '@/api/client';
+import { logSetup } from '@/lib/copy';
+import { confirmAction } from '@/lib/confirm';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import ProfileConfigurator from './ProfileConfigurator';
@@ -15,13 +19,30 @@ const post = (p, b) => fetch(p, { method: 'POST', headers: { 'content-type': 'ap
 
 // The simplified accounts tab: four numbers, one row per account (P&L, the script / profile it runs, its status),
 // and three actions: edit its profile, audit a payout, pause it
-export default function FleetPanel({ onAddManual, onEditAccount, groupsFor = () => [], onGroup, version }) {
+export default function FleetPanel({ onAddManual, onEditAccount, groupsFor = () => [], onGroup, onRemoved, version }) {
   const [data, setData] = useState(null);
   const [cfg, setCfg] = useState(null); // { account } or {} for a new one
   const [audit, setAudit] = useState(null);
   const load = useCallback(() => fetch('/api/fleet').then((r) => r.json()).then(setData).catch(() => {}), []);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
   useEffect(() => { load(); }, [version]);
+  // Every change asks first: remove, pause / resume, move to another group
+  const remove = async (r) => {
+    if (!(await confirmAction({ title: `Remove ${r.name || r.account}?`, message: 'The account leaves QuantBot and its group. Its journal trades stay.', action: 'Remove account', danger: true }))) return;
+    await client.entities.TradingAccount.delete(r.id);
+    await logSetup(`${r.name || r.account} removed`, { account_id: r.id });
+    load(); onRemoved?.();
+  };
+  const pause = async (r) => {
+    if (!(await confirmAction({ title: `${r.paused ? 'Resume' : 'Pause'} ${r.name || r.account}?`, message: r.paused ? 'Signals are copied to it again.' : 'Signals are not copied to it until you resume it.', action: r.paused ? 'Resume' : 'Pause' }))) return;
+    await post('/api/fleet/pause', { account_id: r.id, paused: !r.paused }); load();
+  };
+  const moveTo = async (r, groupId) => {
+    const g = groupsFor(r.platform).find((x) => x.id === groupId);
+    if (!(await confirmAction({ title: `Move ${r.name || r.account} ${g ? `to ${g.name}` : 'out of its group'}?`, message: g ? 'It copies that group\'s scripts from now on.' : 'It stops copying any script.', action: 'Move' }))) { load(); return; }
+    onGroup?.(r.id, groupId);
+  };
+  const audit1 = (r) => post('/api/fleet/audit', { account_id: r.id }).then(setAudit).catch((e) => setAudit({ error: e.message }));
   if (!data) return null;
   const { rows, kpis } = data;
   const status = (r) => (r.paused ? 'paused' : r.status);
@@ -53,7 +74,9 @@ export default function FleetPanel({ onAddManual, onEditAccount, groupsFor = () 
           <tbody>
             {!rows.length && <tr><td colSpan={8} className="px-2 py-6 text-muted-foreground">No accounts yet. Add one with a profile, or by its login.</td></tr>}
             {rows.map((r) => (
-              <tr key={r.id} className="border-t border-border" data-testid="fleet-row" data-account={r.account}>
+              <ContextMenu key={r.id}>
+              <ContextMenuTrigger asChild>
+              <tr className="border-t border-border" data-testid="fleet-row" data-account={r.account}>
                 <td className="px-2 py-2.5">
                   <span className="font-mono text-xs block">{r.account}</span>
                   <span className="text-[11px] text-muted-foreground block truncate max-w-[220px]">{r.display_name ? `${r.display_name} · ` : ''}{r.login ? `${r.login} on ${r.where}` : r.where}{r.firm ? `, ${r.firm}` : ''}</span>
@@ -61,7 +84,7 @@ export default function FleetPanel({ onAddManual, onEditAccount, groupsFor = () 
                 <td className="px-2 py-2.5">{r.firm && r.model ? `${r.firm} (${r.model})` : r.plan || r.firm || <span className="text-muted-foreground">–</span>}</td>
                 <td className="px-2 py-2.5 whitespace-nowrap">{platformOf(r.platform).title}</td>
                 <td className="px-2 py-2.5">
-                  <select value={groupsFor(r.platform).some((g) => g.name === r.group) ? groupsFor(r.platform).find((g) => g.name === r.group).id : ''} onChange={(e) => onGroup?.(r.id, e.target.value)}
+                  <select value={groupsFor(r.platform).some((g) => g.name === r.group) ? groupsFor(r.platform).find((g) => g.name === r.group).id : ''} onChange={(e) => moveTo(r, e.target.value)}
                     aria-label={`Group for ${r.account}`} className="h-8 max-w-[150px] rounded-md border border-border bg-background px-1.5 text-sm" data-testid="fleet-group">
                     <option value="">No group</option>
                     {groupsFor(r.platform).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -74,11 +97,22 @@ export default function FleetPanel({ onAddManual, onEditAccount, groupsFor = () 
                   <div className="flex gap-1 justify-end">
                     <Button size="sm" variant="ghost" title="Edit login and details" aria-label={`Edit ${r.account}`} onClick={() => onEditAccount?.(r.id)}><Pencil className="w-4 h-4" /></Button>
                     <Button size="sm" variant="ghost" title="Edit config (profile)" onClick={() => setCfg({ account: r })} data-testid="fleet-edit"><Settings2 className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" title="Audit payout" onClick={() => post('/api/fleet/audit', { account_id: r.id }).then(setAudit).catch((e) => setAudit({ error: e.message }))} data-testid="fleet-audit"><ShieldCheck className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" title={r.paused ? 'Resume' : 'Pause'} onClick={() => post('/api/fleet/pause', { account_id: r.id, paused: !r.paused }).then(load)} data-testid="fleet-pause">{r.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}</Button>
+                    <Button size="sm" variant="ghost" title="Audit payout" onClick={() => audit1(r)} data-testid="fleet-audit"><ShieldCheck className="w-4 h-4" /></Button>
+                    <Button size="sm" variant="ghost" title={r.paused ? 'Resume' : 'Pause'} onClick={() => pause(r)} data-testid="fleet-pause">{r.paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}</Button>
+                    <Button size="sm" variant="ghost" title="Remove account" aria-label={`Remove ${r.account}`} className="text-destructive hover:text-destructive" onClick={() => remove(r)} data-testid="fleet-remove"><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 </td>
               </tr>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-52" data-testid="fleet-menu">
+                <ContextMenuItem onSelect={() => onEditAccount?.(r.id)}><Pencil className="w-4 h-4 mr-2" />Edit login and details</ContextMenuItem>
+                <ContextMenuItem onSelect={() => setCfg({ account: r })}><Settings2 className="w-4 h-4 mr-2" />Edit profile</ContextMenuItem>
+                <ContextMenuItem onSelect={() => audit1(r)}><ShieldCheck className="w-4 h-4 mr-2" />Audit payout</ContextMenuItem>
+                <ContextMenuItem onSelect={() => pause(r)}>{r.paused ? <Play className="w-4 h-4 mr-2" /> : <Pause className="w-4 h-4 mr-2" />}{r.paused ? 'Resume' : 'Pause'}</ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => remove(r)}><Trash2 className="w-4 h-4 mr-2" />Remove account</ContextMenuItem>
+              </ContextMenuContent>
+              </ContextMenu>
             ))}
           </tbody>
         </table>

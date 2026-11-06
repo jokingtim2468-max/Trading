@@ -10,6 +10,7 @@ import { logSetup, groupScriptIds, firmUsage } from '@/lib/copy';
 import { MOTION, reducedMotion } from '@/lib/clickOrigin';
 import { useToast } from '@/components/ui/use-toast';
 import { MT5_SERVERS, familyOf, groupFamily } from '@/lib/accounts';
+import { confirmAction } from '@/lib/confirm';
 import GroupDialog from '@/components/accounts/GroupDialog';
 import GroupCard from '@/components/copy/GroupCard';
 import GroupDetail from '@/components/copy/GroupDetail';
@@ -120,9 +121,15 @@ export default function Accounts() {
     if (acc && drop.startsWith('tab:')) dropAccount(acc, drop);
   };
   const toggle = async (g) => {
+    if (!(await confirmAction({ title: `${g.enabled === false ? 'Resume' : 'Pause'} ${g.name}?`, message: g.enabled === false ? 'Signals are copied to its accounts again.' : 'Signals are not copied to its accounts until you resume it.', action: g.enabled === false ? 'Resume' : 'Pause' }))) return;
     await client.entities.CopyGroup.update(g.id, { enabled: g.enabled === false });
     await logSetup(`${g.name} ${g.enabled === false ? 'resumed: copying again' : 'paused: signals are not copied'}`, { group_id: g.id });
     data.reload();
+  };
+  const removeGroup = async (g) => {
+    const n = accounts.filter((a) => a.group_id === g.id).length;
+    if (!(await confirmAction({ title: `Delete group ${g.name}?`, message: `${n} account${n === 1 ? '' : 's'} will be left without a group (the accounts are not deleted).`, action: 'Delete group', danger: true }))) return;
+    setOpenId(null); await data.deleteGroup(g);
   };
   const dropFamily = (g) => (dragging === 'script' ? true : dragging ? dragging === groupFamily(g) : undefined);
 
@@ -141,7 +148,7 @@ export default function Accounts() {
           onDragStart={({ draggableId }) => { data.pause(true); setDragging(draggableId.startsWith('script:') ? 'script' : familyOf(byId(draggableId)?.platform)); }}
           onDragEnd={onDragEnd}>
           <div className="max-w-7xl mx-auto px-4 md:px-6 pt-4 md:pt-6">
-            <FleetPanel onAddManual={() => setEditing({})} onEditAccount={(id) => setEditing({ account: byId(id) })} version={accounts.map((a) => a.group_id || '-').join()}
+            <FleetPanel onRemoved={data.reload} onAddManual={() => setEditing({})} onEditAccount={(id) => setEditing({ account: byId(id) })} version={accounts.map((a) => a.group_id || '-').join()}
               groupsFor={(platform) => groups.filter((g) => groupFamily(g) === familyOf(platform))} onGroup={(id, groupId) => byId(id) && dropAccount(byId(id), `tab:${groupId || 'none'}`)} />
           </div>
           <div className="max-w-7xl mx-auto p-4 md:p-6 grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] items-start">
@@ -156,9 +163,9 @@ export default function Accounts() {
                       <Slide id={`group-${openGroup.id}`} from="right">
                         <GroupDetail group={openGroup} accounts={accounts} trades={data.trades} scripts={data.scripts} over={over} dropScript={dragging === 'script'}
                           onClose={() => setOpenId(null)} onChanged={data.reload}
-                          onRemoveScript={() => data.setScript(openGroup.id, '')}
-                          onRemoveAccount={(a) => data.moveAccount(a.id, '')}
-                          onRename={setGroupDialog} onToggle={toggle} onDelete={async (g) => { setOpenId(null); await data.deleteGroup(g); }} />
+                          onRemoveScript={async () => (await confirmAction({ title: `Take the script off ${openGroup.name}?`, message: 'Its accounts stop copying it.', action: 'Take off' })) && data.setScript(openGroup.id, '')}
+                          onRemoveAccount={async (a) => (await confirmAction({ title: `Take ${a.display_name || a.label} out of ${openGroup.name}?`, message: 'It stops copying this group\'s scripts. The account is not deleted.', action: 'Take out' })) && data.moveAccount(a.id, '')}
+                          onRename={setGroupDialog} onToggle={toggle} onDelete={removeGroup} />
                       </Slide>
                     ) : (
                       <Slide id="overview" from="left">
@@ -181,7 +188,7 @@ export default function Accounts() {
                           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {groups.map((g) => (
                               <GroupCard key={g.id} group={g} accounts={accounts} trades={data.trades} scripts={data.scripts} over={over}
-                                dropOk={dropFamily(g)} onOpen={() => open(g)} />
+                                dropOk={dropFamily(g)} onOpen={() => open(g)} onRename={setGroupDialog} onToggle={toggle} onDelete={removeGroup} />
                             ))}
                             <button type="button" onClick={() => setGroupDialog({})}
                               className="rounded-2xl border border-dashed border-border min-h-[150px] flex flex-col items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent">
