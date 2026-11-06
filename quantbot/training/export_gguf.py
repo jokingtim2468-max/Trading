@@ -14,7 +14,9 @@ if free < 33: raise SystemExit(f'Only {free:.0f} GB free: delete checkpoints / p
 from unsloth import FastLanguageModel  # noqa: E402
 model, tok = FastLanguageModel.from_pretrained(a.lora, max_seq_length=a.max_len, load_in_4bit=True)
 model.save_pretrained_gguf(a.out, tok, quantization_method='q4_k_m')
-# keep only the quantized file
-for f in glob.glob(os.path.join(a.out, '**', '*.gguf'), recursive=True):
+# newer Unsloth writes to <out>_gguf; keep only the quantized file
+dirs = [a.out, a.out.rstrip('/') + '_gguf']
+found = [f for d in dirs for f in glob.glob(os.path.join(d, '**', '*.gguf'), recursive=True)]
+for f in found:
     if not f.lower().endswith('q4_k_m.gguf'): os.remove(f); print('removed', f)
-print('done:', glob.glob(os.path.join(a.out, '**', '*Q4_K_M*.gguf'), recursive=True))
+print('done:', [f for f in found if f.lower().endswith('q4_k_m.gguf')])

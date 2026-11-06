@@ -16,4 +16,4 @@ echo "== full run =="
 python training/train_unsloth.py --data training/dataset/quantbot-sft.jsonl.gz --out /workspace/out --epochs 2 --verified-only --max-len "$MAX_LEN" --gguf
 rm -rf /workspace/out-smoke
 echo "== done. Download this file, then STOP THE POD =="
-ls -lh /workspace/out/gguf/*.gguf
+find /workspace/out -name "*Q4_K_M.gguf" -exec ls -lh {} ;
