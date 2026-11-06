@@ -139,3 +139,36 @@ export function startPull(url, model) {
 }
 
 export const pullStatus = () => (pulling ? { ...pulling } : { state: 'idle' });
+
+// Import a fine-tuned GGUF (e.g. the RunPod training output) as an Ollama model with QuantBot's settings: 32k context,
+// low temperature, and the Qwen2.5 chat template (copied from the installed base model, so tool calls keep working).
+export async function importGguf(url, file, name = 'quant-coder') {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const gguf = String(file || '').trim().replace(/^"|"$/g, '');
+  if (!/\.gguf$/i.test(gguf)) throw new Error('Pick the .gguf file from the training output (out/gguf/...Q4_K_M.gguf)');
+  if (!fs.existsSync(gguf)) throw new Error(`No file at ${gguf}`);
+  const model = String(name || '').trim().toLowerCase().replace(/[^a-z0-9._:-]/g, '-') || 'quant-coder';
+  const base = ollamaBase(url);
+  await ensureOllama(base);
+  let template = '';
+  try {
+    const r = await fetch(`${base}/api/show`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'qwen2.5-coder:7b' }) });
+    if (r.ok) template = (await r.json()).template || '';
+  } catch { /* base model not installed: Ollama reads the template from the GGUF */ }
+  const mf = [`FROM ${JSON.stringify(gguf)}`, 'PARAMETER num_ctx 32768', 'PARAMETER temperature 0.2',
+    ...(template ? [`TEMPLATE """${template}"""`] : [])].join('\n');
+  const mfPath = path.join(path.dirname(gguf), 'Modelfile.quantbot');
+  fs.writeFileSync(mfPath, mf);
+  const exe = (await findOllama()) || 'ollama';
+  const res = await new Promise((resolve) => {
+    let out = '';
+    const p = spawn(exe, ['create', model, '-f', mfPath], { windowsHide: true });
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { out += d; });
+    p.on('error', (e) => resolve({ code: -1, out: e.message }));
+    p.on('close', (code) => resolve({ code, out }));
+  });
+  if (res.code !== 0) throw new Error(`ollama create failed: ${res.out.trim().split('\n').pop() || res.code}`);
+  return { model, modelfile: mfPath, template_copied: !!template };
+}

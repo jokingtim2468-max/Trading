@@ -588,3 +588,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - New section under Models: **MCP servers** card (plug icon) and **Skills** card (book icon), same card style as the rest of Settings.
 - MCP card: each saved server is a row with a status dot (green connected, red error, grey off), name, command/URL (truncated), tool count ("1 tool"/"N tools"), Turn on/off and a delete icon. Form below: Name, Type (Local command / URL), Command + Arguments + env vars, or URL; Test and Save buttons with an inline status line.
 - Skills card: one row per skill (monospace name link, description, "built-in"/"yours"), New skill button, inline editor (name, one-line description, Markdown body).
+
+## Settings > Local model: Import fine-tuned model
+- Under the address/model fields, a divider then a path input (mono font, testid `gguf-path`) and an **Import** button (testid `gguf-import`, spinner while busy).
+- Import writes `Modelfile.quantbot` next to the .gguf (32k context, temperature 0.2, Qwen2.5 template copied from `qwen2.5-coder:7b` when installed), runs `ollama create quant-coder`, and makes it the active local model.

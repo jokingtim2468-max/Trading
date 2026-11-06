@@ -8,7 +8,7 @@ import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
 import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
-import { detectSpecs, startPull, pullStatus } from './lib/ollamaSpecs.js';
+import { detectSpecs, startPull, pullStatus, importGguf } from './lib/ollamaSpecs.js';
 import { codeFromReply } from './scriptFolders.js';
 import { cleanTitle } from './workspaces.js';
 
@@ -150,7 +150,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     },
 
     // Local model settings: test the Ollama address (lists installed models) or save address and model
-    async localModel({ action, url, model, api_key }) {
+    async localModel({ action, url, model, api_key, file }) {
       if (action === 'test') return { models: await listOllamaModels(url) };
       if (action === 'save') {
         const name = String(model || '').trim();
@@ -158,6 +158,13 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       }
       // Look at this PC and recommend the best coding model that fits its GPU / RAM
       if (action === 'recommend') return detectSpecs();
+      // Import a fine-tuned .gguf (RunPod training output) as an Ollama model and make it the active model
+      if (action === 'import') {
+        const me = user.me();
+        const r = await importGguf(url || me.ollama_url, file, model || 'quant-coder');
+        user.update({ ollama_model: r.model });
+        return r;
+      }
       // Install the recommended (or named) model through Ollama; the UI polls pull_status
       if (action === 'install') {
         const me = user.me();

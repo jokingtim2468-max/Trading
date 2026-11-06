@@ -18,6 +18,7 @@ export default function LocalModelCard() {
   const [specs, setSpecs] = useState(null); // { gpu, vram_gb, ram_gb, cpu, pick, on_cpu }
   const [pull, setPull] = useState(null); // { state, model, percent, status }
   const poll = useRef(null);
+  const [gguf, setGguf] = useState('');
 
   useEffect(() => {
     client.auth.me().then((me) => setForm({ url: me.ollama_url || DEFAULT_URL, model: me.ollama_model || DEFAULT_MODEL, saved: me.ollama_model || '', key: me.ollama_api_key || '' }));
@@ -132,6 +133,18 @@ export default function LocalModelCard() {
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={test} disabled={!!busy}>{busy === 'test' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Test connection</Button>
             <Button size="sm" onClick={() => save()} disabled={!!busy}>{busy === 'save' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save</Button>
+          </div>
+          {/* Fine-tuned model: the .gguf downloaded from the RunPod training run */}
+          <div className="space-y-2 pt-2 border-t border-border" data-testid="import-gguf">
+            <p className="text-xs text-muted-foreground">Import your fine-tuned model: paste the full path of the <span className="font-mono">.gguf</span> file you downloaded from RunPod. It is added to Ollama as <span className="font-mono">quant-coder</span> with 32k context and becomes the local model.</p>
+            <div className="flex gap-2">
+              <Input aria-label="GGUF file" className="font-mono" value={gguf} onChange={(e) => setGguf(e.target.value)} placeholder="C:\Users\you\Downloads\unsloth.Q4_K_M.gguf" data-testid="gguf-path" />
+              <Button size="sm" disabled={!!busy || !gguf.trim()} data-testid="gguf-import" onClick={() => run('import', async () => {
+                const r = await local({ action: 'import', url: form.url, file: gguf, model: 'quant-coder' });
+                setForm((f) => ({ ...f, model: r.model, saved: r.model }));
+                setMessage({ text: `Imported as ${r.model}${r.template_copied ? '' : ' (install qwen2.5-coder:7b first for the best tool-call template)'}. It is now the local model.`, error: false });
+              })}>{busy === 'import' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Import</Button>
+            </div>
           </div>
           {message.text && <p className={`text-xs ${message.error ? 'text-destructive' : 'text-muted-foreground'}`}>{message.text}</p>}
         </>
