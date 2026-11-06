@@ -9,6 +9,8 @@ import LogsCard from '@/components/settings/LogsCard';
 import Mt5AccountsCard from '@/components/settings/Mt5AccountsCard';
 import DaemonCard from '@/components/settings/DaemonCard';
 import VpsGuideCard from '@/components/settings/VpsGuideCard';
+import McpServersCard from '@/components/settings/McpServersCard';
+import SkillsCard from '@/components/settings/SkillsCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Settings() {
@@ -34,6 +36,12 @@ export default function Settings() {
           <h2 className="font-heading text-lg font-semibold">Models</h2>
           <LocalModelCard />
           <AgentTeamCard />
+        </section>
+
+        <section className="mt-8 space-y-3">
+          <h2 className="font-heading text-lg font-semibold">Tools &amp; skills</h2>
+          <McpServersCard />
+          <SkillsCard />
         </section>
 
         <section className="mt-8 space-y-3">

@@ -6,6 +6,9 @@ import { createDb } from './db.js';
 import { createUser, createKeys, createFiles } from './store.js';
 import { createFunctions } from './functions.js';
 import { createWorkspaces } from './workspaces.js';
+import { createMcp } from './lib/mcp.js';
+import { createSkills } from './lib/skills.js';
+import { fileURLToPath } from 'node:url';
 
 // Default field values from the entity schemas, so new records match what the pages expect
 export function entityDefaults(dir) {
@@ -23,7 +26,10 @@ export function createBackend({ dataDir, encrypt, decrypt, userName, defaults, m
   const db = createDb(path.join(dataDir, 'entities'), 'local', defaults);
   const keys = createKeys(dataDir, encrypt, decrypt);
   const files = createFiles(path.join(dataDir, 'files'));
-  const functions = createFunctions({ db, user, keys, market, folders: () => folders, workspaces: createWorkspaces(path.join(dataDir, 'workspaces')) });
+  // MCP servers set in Settings (started on first use) and skills (built-in + the trader's own)
+  const mcp = createMcp({ servers: () => user.me().mcp_servers || [] });
+  const skills = createSkills({ builtinDir: path.join(path.dirname(fileURLToPath(import.meta.url)), 'skills'), userDir: path.join(dataDir, 'skills') });
+  const functions = createFunctions({ db, user, keys, market, folders: () => folders, workspaces: createWorkspaces(path.join(dataDir, 'workspaces')), mcp, skills });
   const setFolders = (f) => { folders = f; };
 
   return {

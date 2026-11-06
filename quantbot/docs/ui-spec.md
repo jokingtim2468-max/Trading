@@ -583,3 +583,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
   - **Accounts**: Copy (Copy trading), Stats (Overview), Scaling (Scaling planner)
   - **Results**: PnL (PnL calendar), Journal
 - Chips press to 97% scale; hover uses the sidebar accent.
+
+## Settings: Tools & skills
+- New section under Models: **MCP servers** card (plug icon) and **Skills** card (book icon), same card style as the rest of Settings.
+- MCP card: each saved server is a row with a status dot (green connected, red error, grey off), name, command/URL (truncated), tool count ("1 tool"/"N tools"), Turn on/off and a delete icon. Form below: Name, Type (Local command / URL), Command + Arguments + env vars, or URL; Test and Save buttons with an inline status line.
+- Skills card: one row per skill (monospace name link, description, "built-in"/"yours"), New skill button, inline editor (name, one-line description, Markdown body).

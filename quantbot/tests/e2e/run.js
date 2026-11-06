@@ -108,6 +108,22 @@ await step('Settings: local model (Ollama) connects and saves', async () => {
   await card.getByText('Using qwen2.5-coder:7b').waitFor();
 });
 
+await step('Settings: an MCP server connects and its tools are listed; built-in skills are shown', async () => {
+  const card = page.getByTestId('mcp-card');
+  await card.scrollIntoViewIfNeeded();
+  await card.getByTestId('mcp-name').fill('calc');
+  await card.getByTestId('mcp-command').fill(process.execPath);
+  await card.getByTestId('mcp-args').fill(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'support', 'fakeMcp.mjs'));
+  await card.getByRole('button', { name: 'Test' }).click();
+  await card.getByText(/Connected: 1 tool \(add\)/).waitFor();
+  await card.getByTestId('mcp-save').click();
+  await card.getByText('1 tool', { exact: true }).waitFor();
+  const skills = page.getByTestId('skills-card');
+  await skills.getByRole('button', { name: 'backtest-rules' }).waitFor();
+  await skills.getByRole('button', { name: 'prop-firm-rules' }).waitFor();
+  await snap('settings-mcp-skills');
+});
+
 await step('Settings: built-in US100 hourly + daily history downloads with progress', async () => {
   const row = page.locator('div.py-3', { has: page.getByText('US 100 Tech Index') });
   await row.getByRole('button', { name: 'Download' }).click();

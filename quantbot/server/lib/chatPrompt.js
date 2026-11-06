@@ -106,9 +106,17 @@ WHAT QUANTBOT HAS (point the trader to these instead of other apps):
 - Agent Team: local agents that write, backtest and improve scripts on their own.
 - Train: fine-tunes a local model on the trader's market data.`;
 
-export function chatSystem(group, style, name, { linked = '', today = '', workspace = '' } = {}) {
+// skills: the one-line skill index (lib/skills.js); mcp: [{ name, tools }] of the connected MCP servers
+export function toolsBrief({ skills = '', mcp = [] } = {}) {
   return [
-    SYSTEM_PROMPT, TRADER_PROMPT, QUANT_PLAYBOOK,
+    skills ? `SKILLS (load the matching skill with load_skill BEFORE starting a task it covers; they hold the exact rules, data formats and templates. Load more than one when needed):\n${skills}` : '',
+    mcp.length ? `MCP TOOLS (tools named mcp_<server>_<tool>, from the trader's MCP servers): ${mcp.map((s) => `${s.name} (${s.tools} tools)`).join(', ')}. Use them when they fit the task: e.g. run code you wrote, read files, search docs. If one can run Python or shell commands, ALWAYS run every script you write, read the output, fix errors and run again before answering; quote only numbers from real output.` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+export function chatSystem(group, style, name, { linked = '', today = '', workspace = '', tools = '' } = {}) {
+  return [
+    SYSTEM_PROMPT, TRADER_PROMPT, tools, QUANT_PLAYBOOK,
     `${PROJECT_HINTS[group] || ''}\n${STYLE_HINTS[style] || STYLE_HINTS.Concise}\nThe trader's name is ${name || 'Trader'}.${today ? ` Today is ${today}.` : ''}`,
     workspace ? `YOUR WORKSPACE: this chat's folder is ${workspace}. Every script you write here (one code block starting with "// Script: <name>") is saved there automatically as scripts/<name>.mq5 or .pine, next to its README.md. Refer to scripts by that name.` : 'YOUR WORKSPACE: this chat gets its own folder after your first reply, named after the chat; every script you write is saved there automatically as scripts/<name>.mq5 or .pine.',
     linked,

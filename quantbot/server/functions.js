@@ -1,6 +1,7 @@
 // The app's AI features, run on this PC with the trader's own Claude / Gemini key.
 import { providerOf, toTurns, callModel, PROVIDER_NAMES, DEFAULT_MODELS } from './lib/modelCall.js';
-import { chatSystem, chatHistory, scriptNameOf } from './lib/chatPrompt.js';
+import { chatSystem, chatHistory, scriptNameOf, toolsBrief } from './lib/chatPrompt.js';
+import { MCP_PREFIX, cleanServer } from './lib/mcp.js';
 import { CONVERTER_SYSTEM, converterInputError, converterTask, converterResult } from './lib/converterPrompt.js';
 import { TESTER_SYSTEM, testerInputError, testerTask, testerResult } from './lib/testerPrompt.js';
 import { parseJsonReply } from './lib/simContract.js';
@@ -25,7 +26,7 @@ function scriptBrief(script, context) {
 
 const HANDSHAKE_ASK = 'Everything above is your system prompt for this whole chat. Follow it in every reply. To confirm you have read it, reply with exactly: OK';
 
-export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null }) {
+export function createFunctions({ db, user, keys, market, folders = () => null, workspaces = null, mcp = null, skills = null }) {
   const chatTools = createChatTools({ db, market, webKey: () => user.me().ollama_api_key || process.env.OLLAMA_API_KEY || '' });
   const replying = new Map(); // session_id -> { started, error, done }
   // There is no built-in model: "builtin" means your default model for whichever key is linked
@@ -56,22 +57,57 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
 
   // The tools the trader left on (Settings is /tools in the chat), run with this chat's workspace
   const toolsOff = () => new Set(user.me().chat_tools_off || []);
-  const toolsFor = (session) => {
+  const LOAD_SKILL = { name: 'load_skill', description: 'Load a skill (detailed rules, data formats, templates) by name from the SKILLS list in your system prompt. Do this before a task the skill covers.', parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } };
+  // Built-in tools + load_skill + the MCP servers' tools, minus the ones the trader turned off (/tools)
+  const allDefs = async () => [...chatTools.defs, ...(skills ? [LOAD_SKILL] : []), ...(mcp ? await mcp.tools().catch(() => []) : [])];
+  const toolsFor = async (session) => {
     const off = toolsOff();
-    return { defs: chatTools.defs.filter((t) => !off.has(t.name)), run: (name, input) => chatTools.run(name, input, { workspace: session.workspace || '' }) };
+    const defs = (await allDefs()).filter((t) => !off.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters }));
+    return {
+      defs,
+      run: (name, input) => (name === 'load_skill' && skills ? skills.load(input?.name)
+        : name.startsWith(MCP_PREFIX) && mcp ? mcp.run(name, input)
+          : chatTools.run(name, input, { workspace: session.workspace || '' })),
+    };
   };
+  // Skill index + connected MCP servers for the system prompt
+  const toolsText = () => toolsBrief({ skills: skills ? skills.index() : '', mcp: mcp ? mcp.status().filter((s) => s.connected).map((s) => ({ name: s.name, tools: s.tools })) : [] });
   const tokens = (text) => Math.ceil(String(text || '').length / 3.6); // rough: ~3.6 characters per token for English + code
 
   const fns = {
     // /tools: every tool with on / off; { name, on } toggles one
-    chatToolList({ name, on } = {}) {
+    async chatToolList({ name, on } = {}) {
       if (name) {
         const off = toolsOff();
         if (on) off.delete(name); else off.add(name);
         user.update({ chat_tools_off: [...off] });
       }
       const off = toolsOff();
-      return { tools: chatTools.defs.map((t) => ({ name: t.name, description: t.description, on: !off.has(t.name) })) };
+      return { tools: (await allDefs()).map((t) => ({ name: t.name, description: t.description, on: !off.has(t.name) })) };
+    },
+    // Settings > MCP servers: list (with status), save one, remove one, test one
+    async mcpServers({ action = 'list', server, name } = {}) {
+      const saved = user.me().mcp_servers || [];
+      if (action === 'save') {
+        const s = cleanServer(server);
+        user.update({ mcp_servers: [...saved.filter((x) => x.name !== s.name), s] });
+      } else if (action === 'remove') {
+        user.update({ mcp_servers: saved.filter((x) => x.name !== name) });
+      } else if (action === 'test') {
+        if (!mcp) fail('MCP is not available');
+        return mcp.test(server);
+      }
+      if (mcp) await mcp.ensure().catch(() => {});
+      const st = mcp ? mcp.status() : [];
+      return { servers: (user.me().mcp_servers || []).map((s) => ({ ...s, status: st.find((x) => x.name === s.name) || null })) };
+    },
+    // Settings > Skills: list, get one, save one (yours), remove one (yours)
+    skills({ action = 'list', name, skill } = {}) {
+      if (!skills) fail('Skills are not available');
+      if (action === 'get') return skills.get(name) || fail('No such skill');
+      if (action === 'save') skills.save(skill || {});
+      if (action === 'remove') skills.remove(name);
+      return { skills: skills.list().map(({ name: n, description, source, body }) => ({ name: n, description, source, size: body.length })) };
     },
     // /workspace: the chat's folder and its files
     async chatWorkspace({ session_id }) {
@@ -80,13 +116,13 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       return JSON.parse(await chatTools.run('workspace_files', {}, { workspace: session.workspace }));
     },
     // /context: what the model gets on the next message, in tokens, against the local model's window
-    chatContext({ session_id }) {
+    async chatContext({ session_id }) {
       const session = db.run('ChatSession', 'get', session_id);
       const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;
       const hidden = all.filter((m) => m.hidden), visible = all.filter((m) => !m.hidden);
       const recent = visible.slice(-20);
-      const system = chatSystem(session.group, 'Concise', user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
-      const defs = toolsFor(session).defs;
+      const system = chatSystem(session.group, 'Concise', user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '', tools: toolsText() });
+      const defs = (await toolsFor(session)).defs;
       const parts = [
         { part: 'System prompt (rules, playbook, your workspace)', tokens: tokens(system) },
         { part: 'System prompt handshake (short stand-in after the OK)', tokens: hidden.length ? tokens('Your system prompt is the system message above. Follow it in every reply. Confirm you have read it with: OK OK') : 0 },
@@ -136,7 +172,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     async chatHandshake({ session_id, style }) {
       const session = db.run('ChatSession', 'get', session_id);
       if (session.prompt_status === 'ok') return { status: 'ok', reply: session.prompt_reply || 'OK' };
-      const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
+      const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '', tools: toolsText() });
       const ask0 = `${system}\n\n${HANDSHAKE_ASK}`;
       let reply;
       try { reply = String(await ask(null, 'Follow the instructions in the first message exactly.', [{ role: 'user', content: ask0 }], 50)).trim(); } catch (e) { reply = `(no answer: ${e.message})`; }
@@ -193,8 +229,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       if (session.script_id) { try { script = db.run('Script', 'get', session.script_id); } catch { /* script deleted */ } }
       const useModel = model;
       const linked = script ? scriptBrief(script, await folders()?.brief(script)) : session.bot_name ? chatTools.testBrief(session.bot_name) : '';
-      const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '' });
-      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, toolsFor(session), onLive));
+      const system = chatSystem(session.group, style, user.me().full_name, { linked, today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '', tools: toolsText() });
+      const reply = String(await ask(useModel, system, toTurns(chatHistory(recent).map(({ role, content }) => ({ role, content }))), 16000, await toolsFor(session), onLive));
       const message = db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: reply });
       const name = scriptNameOf(reply);
       // A normal chat's first reply: the model names the chat, and that name becomes its workspace folder
