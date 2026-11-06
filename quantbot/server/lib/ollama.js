@@ -46,6 +46,7 @@ const MAX_TOOL_ROUNDS = 6;
 export async function callOllama(url, model, system, messages, maxTokens = 8192, tools = null, onLive = null) {
   const turns = [{ role: 'system', content: system }, ...messages];
   let withTools = !!tools;
+  let noTools = false; // the model has no tool-call template: it answered without its tools
   for (let round = 0; ; round++) {
     const useTools = withTools && round < MAX_TOOL_ROUNDS;
     const res = await request(`${ollamaBase(url)}/api/chat`, {
@@ -59,7 +60,7 @@ export async function callOllama(url, model, system, messages, maxTokens = 8192,
     }, 15 * 60000);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      if (useTools && /does not support tools/i.test(String(data.error))) { withTools = false; continue; }
+      if (useTools && /does not support tools/i.test(String(data.error))) { withTools = false; noTools = true; continue; }
       throw new Error(`Local model: ${data.error || res.status}${res.status === 404 ? ` (run: ollama pull ${model})` : ''}`);
     }
     let message;
@@ -77,7 +78,7 @@ export async function callOllama(url, model, system, messages, maxTokens = 8192,
     // Thinking models put their reasoning in <think> tags or a separate field: the reply is what follows it
     const text = String(message.content || '').replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
     if (!text) throw new Error('The local model returned an empty reply.');
-    return text;
+    return noTools ? `${text}\n\n> ⚠️ ${model} can't call tools in Ollama (its chat template has no tool support), so it answered without web search, Python, skills or MCP. Fix: Settings > Local model > Import the .gguf again with qwen2.5-coder:7b installed (it copies the tool template), then press Check everything.` : text;
   }
 }
 

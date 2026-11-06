@@ -12,6 +12,7 @@ import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL, setOllamaCtx } from '
 import { detectSpecs, startPull, pullStatus, importGguf, gpuFit, gpuEnvSaved, tuneOllama } from './lib/ollamaSpecs.js';
 import { codeFromReply } from './scriptFolders.js';
 import { cleanTitle } from './workspaces.js';
+import { selfTest } from './lib/selfTest.js';
 
 const fail = (message) => { throw new Error(message); };
 
@@ -73,7 +74,11 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     };
   };
   // Skill index + connected MCP servers for the system prompt
-  const toolsText = () => toolsBrief({ skills: skills ? skills.index() : '', mcp: mcp ? mcp.status().filter((s) => s.connected).map((s) => ({ name: s.name, tools: s.tools })) : [] });
+  const toolsText = () => toolsBrief({
+    skills: skills ? skills.index() : '',
+    mcp: mcp ? mcp.status().filter((s) => s.connected).map((s) => ({ name: s.name, tools: s.tools })) : [],
+    tools: [...chatTools.defs, ...(skills ? [LOAD_SKILL] : [])].filter((t) => !toolsOff().has(t.name)),
+  });
   const tokens = (text) => Math.ceil(String(text || '').length / 3.6); // rough: ~3.6 characters per token for English + code
 
   const fns = {
@@ -160,6 +165,8 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       }
       // Look at this PC and recommend the best coding model that fits its GPU / RAM
       if (action === 'recommend') return detectSpecs();
+      // Settings > Check everything
+      if (action === 'selftest') return { checks: await selfTest({ me: user.me(), chatTools, skills, mcp }) };
       // Does the loaded model fit the graphics card? (share on the GPU, the context size, the GPU settings)
       if (action === 'gpu') {
         const me = user.me();
@@ -194,6 +201,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
 
     // A new chat's first message is the system prompt itself; the model must answer OK, which shows it read it
     async chatHandshake({ session_id, style }) {
+      await mcp?.ensure().catch(() => {});
       const session = db.run('ChatSession', 'get', session_id);
       if (session.prompt_status === 'ok') return { status: 'ok', reply: session.prompt_reply || 'OK' };
       const system = chatSystem(session.group, style, user.me().full_name, { today: new Date().toISOString().slice(0, 10), workspace: session.workspace || '', tools: toolsText() });
@@ -253,6 +261,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     },
 
     async quantChat({ session_id, style, model }, onLive = null) {
+      await mcp?.ensure().catch(() => {}); // connected MCP servers are listed in the system prompt
       let session = db.run('ChatSession', 'get', session_id);
       if (!session.script_id && !session.prompt_status) { onLive?.('Sending your system prompt to the model…'); await fns.chatHandshake({ session_id, style }); session = db.run('ChatSession', 'get', session_id); }
       const all = db.run('ChatMessage', 'filter', { session_id }, { sort: 'created_date', limit: 1000 }).items;

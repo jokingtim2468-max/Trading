@@ -19,6 +19,7 @@ export default function LocalModelCard() {
   const [pull, setPull] = useState(null); // { state, model, percent, status }
   const poll = useRef(null);
   const [gguf, setGguf] = useState('');
+  const [checks, setChecks] = useState(null); // Check everything: [{ name, ok, detail, fix }]
   const [gpu, setGpu] = useState(null); // { models: [{ name, gpu_pct }], env_saved, ctx }
   const loadGpu = () => local({ action: 'gpu' }).then(setGpu).catch(() => {});
 
@@ -138,6 +139,26 @@ export default function LocalModelCard() {
             <Button size="sm" variant="outline" onClick={test} disabled={!!busy}>{busy === 'test' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Test connection</Button>
             <Button size="sm" onClick={() => save()} disabled={!!busy}>{busy === 'save' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save</Button>
           </div>
+          {/* Check everything: every part the model needs, run for real */}
+          <div className="rounded-xl border border-border p-3 space-y-2" data-testid="selftest">
+            <div className="flex items-center gap-2">
+              <p className="text-xs flex-1">Check that the model, its tools, skills, MCP servers, Python, your data and the internet all really work.</p>
+              <Button size="sm" disabled={!!busy} data-testid="selftest-run"
+                onClick={() => run('selftest', async () => { setChecks(null); setChecks((await local({ action: 'selftest' })).checks); loadGpu(); })}>
+                {busy === 'selftest' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{busy === 'selftest' ? 'Checking…' : 'Check everything'}</Button>
+            </div>
+            {checks && (
+              <ul className="space-y-1.5" data-testid="selftest-results">
+                {checks.map((c) => (
+                  <li key={c.name} className="text-xs flex gap-2" data-ok={c.ok ? '1' : '0'}>
+                    <span className={c.ok ? 'text-chart-2' : 'text-destructive'}>{c.ok ? '✓' : '✗'}</span>
+                    <span className="min-w-0"><b>{c.name}</b>: <span className="text-muted-foreground break-words">{c.detail}</span>{!c.ok && c.fix && <span className="block text-foreground">Fix: {c.fix}</span>}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           {/* Does it fit the graphics card? Part of a model on RAM makes every answer minutes slower */}
           {gpu && (() => {
             const m = gpu.models.find((x) => x.name.startsWith(String(form.saved || form.model).split(':')[0])) || gpu.models[0];

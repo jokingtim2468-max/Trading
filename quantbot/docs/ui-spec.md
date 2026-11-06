@@ -610,3 +610,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 ## Chat: Stop
 - While a reply is being written, a square **Stop** button (foreground-colored, testid `chat-stop`) sits left of the send arrow; the send arrow hides unless there is text to queue. Esc also stops.
 - Stop cancels the model request right away; what was written so far stays in the chat, ending with "_Stopped._". Queued messages for that chat are dropped; resend when ready.
+
+## Settings > Local model: Check everything
+- Box (testid `selftest`) with one line of text and a **Check everything** button (spinner + "Checking…" while running).
+- Results list (testid `selftest-results`): green ✓ or red ✗ per check, bold name, grey detail, and a "Fix:" line under each failure. Checks: Ollama running, chat model installed, model supports tool calls, the model really calls a tool and uses its answer, fits the graphics card, skills load, each MCP server, MT5 data folder, Python, pandas + numpy, internet (web_search).
