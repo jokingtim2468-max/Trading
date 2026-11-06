@@ -15,7 +15,8 @@ def _logins(var):
 
 def initialize(path=None, login=None, password=None, server=None, timeout=None, portable=False):
     global _error
-    with open(os.environ["FAKE_MT5_CALLS"], "a", encoding="utf-8") as f:
+    # one file per process: appends from several processes to one file can lose lines on Windows
+    with open(f'{os.environ["FAKE_MT5_CALLS"]}.{os.getpid()}', "a", encoding="utf-8") as f:
         f.write(json.dumps({"pid": os.getpid(), "path": path, "login": login, "password": password, "server": server, "portable": portable}) + "\n")
     if login in _logins("FAKE_MT5_FAIL"):
         _error = (-6, "Terminal: Authorization failed")

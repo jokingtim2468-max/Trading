@@ -13,7 +13,9 @@ const MAX_BARS = 1500;
 const r2 = (v) => (v == null || !Number.isFinite(v) ? v : Math.round(v * 100) / 100);
 const day = (iso) => (iso ? String(iso).slice(0, 16).replace('T', ' ') : null);
 
-export const TOOL_DEFS = [
+// The model is information only: it never sees or touches trading accounts, positions or the copier
+const BLOCKED = new Set(['copy_trading_summary', 'copy_trading_log', 'copy_trading_trades']);
+const ALL_DEFS = [
   {
     name: 'calculate',
     description: 'Exact arithmetic (small models get maths wrong): + - * / ^ % and parentheses, e.g. "(10000*0.0125)/(4.5*100)".',
@@ -270,6 +272,8 @@ export async function webFetch(url, key = '') {
 }
 
 // Runs a script with the system's Python in the workspace: { exit_code, output } (output cut to the last 12k chars)
+export const TOOL_DEFS = ALL_DEFS.filter((t) => !BLOCKED.has(t.name));
+
 export function runPython(ctx, code, file = 'run.py', args = [], timeoutMs = 300000) {
   const ws = ctx?.workspace;
   if (!ws) throw new Error('This chat has no workspace yet: it is created after the first reply');
@@ -538,5 +542,5 @@ export function createChatTools({ db, market, webKey = () => '' }) {
     ].filter(Boolean).join('\n');
   }
 
-  return { defs: TOOL_DEFS, run, testBrief };
+  return { defs: TOOL_DEFS, run: (name, ...rest) => (BLOCKED.has(name) ? JSON.stringify({ error: 'The model has no access to trading accounts.' }) : run(name, ...rest)), testBrief };
 }

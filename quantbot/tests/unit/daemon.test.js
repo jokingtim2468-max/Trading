@@ -91,7 +91,8 @@ describe('MT5 daemon', () => {
       env: { ...process.env, PYTHONPATH: path.resolve('tests/support/fake_mt5'), FAKE_MT5_CALLS: calls, FAKE_MT5_FAIL: '8888', FAKE_MT5_NO_ALGO: '7001' },
     });
     assert.equal(res.status, 0, res.stderr + res.stdout);
-    const made = fs.readFileSync(calls, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    const made = fs.readdirSync(path.dirname(calls)).filter((f) => f.startsWith('calls.jsonl.'))
+      .flatMap((f) => fs.readFileSync(path.join(path.dirname(calls), f), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)));
     const logins = made.map((c) => c.login).sort((a, b) => a - b);
     assert.deepEqual(logins, [7001, 8888, 5100901], 'one login per account; the account sharing a terminal is refused');
     assert.equal(new Set(made.map((c) => c.pid)).size, 3, 'each account has its own process');

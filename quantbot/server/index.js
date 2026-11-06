@@ -565,6 +565,22 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     app?.log?.(`mt5 daemon started for ${withLogin.length} account(s)`);
   };
   setTimeout(() => startMt5Daemon().catch((e) => app?.log?.(`mt5 daemon: ${e.message}`)), 5000).unref?.();
+  // The trained model is the local model: when C:\QuantBot\models (or <data>/models) holds a .gguf that Ollama doesn't
+  // have yet, import it as quant-coder once; whenever quant-coder is installed, make it the chat model
+  const useTrained = async () => {
+    if (process.env.CI || process.env.QUANTBOT_NO_AUTOSTART) return;
+    const me = backend.handle('user', 'me');
+    const { listOllamaModels } = await import('./lib/ollama.js');
+    const { importGguf } = await import('./lib/ollamaSpecs.js');
+    let have = (await listOllamaModels(me.ollama_url).catch(() => [])).some((m) => /^quant-coder(:|$)/.test(m));
+    if (!have) {
+      const dirs = [process.platform === 'win32' ? 'C:\\QuantBot\\models' : '', path.join(dataDir, 'models')].filter(Boolean);
+      const gguf = dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.gguf$/i.test(f)).map((f) => path.join(d, f)) : []))[0];
+      if (gguf) { await importGguf(me.ollama_url, gguf, 'quant-coder'); have = true; app?.log?.(`imported ${gguf} as quant-coder`); }
+    }
+    if (have && !/^quant-coder(:|$)/.test(me.ollama_model || '')) backend.handle('user', 'update', { ollama_model: 'quant-coder' });
+  };
+  setTimeout(() => useTrained().catch((e) => app?.log?.(`trained model: ${e.message}`)), 8000).unref?.();
   const daemonCheck = setInterval(() => startMt5Daemon().catch(() => {}), 5 * 60000); // accounts added later
   daemonCheck.unref?.();
 

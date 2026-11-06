@@ -930,7 +930,8 @@ await step('MT5 & deployment: add broker accounts one by one and in bulk, the da
   await card.locator('tr[data-mt5="7001234"]').getByText(/100,234 \/ 100,050 USD/).waitFor();
   await card.locator('tr[data-mt5="5100777"]').getByText(/login failed: -6 Terminal: Authorization failed/).waitFor();
   await page.getByTestId('daemon-card').getByTestId('daemon-status').getByText(/Running: 2\/\d+ accounts connected/).waitFor();
-  const logged = fs.readFileSync(calls, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const logged = fs.readdirSync(dataDir).filter((f) => f.startsWith('fake-mt5-calls.jsonl.'))
+    .flatMap((f) => fs.readFileSync(path.join(dataDir, f), 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)));
   expect(logged.some((c) => c.login === 22334455 && c.password === 'Fx-Secret-2' && c.path === 'C:\\MT5\\FX1\\terminal64.exe'), 'daemon did not log in FOREX.com with its own terminal');
   const stored = fs.readdirSync(path.join(dataDir, 'entities')).map((f) => fs.readFileSync(path.join(dataDir, 'entities', f), 'utf8')).join('');
   expect(!stored.includes('Fx-Secret-2') && !stored.includes('Fn-Secret-1'), 'MT5 password stored in plain text');

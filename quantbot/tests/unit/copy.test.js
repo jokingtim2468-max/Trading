@@ -160,17 +160,10 @@ describe('copier', () => {
     assert.ok(ev.some((e) => e.kind === 'ignore' && /no script has that name/.test(e.message)));
   });
 
-  test('the chat reads the copy trading summary, log and trades', async () => {
+  test('the chat model has no access to trading accounts (information only)', async () => {
     const tools = createChatTools({ db: db.sync, market: null });
-    const sum = JSON.parse(await tools.run('copy_trading_summary', {}));
-    assert.equal(sum.scripts[0].name, 'QB Gold London-NY');
-    assert.equal(sum.accounts.find((a) => a.trader === 'Crimson Falcon').status, 'failed');
-    assert.ok(sum.overall.trades >= 3);
-    const log = JSON.parse(await tools.run('copy_trading_log', { account: 'crimson falcon', problems_only: true }));
-    assert.ok(log.events.length && log.events.every((e) => e.level !== 'info'));
-    const tr = JSON.parse(await tools.run('copy_trading_trades', { account: 'Silent Wolf' }));
-    assert.equal(tr.trades[0].pnl, 120);
-    assert.match(JSON.parse(await tools.run('copy_trading_log', { script: 'nope' })).error, /No "nope"\. Known: QB Gold London-NY/);
+    assert.ok(!tools.defs.some((d) => d.name.startsWith('copy_trading')));
+    for (const n of ['copy_trading_summary', 'copy_trading_log', 'copy_trading_trades']) assert.match(JSON.parse(await tools.run(n, {})).error, /no access to trading accounts/);
   });
 });
 

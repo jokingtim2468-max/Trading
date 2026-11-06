@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMcp, cleanServer, toolName } from '../../server/lib/mcp.js';
 import { createSkills, parseSkill } from '../../server/lib/skills.js';
 
-const fake = path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'support', 'fakeMcp.mjs');
+const fake = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'support', 'fakeMcp.mjs');
 
 test('mcp: a stdio server is started, its tools listed and called', async () => {
   const servers = [cleanServer({ name: 'Calc', transport: 'stdio', command: process.execPath, args: [fake] })];
@@ -61,7 +62,7 @@ test('mcp: http servers (JSON and event-stream answers)', async () => {
 
 test('skills: built-in skills load, yours override and can be removed', () => {
   const user = fs.mkdtempSync(path.join(os.tmpdir(), 'qb-skills-'));
-  const builtin = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'server', 'skills');
+  const builtin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'server', 'skills');
   const s = createSkills({ builtinDir: builtin, userDir: user });
   const names = s.list().map((x) => x.name);
   for (const n of ['backtest-rules', 'mt5-data', 'prop-firm-rules', 'pine-v6', 'research-findings']) assert.ok(names.includes(n), n);

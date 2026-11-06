@@ -18,7 +18,7 @@ const fail = (message) => { throw new Error(message); };
 function scriptBrief(script, context) {
   return [
     `LINKED SCRIPT: this chat writes and changes the copy trading script "${script.name}" (${script.language}). Its accounts copy the script's QuantBot signal alerts, so keep every buy / sell / set_sl / set_tp / close message in the code.`,
-    'When you change it, reply with the whole script in ONE code block: QuantBot saves it as the script\'s new code and in its folder. Use the copy_trading_* tools for its live results, log and trades before changing it, and say what evidence a change is based on.',
+    'When you change it, reply with the whole script in ONE code block: QuantBot saves it as the script\'s new code and in its folder. Say what evidence a change is based on (backtests, data).',
     context ? `Script folder (CLAUDE.md):\n${context.slice(0, 6000)}` : '',
     script.code ? `Current code:\n\`\`\`${script.language === 'MT5' ? 'mql5' : 'pine'}\n${script.code.slice(0, 30000)}\n\`\`\`` : 'No code yet: write the first version.',
   ].filter(Boolean).join('\n\n');
