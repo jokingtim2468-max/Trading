@@ -36,6 +36,12 @@
     Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and ($_.CommandLine -match 'mt5_manager\.py' -or $_.ExecutablePath -match '\\QuantBot\\') } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   Start-Sleep -Seconds 2
+  # Still running? It was started as administrator: close it with one administrator prompt
+  if (Get-Process -Name 'QuantBot' -ErrorAction SilentlyContinue) {
+    Write-Host 'QuantBot is running as administrator: approve the prompt to close it.' -ForegroundColor Yellow
+    Start-Process -FilePath 'taskkill.exe' -ArgumentList '/F /T /IM QuantBot.exe' -Verb RunAs -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+  }
   Write-Host 'Opening the QuantBot setup wizard.' -ForegroundColor Green
   Start-Process -FilePath $file
 }
