@@ -225,7 +225,8 @@ export default function QuantChat() {
         <MessageQueue queue={queue.filter((q) => q.chat === activeId)} onRemove={(id) => setQueue((q) => q.filter((x) => x.id !== id))} />
         <LoopFixPanel />
         <Composer
-          onSend={submit} disabled={needsKey}
+          onSend={submit} disabled={needsKey} busy={thinking}
+          onStop={async () => { if (!activeId) return; await api.stopReply(activeId); setThinking(false); setLive(''); setQueue((q) => q.filter((x) => x.chat !== activeId)); setMessages(await api.loadMessages(activeId)); }}
           style={style} onStyleChange={setStyle} model={chatModel} onModelChange={changeModel}
         />
       </main>

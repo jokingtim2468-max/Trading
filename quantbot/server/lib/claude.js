@@ -1,3 +1,4 @@
+import { withStop } from './abort.js';
 // QUANTBOT_ANTHROPIC_URL points calls at another server (the end-to-end tests use a fake one)
 // Opus 5.5 and Sonnet 5.5 requests opt into server-side fallback: if a safety check declines the request,
 // Anthropic retries it on another model in the same call instead of returning nothing.
@@ -34,7 +35,7 @@ async function request(apiKey, model, body) {
       ...(fallback ? { 'anthropic-beta': 'server-side-fallback-2026-07-01' } : {}),
     },
     body: JSON.stringify({ model, ...body, ...(fallback ? { fallbacks: 'default' } : {}) }),
-    signal: AbortSignal.timeout(600000),
+    signal: withStop(600000),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(`Claude API: ${data.error?.message || res.status}`);

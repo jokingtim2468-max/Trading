@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowUp } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
+import { useEffect as useEffectEsc } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useLocalModels } from '@/lib/models';
 import { COMMANDS } from '@/lib/chatCommands';
@@ -7,7 +8,14 @@ import { COMMANDS } from '@/lib/chatCommands';
 const STYLES = ['Concise', 'Code only'];
 const triggerCls = 'h-8 w-auto gap-2 border-border bg-transparent text-xs text-muted-foreground';
 
-export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange }) {
+export default function Composer({ onSend, disabled, style, onStyleChange, model, onModelChange, busy = false, onStop }) {
+  // Esc stops the reply being written
+  useEffectEsc(() => {
+    if (!busy || !onStop) return undefined;
+    const key = (e) => { if (e.key === 'Escape' && !document.querySelector('[role=dialog],[role=alertdialog],[role=listbox]')) onStop(); };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [busy, onStop]);
   const models = useLocalModels();
   const [text, setText] = useState('');
   const [pick, setPick] = useState(0);
@@ -68,13 +76,19 @@ export default function Composer({ onSend, disabled, style, onStyleChange, model
               </SelectContent>
             </Select>
           </div>
-          <button
+          {busy && onStop && (
+            <button onClick={onStop} title="Stop the reply (Esc)" aria-label="Stop" data-testid="chat-stop"
+              className="h-8 w-8 rounded-lg bg-foreground text-background flex items-center justify-center hover:opacity-80 transition">
+              <Square className="w-3.5 h-3.5 fill-current" />
+            </button>
+          )}
+          {(!busy || text.trim()) && <button
             onClick={submit}
             disabled={disabled || !text.trim()}
             className="h-8 w-8 rounded-lg bg-primary text-primary-foreground flex items-center justify-center hover:bg-primary/90 disabled:opacity-40 transition"
           >
             <ArrowUp className="w-4 h-4" />
-          </button>
+          </button>}
         </div>
       </div>
     </div>

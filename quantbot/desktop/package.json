@@ -56,7 +56,8 @@
       "installerSidebar": "build/installerSidebar.bmp",
       "uninstallerSidebar": "build/installerSidebar.bmp",
       "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     },
     "publish": [{ "provider": "github", "owner": "jokingtim2468-max", "repo": "Trading", "releaseType": "release" }]
   }

@@ -1,5 +1,6 @@
 // A model running on this PC through Ollama (https://ollama.com). Free and offline; quality depends on the model.
 // The context window is set large enough for QuantBot's prompts plus a full EA (fits a 7B model on an 8 GB GPU).
+import { withStop, stopSignal, STOPPED } from './abort.js';
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 export const DEFAULT_OLLAMA_MODEL = 'qwen2.5-coder:7b';
 // Context window: 32k by default; 24k / 16k when the model doesn't fit the graphics card at 32k (Settings)
@@ -17,8 +18,9 @@ export function ollamaBase(url) {
 // agent or /loopfix never fails just because Ollama wasn't open yet
 async function request(url, init, timeoutMs, retried = false) {
   try {
-    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+    return await fetch(url, { ...init, signal: withStop(timeoutMs) });
   } catch (e) {
+    if (stopSignal()?.aborted) throw new Error(STOPPED);
     if (e.name === 'TimeoutError') throw new Error('The local model took too long to answer.');
     if (!retried) {
       const { ensureOllama } = await import('./ollamaSpecs.js');

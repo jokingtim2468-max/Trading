@@ -606,3 +606,7 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Box under the address fields (testid `gpu-fit`): says how much of the loaded model is on the graphics card vs RAM (amber border + tint when any is on RAM), plus "The GPU memory settings are not on yet" when flash attention / q8_0 KV cache aren't saved.
 - **Fit on my GPU** (testid `gpu-tune`, filled when there is a problem): saves OLLAMA_FLASH_ATTENTION=1 and OLLAMA_KV_CACHE_TYPE=q8_0 for the Windows user and restarts Ollama. QuantBot also does this once by itself at start.
 - **Context** select (testid `ctx-size`): 32k (default) / 24k / 16k (fastest).
+
+## Chat: Stop
+- While a reply is being written, a square **Stop** button (foreground-colored, testid `chat-stop`) sits left of the send arrow; the send arrow hides unless there is text to queue. Esc also stops.
+- Stop cancels the model request right away; what was written so far stays in the chat, ending with "_Stopped._". Queued messages for that chat are dropped; resend when ready.

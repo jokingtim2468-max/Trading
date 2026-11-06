@@ -6,6 +6,7 @@ import { CONVERTER_SYSTEM, converterInputError, converterTask, converterResult }
 import { TESTER_SYSTEM, testerInputError, testerTask, testerResult } from './lib/testerPrompt.js';
 import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
+import { withSignal } from './lib/abort.js';
 import { createChatTools } from './lib/chatTools.js';
 import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL, setOllamaCtx } from './lib/ollama.js';
 import { detectSpecs, startPull, pullStatus, importGguf, gpuFit, gpuEnvSaved, tuneOllama } from './lib/ollamaSpecs.js';
@@ -212,12 +213,14 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     chatSend({ session_id, style, model }) {
       db.run('ChatSession', 'get', session_id);
       if (replying.has(session_id)) return { replying: true };
-      replying.set(session_id, { started: Date.now(), error: '' });
-      (async () => {
+      const ctl = new AbortController();
+      replying.set(session_id, { started: Date.now(), error: '', ctl });
+      withSignal(ctl.signal, async () => {
         try {
           // Messages sent while the model was busy get another round, answered together
           const users = () => db.run('ChatMessage', 'filter', { session_id, role: 'user' }, { limit: 1000 }).items.filter((m) => !m.hidden).length;
           for (let guard = 0, answered = -1; guard < 10; guard++) {
+            if (ctl.signal.aborted) break;
             const n = users();
             if (n === answered) break;
             await fns.quantChat({ session_id, style, model }, (text) => { const r = replying.get(session_id); if (r) r.live = text; });
@@ -226,10 +229,21 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
           }
           replying.delete(session_id);
         } catch (e) {
-          replying.set(session_id, { error: e.message, done: true });
+          if (ctl.signal.aborted) replying.delete(session_id);
+          else replying.set(session_id, { error: e.message, done: true });
         }
-      })();
+      });
       return { replying: true };
+    },
+    // Stop: cancel the reply being written now; what it wrote so far is kept, marked as stopped
+    chatStop({ session_id }) {
+      const r = replying.get(session_id);
+      if (!r || r.done) return { stopped: false };
+      r.ctl?.abort();
+      const partial = String(r.live || '').trim();
+      db.run('ChatMessage', 'create', { session_id, role: 'assistant', content: `${partial ? `${partial}\n\n` : ''}_Stopped._` });
+      replying.delete(session_id);
+      return { stopped: true };
     },
     chatStatus({ session_id }) {
       const r = replying.get(session_id);

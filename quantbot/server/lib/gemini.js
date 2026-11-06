@@ -1,3 +1,4 @@
+import { withStop } from './abort.js';
 // QUANTBOT_GEMINI_URL points calls at another server (the end-to-end tests use a fake one)
 // messages: [{role:'user'|'assistant', content}] with alternating roles, starting with 'user'
 const MAX_TOOL_ROUNDS = 10;
@@ -37,7 +38,7 @@ async function request(apiKey, model, body) {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(270000),
+    signal: withStop(270000),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(`Gemini API: ${data.error?.message || res.status}`);
