@@ -19,11 +19,14 @@ export default function LocalModelCard() {
   const [pull, setPull] = useState(null); // { state, model, percent, status }
   const poll = useRef(null);
   const [gguf, setGguf] = useState('');
+  const [gpu, setGpu] = useState(null); // { models: [{ name, gpu_pct }], env_saved, ctx }
+  const loadGpu = () => local({ action: 'gpu' }).then(setGpu).catch(() => {});
 
   useEffect(() => {
     client.auth.me().then((me) => setForm({ url: me.ollama_url || DEFAULT_URL, model: me.ollama_model || DEFAULT_MODEL, saved: me.ollama_model || '', key: me.ollama_api_key || '' }));
+    loadGpu(); const gt = setInterval(loadGpu, 10000);
     local({ action: 'find_gguf' }).then((r) => r.files?.[0] && setGguf((g) => g || r.files[0])).catch(() => {});
-    return () => clearInterval(poll.current);
+    return () => { clearInterval(poll.current); clearInterval(gt); };
   }, []);
 
   const run = async (kind, fn) => {
@@ -135,6 +138,33 @@ export default function LocalModelCard() {
             <Button size="sm" variant="outline" onClick={test} disabled={!!busy}>{busy === 'test' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Test connection</Button>
             <Button size="sm" onClick={() => save()} disabled={!!busy}>{busy === 'save' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Save</Button>
           </div>
+          {/* Does it fit the graphics card? Part of a model on RAM makes every answer minutes slower */}
+          {gpu && (() => {
+            const m = gpu.models.find((x) => x.name.startsWith(String(form.saved || form.model).split(':')[0])) || gpu.models[0];
+            const spill = m && m.gpu_pct < 100;
+            return (
+              <div className={`rounded-xl border p-3 space-y-2 ${spill ? 'border-chart-4/60 bg-chart-4/5' : 'border-border'}`} data-testid="gpu-fit">
+                <p className="text-xs">
+                  {m ? (spill ? <><b>{m.name}</b> is {m.gpu_pct}% on the graphics card, {100 - m.gpu_pct}% on RAM: answers are much slower.</> : <><b>{m.name}</b> runs fully on the graphics card.</>)
+                    : 'No model loaded right now. It loads on your first message.'}
+                  {!gpu.env_saved && ' The GPU memory settings are not on yet.'}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant={spill || !gpu.env_saved ? 'default' : 'outline'} disabled={!!busy} data-testid="gpu-tune"
+                    onClick={() => run('tune', async () => { await local({ action: 'tune', url: form.url }); setMessage({ text: 'Saved flash attention + 8-bit KV cache and restarted Ollama. Send a message to load the model again.', error: false }); loadGpu(); })}>
+                    {busy === 'tune' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}Fit on my GPU</Button>
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5">Context
+                    <select className="h-8 rounded-md border border-border bg-background px-1.5 text-xs" value={gpu.ctx} data-testid="ctx-size"
+                      onChange={(e) => local({ action: 'ctx', ctx: Number(e.target.value) }).then(loadGpu)}>
+                      {[[32768, '32k (default)'], [24576, '24k'], [16384, '16k (fastest)']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </label>
+                  <span className="text-[11px] text-muted-foreground">Still on RAM after Fit? Pick 24k.</span>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Fine-tuned model: the .gguf downloaded from the RunPod training run */}
           <div className="space-y-2 pt-2 border-t border-border" data-testid="import-gguf">
             <p className="text-xs text-muted-foreground">Import your fine-tuned model: paste the full path of the <span className="font-mono">.gguf</span> file you downloaded from RunPod. It is added to Ollama as <span className="font-mono">quant-coder</span> with 32k context and becomes the local model.</p>

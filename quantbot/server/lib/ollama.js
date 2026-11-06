@@ -2,7 +2,10 @@
 // The context window is set large enough for QuantBot's prompts plus a full EA (fits a 7B model on an 8 GB GPU).
 export const DEFAULT_OLLAMA_URL = 'http://127.0.0.1:11434';
 export const DEFAULT_OLLAMA_MODEL = 'qwen2.5-coder:7b';
-const NUM_CTX = 32768;
+// Context window: 32k by default; 24k / 16k when the model doesn't fit the graphics card at 32k (Settings)
+let numCtx = 32768;
+export const setOllamaCtx = (n) => { numCtx = [8192, 16384, 24576, 32768].includes(Number(n)) ? Number(n) : 32768; return numCtx; };
+export const ollamaCtx = () => numCtx;
 
 export function ollamaBase(url) {
   const base = String(url || DEFAULT_OLLAMA_URL).trim().replace(/\/+$/, '');
@@ -48,7 +51,7 @@ export async function callOllama(url, model, system, messages, maxTokens = 8192,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         model, stream: !!onLive, messages: turns,
-        options: { num_ctx: NUM_CTX, num_predict: maxTokens },
+        options: { num_ctx: numCtx, num_predict: maxTokens },
         ...(useTools ? { tools: tools.defs.map((t) => ({ type: 'function', function: t })) } : {}),
       }),
     }, 15 * 60000);

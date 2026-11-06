@@ -571,7 +571,9 @@ export async function startServer({ port = 5173, dataDir = path.join(root, 'data
     if (process.env.CI || process.env.QUANTBOT_NO_AUTOSTART) return;
     const me = backend.handle('user', 'me');
     const { listOllamaModels } = await import('./lib/ollama.js');
-    const { importGguf } = await import('./lib/ollamaSpecs.js');
+    const { importGguf, gpuEnvSaved, tuneOllama } = await import('./lib/ollamaSpecs.js');
+    // An 8-bit KV cache + flash attention keep a 7B model at 32k context on an 8 GB card (else part of it runs from RAM)
+    if (process.platform === 'win32' && !(await gpuEnvSaved())) { await tuneOllama(me.ollama_url).catch((e) => app?.log?.(`ollama gpu settings: ${e.message}`)); app?.log?.('ollama: saved the GPU settings (flash attention, q8_0 KV cache) and restarted it'); }
     let have = (await listOllamaModels(me.ollama_url).catch(() => [])).some((m) => /^quant-coder(:|$)/.test(m));
     if (!have) {
       const dirs = [process.platform === 'win32' ? 'C:\\QuantBot\\models' : '', path.join(dataDir, 'models')].filter(Boolean);

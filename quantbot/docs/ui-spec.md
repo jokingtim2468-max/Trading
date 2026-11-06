@@ -601,3 +601,8 @@ XP, then 200 more, 300 more...; scripts at 1,000, 2,000 more...
 - Every delete or change asks first in one shared dialog (`ConfirmHost`, testids `confirm-dialog` / `confirm-ok` / `confirm-cancel`): title as a question, one-line consequence, Cancel + action button (destructive red for deletes). Replaces all browser `confirm()` popups.
 - Accounts table rows: right-click opens a menu (Edit login and details, Edit profile, Audit payout, Pause/Resume, separator, red Remove account). Each row also has a red trash button (testid `fleet-remove`). Changing an account's Group asks before moving it.
 - Group cards: right-click menu (Open, Rename, Pause/Resume copying, separator, red Delete group). Taking a script or account out of a group asks first.
+
+## Settings > Local model: GPU fit
+- Box under the address fields (testid `gpu-fit`): says how much of the loaded model is on the graphics card vs RAM (amber border + tint when any is on RAM), plus "The GPU memory settings are not on yet" when flash attention / q8_0 KV cache aren't saved.
+- **Fit on my GPU** (testid `gpu-tune`, filled when there is a problem): saves OLLAMA_FLASH_ATTENTION=1 and OLLAMA_KV_CACHE_TYPE=q8_0 for the Windows user and restarts Ollama. QuantBot also does this once by itself at start.
+- **Context** select (testid `ctx-size`): 32k (default) / 24k / 16k (fastest).

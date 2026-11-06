@@ -172,3 +172,45 @@ export async function importGguf(url, file, name = 'quant-coder') {
   if (res.code !== 0) throw new Error(`ollama create failed: ${res.out.trim().split('\n').pop() || res.code}`);
   return { model, modelfile: mfPath, template_copied: !!template };
 }
+
+// How much of each loaded model sits on the graphics card (Ollama's /api/ps): { name, gpu_pct, size_gb } per model
+export async function gpuFit(url) {
+  try {
+    const r = await fetch(`${ollamaBase(url)}/api/ps`, { signal: AbortSignal.timeout(2500) });
+    const ps = await r.json();
+    return (ps.models || []).map((m) => ({ name: m.name, size_gb: Math.round((m.size / 1e9) * 10) / 10, gpu_pct: m.size ? Math.round((100 * (m.size_vram || 0)) / m.size) : 0, context: m.context_length || null }));
+  } catch { return []; }
+}
+
+// The settings that make a 7B model with 32k context fit an 8 GB card: flash attention and an 8-bit KV cache (half the
+// memory of the default). Saved for the Windows user (setx) so the Ollama tray app gets them too, then Ollama restarts.
+export const OLLAMA_GPU_ENV = { OLLAMA_FLASH_ATTENTION: '1', OLLAMA_KV_CACHE_TYPE: 'q8_0' };
+export async function gpuEnvSaved() {
+  if (process.platform !== 'win32') return Object.entries(OLLAMA_GPU_ENV).every(([k, v]) => process.env[k] === v);
+  for (const [k, v] of Object.entries(OLLAMA_GPU_ENV)) {
+    const r = await run('reg', ['query', 'HKCU\\Environment', '/v', k]);
+    if (r.code !== 0 || !r.out.includes(v)) return false;
+  }
+  return true;
+}
+export async function tuneOllama(url) {
+  const base = ollamaBase(url);
+  const local = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(base);
+  if (!local) throw new Error('Ollama runs on another machine: set OLLAMA_FLASH_ATTENTION=1 and OLLAMA_KV_CACHE_TYPE=q8_0 there and restart it.');
+  if (process.platform === 'win32') {
+    for (const [k, v] of Object.entries(OLLAMA_GPU_ENV)) await run('setx', [k, v]);
+    await run('taskkill', ['/F', '/IM', 'ollama app.exe']);
+    await run('taskkill', ['/F', '/IM', 'ollama.exe']);
+    await sleep(1500);
+  }
+  Object.assign(process.env, OLLAMA_GPU_ENV);
+  const exe = await findOllama();
+  if (!exe) throw new Error('Ollama is not installed');
+  if (process.platform === 'win32' || !(await ollamaUp(base))) {
+    const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore', windowsHide: true, env: { ...process.env, ...OLLAMA_GPU_ENV } });
+    p.on('error', () => {});
+    p.unref();
+  }
+  if (!(await waitUp(base, 30000))) throw new Error('Ollama did not come back after the restart. Open the Ollama app.');
+  return { restarted: true, env: OLLAMA_GPU_ENV };
+}

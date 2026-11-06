@@ -7,8 +7,8 @@ import { TESTER_SYSTEM, testerInputError, testerTask, testerResult } from './lib
 import { parseJsonReply } from './lib/simContract.js';
 import { keyError } from './lib/keyRules.js';
 import { createChatTools } from './lib/chatTools.js';
-import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL } from './lib/ollama.js';
-import { detectSpecs, startPull, pullStatus, importGguf } from './lib/ollamaSpecs.js';
+import { listOllamaModels, ollamaBase, DEFAULT_OLLAMA_URL, setOllamaCtx } from './lib/ollama.js';
+import { detectSpecs, startPull, pullStatus, importGguf, gpuFit, gpuEnvSaved, tuneOllama } from './lib/ollamaSpecs.js';
 import { codeFromReply } from './scriptFolders.js';
 import { cleanTitle } from './workspaces.js';
 
@@ -48,6 +48,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
   }
 
   async function ask(model, system, messages, maxTokens, tools, onLive) {
+    setOllamaCtx(user.me().ollama_ctx || 32768);
     const id = pickModel(model);
     // ollama:<name>: that installed model instead of the one set in Settings
     if (id.startsWith('ollama:')) return callModel('local', { ...credentials('local'), model: id.slice(7) }, id, system, messages, maxTokens, tools, onLive);
@@ -150,7 +151,7 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
     },
 
     // Local model settings: test the Ollama address (lists installed models) or save address and model
-    async localModel({ action, url, model, api_key, file }) {
+    async localModel({ action, url, model, api_key, file, ctx }) {
       if (action === 'test') return { models: await listOllamaModels(url) };
       if (action === 'save') {
         const name = String(model || '').trim();
@@ -158,6 +159,14 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       }
       // Look at this PC and recommend the best coding model that fits its GPU / RAM
       if (action === 'recommend') return detectSpecs();
+      // Does the loaded model fit the graphics card? (share on the GPU, the context size, the GPU settings)
+      if (action === 'gpu') {
+        const me = user.me();
+        return { models: await gpuFit(me.ollama_url), env_saved: await gpuEnvSaved(), ctx: me.ollama_ctx || 32768 };
+      }
+      // Save the GPU settings (flash attention, 8-bit KV cache) and restart Ollama with them
+      if (action === 'tune') return tuneOllama(url || user.me().ollama_url);
+      if (action === 'ctx') return { ctx: user.update({ ollama_ctx: setOllamaCtx(ctx) }).ollama_ctx };
       // The trained model file waiting in C:\QuantBot\models (or <data>/models), to fill the Import box
       if (action === 'find_gguf') {
         const fs = await import('node:fs'); const path = await import('node:path');
