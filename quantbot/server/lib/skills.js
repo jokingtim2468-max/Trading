@@ -13,10 +13,11 @@ import path from 'node:path';
 const MAX_SKILL = 24000; // characters of one skill sent to the model (about 6k tokens)
 
 export function parseSkill(text, fallbackName = '') {
-  const m = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(String(text || ''));
+  text = String(text || '').replace(/\r\n/g, '\n'); // files checked out on Windows have CRLF line ends
+  const m = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(text);
   const head = {};
   if (m) for (const line of m[1].split('\n')) { const i = line.indexOf(':'); if (i > 0) head[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
-  return { name: (head.name || fallbackName).trim(), description: (head.description || '').trim(), body: (m ? m[2] : String(text || '')).trim() };
+  return { name: (head.name || fallbackName).trim(), description: (head.description || '').trim(), body: (m ? m[2] : text).trim() };
 }
 
 export const skillName = (n) => String(n || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 48);

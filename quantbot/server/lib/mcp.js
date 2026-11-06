@@ -4,6 +4,7 @@
 //   http:  Streamable HTTP, JSON-RPC POSTed to the server's URL (the answer is JSON or a short SSE stream)
 // Only tools are used (no prompts / resources). A server is started on first use and kept running until QuantBot quits.
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 
 const PROTOCOL = '2025-06-18';
 const CALL_TIMEOUT = 120000;
@@ -33,8 +34,13 @@ export function cleanServer(s) {
 }
 
 function stdioConnection(cfg, log) {
-  const child = spawn(cfg.command, cfg.args || [], {
-    env: { ...process.env, ...(cfg.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: process.platform === 'win32',
+  // Windows needs a shell for npx / uvx (.cmd files), but a full path to an .exe runs directly (a shell would split
+  // "C:\Program Files\..." at the space); with a shell, arguments holding spaces are quoted
+  const win = process.platform === 'win32';
+  const direct = !win || /\.exe$/i.test(cfg.command) || path.isAbsolute(cfg.command);
+  const q = (s) => (direct || !/[\s"]/.test(s) ? s : `"${s.replace(/"/g, '\\"')}"`);
+  const child = spawn(direct ? cfg.command : q(cfg.command), (cfg.args || []).map(q), {
+    env: { ...process.env, ...(cfg.env || {}) }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: !direct,
   });
   const pending = new Map(); let buf = ''; let closed = null; let stderr = '';
   child.stdout.on('data', (d) => {
