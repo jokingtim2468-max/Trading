@@ -158,6 +158,13 @@ export function createFunctions({ db, user, keys, market, folders = () => null, 
       }
       // Look at this PC and recommend the best coding model that fits its GPU / RAM
       if (action === 'recommend') return detectSpecs();
+      // The trained model file waiting in C:\QuantBot\models (or <data>/models), to fill the Import box
+      if (action === 'find_gguf') {
+        const fs = await import('node:fs'); const path = await import('node:path');
+        const dirs = [process.platform === 'win32' ? 'C:\\QuantBot\\models' : path.join(process.cwd(), 'models')];
+        const files = dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.gguf$/i.test(f)).map((f) => path.join(d, f)) : []));
+        return { files };
+      }
       // Import a fine-tuned .gguf (RunPod training output) as an Ollama model and make it the active model
       if (action === 'import') {
         const me = user.me();

@@ -22,6 +22,7 @@ export default function LocalModelCard() {
 
   useEffect(() => {
     client.auth.me().then((me) => setForm({ url: me.ollama_url || DEFAULT_URL, model: me.ollama_model || DEFAULT_MODEL, saved: me.ollama_model || '', key: me.ollama_api_key || '' }));
+    local({ action: 'find_gguf' }).then((r) => r.files?.[0] && setGguf((g) => g || r.files[0])).catch(() => {});
     return () => clearInterval(poll.current);
   }, []);
 

@@ -78,7 +78,7 @@ export default function AgentTeamCard() {
       try {
         const list = (await client.functions.invoke('localModel', { action: 'test', url: me.ollama_url })).data.models || [];
         setModels(list);
-        setModel((m) => m || me.ollama_model || list[0] || '');
+        setModel((m) => m || list.find((x) => /^quant-coder(:|$)/.test(x)) || me.ollama_model || list[0] || '');
       } catch { setModels([]); }
     });
   }, []);
