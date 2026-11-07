@@ -71,6 +71,44 @@ Each `run_python` call ends after at most 5 minutes, so the bridge is not a serv
 connects to the open MT5 terminal, does one command, prints JSON and exits. Build it once, test it, then reuse it for
 every MT5 question.
 
+**Step 0: if you run on Linux or WSL (paths like `/home/...` and `/mnt/c/...`), use WINDOWS Python.**
+
+The `MetaTrader5` package only exists for Windows. `pip install MetaTrader5` on Linux always fails with "No matching
+distribution". Don't fall back to a mock or simulated engine: WSL can run Windows programs directly. Do this:
+
+1. **Find Windows Python.** Run each of these until one prints a path:
+   ```bash
+   cmd.exe /c where python 2>/dev/null
+   ls /mnt/c/Users/*/AppData/Local/Programs/Python/Python3*/python.exe 2>/dev/null
+   ls /mnt/c/Python3*/python.exe 2>/dev/null
+   ```
+   Call the path you found `WINPY`, e.g. `WINPY="/mnt/c/Users/tj_do/AppData/Local/Programs/Python/Python312/python.exe"`.
+   If none is found, tell the trader to install Python 3.12 from python.org on Windows and tick "Add to PATH".
+2. **Install the package into Windows Python:**
+   ```bash
+   "$WINPY" -m pip install --user MetaTrader5 pandas
+   ```
+3. **Open MT5 if it isn't running:**
+   ```bash
+   tasklist.exe | grep -i terminal64 || cmd.exe /c start "" "C:\Program Files\MetaTrader 5\terminal64.exe"
+   ```
+   Then wait about 20 seconds. The trader must be logged in to the DEMO account and have Algo Trading on (the toolbar button turns green).
+4. **Keep the bridge on the Windows drive** so Windows Python can read it: `/mnt/c/QuantBot/bridge/mt5_bridge.py`
+   (Windows path `C:\QuantBot\bridge\mt5_bridge.py`).
+5. **Run every bridge command through Windows Python, with the Windows path:**
+   ```bash
+   "$WINPY" 'C:\QuantBot\bridge\mt5_bridge.py' account
+   "$WINPY" 'C:\QuantBot\bridge\mt5_bridge.py' bars '{"symbol":"XAUUSD","tf":"H1","count":5}'
+   ```
+   `save_bars` writes its CSV next to where it runs. Run it from `/mnt/c/QuantBot/bridge`, then read the file from
+   Linux at `/mnt/c/QuantBot/bridge/XAUUSD_M5_mt5.csv`.
+6. **If it prints `MT5 not reachable`:** MT5 is closed, not logged in, or there is more than one MT5 installed. Fix the
+   first two. For the third, change `mt5.initialize()` in the bridge to
+   `mt5.initialize(r"C:\Program Files\MetaTrader 5\terminal64.exe")`.
+
+**Never report simulated or mock MT5 data as real.** If any MT5 layer says simulated, mock or `IS_SIMULATED: True`,
+say so clearly and fix the real link using the steps above. Don't present those numbers as live.
+
 **Step 1: check the requirements.** Run this with `run_python`:
 ```python
 import sys, subprocess
@@ -159,7 +197,7 @@ if __name__ == "__main__":
     main()
 ```
 
-**Step 3: launch and test it.** Call `run_python` with `file: "mt5_bridge"` and these `args`, in order:
+**Step 3: launch and test it.** Call `run_python` with `file: "mt5_bridge"` and these `args`, in order. On WSL, use the Windows Python commands from Step 0 instead:
 1. `["account"]`: it must print your login and `"is_demo": true`.
 2. `["symbol", "{\"symbol\": \"XAUUSD\"}"]`: it must print the bid and ask. If it fails, look up the broker's gold symbol name in MT5's Market Watch (GOLD, XAUUSD.m, ...) and use that.
 3. `["bars", "{\"symbol\": \"XAUUSD\", \"tf\": \"H1\", \"count\": 5}"]`: it must print 5 bars.
