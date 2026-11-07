@@ -62,6 +62,115 @@ If `QB_DATA` is empty or has no files, tell the trader to set Settings > Tools &
 - **Symbol names differ by broker** (XAUUSD, GOLD, XAUUSD.m). Check with `mcp_mt5_symbol_info` first.
 - **If a tool says MT5 is unreachable,** tell the trader to open MT5, log in and turn on Algo Trading. If it says the package is missing, the fix is `pip install MetaTrader5`.
 
+## 3b. Build and launch your own MT5 bridge (when `mcp_mt5_*` tools are missing or fail)
+
+If you don't see the `mcp_mt5_*` tools, or they keep failing, build your own bridge. It is a Python file in your
+workspace that talks to MT5 through the official `MetaTrader5` package. You run it with `run_python`.
+
+Each `run_python` call ends after at most 5 minutes, so the bridge is not a server that stays running. Instead it
+connects to the open MT5 terminal, does one command, prints JSON and exits. Build it once, test it, then reuse it for
+every MT5 question.
+
+**Step 1: check the requirements.** Run this with `run_python`:
+```python
+import sys, subprocess
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    subprocess.run([sys.executable, "-m", "pip", "install", "--user", "MetaTrader5"], check=False)
+    import MetaTrader5 as mt5
+print("package", mt5.__version__)
+ok = mt5.initialize()
+print("terminal reachable:", ok, mt5.last_error())
+if ok:
+    a = mt5.account_info()
+    print("login", a.login, "server", a.server, "demo", a.trade_mode == mt5.ACCOUNT_TRADE_MODE_DEMO)
+```
+- **If the install fails or this isn't Windows:** say so. The package only works on Windows.
+- **If the terminal isn't reachable:** tell the trader to open MT5, log in to the demo account and turn on Algo Trading.
+- **If several terminals are installed:** use `mt5.initialize(r"C:\path\to\terminal64.exe")`.
+
+**Step 2: save the bridge.** Write this file to `scripts/mt5_bridge.py` with `workspace_write`, unchanged:
+```python
+"""mt5_bridge.py <command> [json args]: one MT5 command, prints JSON. Trading commands work on DEMO accounts only."""
+import sys, json, MetaTrader5 as mt5
+
+TF = {"M1": mt5.TIMEFRAME_M1, "M5": mt5.TIMEFRAME_M5, "M15": mt5.TIMEFRAME_M15, "M30": mt5.TIMEFRAME_M30,
+      "H1": mt5.TIMEFRAME_H1, "H4": mt5.TIMEFRAME_H4, "D1": mt5.TIMEFRAME_D1}
+
+def d(x): return x._asdict() if hasattr(x, "_asdict") else x
+
+def demo_only():
+    a = mt5.account_info()
+    if a is None or a.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
+        raise SystemExit(json.dumps({"ok": False, "error": "not a demo account: trading refused"}))
+
+def main():
+    cmd = sys.argv[1]
+    args = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
+    if not mt5.initialize():
+        print(json.dumps({"ok": False, "error": f"MT5 not reachable: {mt5.last_error()}"})); return
+    try:
+        if cmd == "account":
+            a = d(mt5.account_info()); a["is_demo"] = a["trade_mode"] == mt5.ACCOUNT_TRADE_MODE_DEMO; out = a
+        elif cmd == "positions":
+            out = [d(p) for p in (mt5.positions_get() or [])]
+        elif cmd == "symbol":
+            mt5.symbol_select(args["symbol"], True)
+            out = {**d(mt5.symbol_info(args["symbol"])), "tick": d(mt5.symbol_info_tick(args["symbol"]))}
+        elif cmd == "bars":
+            mt5.symbol_select(args["symbol"], True)
+            r = mt5.copy_rates_from_pos(args["symbol"], TF[args.get("tf", "H1")], 0, min(int(args.get("count", 200)), 5000))
+            out = [{k: (int(x[k]) if k in ("time", "tick_volume") else float(x[k])) for k in ("time", "open", "high", "low", "close", "tick_volume")} for x in r]
+        elif cmd == "save_bars":  # bars to a CSV in this workspace for backtests
+            import csv
+            mt5.symbol_select(args["symbol"], True)
+            r = mt5.copy_rates_from_pos(args["symbol"], TF[args.get("tf", "H1")], 0, int(args.get("count", 50000)))
+            path = f"{args['symbol']}_{args.get('tf', 'H1')}_mt5.csv"
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f); w.writerow(["time", "open", "high", "low", "close", "tick_volume", "spread"])
+                for x in r: w.writerow([int(x["time"]), x["open"], x["high"], x["low"], x["close"], int(x["tick_volume"]), int(x["spread"])])
+            out = {"ok": True, "file": path, "bars": len(r)}
+        elif cmd == "history":
+            from datetime import datetime, timedelta
+            out = [d(x) for x in (mt5.history_deals_get(datetime.now() - timedelta(days=int(args.get("days", 7))), datetime.now() + timedelta(days=1)) or [])]
+        elif cmd == "buy" or cmd == "sell":
+            demo_only()
+            s = args["symbol"]; mt5.symbol_select(s, True); t = mt5.symbol_info_tick(s)
+            r = mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "symbol": s, "volume": float(args["volume"]),
+                                "type": mt5.ORDER_TYPE_BUY if cmd == "buy" else mt5.ORDER_TYPE_SELL,
+                                "price": t.ask if cmd == "buy" else t.bid, "sl": float(args.get("sl", 0)), "tp": float(args.get("tp", 0)),
+                                "deviation": 50, "magic": 26032028, "comment": "agent bridge", "type_filling": mt5.ORDER_FILLING_IOC})
+            out = {"ok": r is not None and r.retcode == mt5.TRADE_RETCODE_DONE, "result": d(r) if r else str(mt5.last_error())}
+        elif cmd == "close":
+            demo_only()
+            p = mt5.positions_get(ticket=int(args["ticket"]))[0]; t = mt5.symbol_info_tick(p.symbol)
+            r = mt5.order_send({"action": mt5.TRADE_ACTION_DEAL, "position": p.ticket, "symbol": p.symbol, "volume": p.volume,
+                                "type": mt5.ORDER_TYPE_SELL if p.type == 0 else mt5.ORDER_TYPE_BUY, "price": t.bid if p.type == 0 else t.ask,
+                                "deviation": 50, "magic": 26032028, "type_filling": mt5.ORDER_FILLING_IOC})
+            out = {"ok": r is not None and r.retcode == mt5.TRADE_RETCODE_DONE, "result": d(r) if r else str(mt5.last_error())}
+        else:
+            out = {"ok": False, "error": f"unknown command {cmd}; use account, positions, symbol, bars, save_bars, history, buy, sell, close"}
+        print(json.dumps(out, default=str))
+    finally:
+        mt5.shutdown()
+
+if __name__ == "__main__":
+    main()
+```
+
+**Step 3: launch and test it.** Call `run_python` with `file: "mt5_bridge"` and these `args`, in order:
+1. `["account"]`: it must print your login and `"is_demo": true`.
+2. `["symbol", "{\"symbol\": \"XAUUSD\"}"]`: it must print the bid and ask. If it fails, look up the broker's gold symbol name in MT5's Market Watch (GOLD, XAUUSD.m, ...) and use that.
+3. `["bars", "{\"symbol\": \"XAUUSD\", \"tf\": \"H1\", \"count\": 5}"]`: it must print 5 bars.
+
+Fix anything that fails and run the step again. Only then tell the trader: "MT5 bridge is working."
+
+**Step 4: use it.**
+- For backtests, run `["save_bars", "{\"symbol\":\"XAUUSD\",\"tf\":\"M5\",\"count\":100000}"]`. This writes a CSV into the workspace, and your backtest script reads that file.
+- For demo trades, use `buy`, `sell` or `close`. Follow the same rule as in section 3: check that the account is a demo, say exactly what you will do, do it, then report the `retcode` and ticket.
+- The bridge refuses trades on a live account. Never remove that check.
+
 ## 4. How to build a script, step by step
 
 1. **Understand the request.** Note the market, timeframe, entry rule, exit rule, stop, target, session and account rules. If something important is missing, pick a sensible default and say which one you picked.
